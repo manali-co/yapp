@@ -204,8 +204,9 @@ class Result:
   suffix is shown in the window in a dimmer colour and may still change.
 - `StreamingTranscriber.update(samples) -> Transcript` where
   `Transcript(committed: list[str], pending: list[str])`. `reset()` on key release.
-- To bound decode time, once the committed prefix exceeds ~8 s of audio the audio before
-  it is dropped from the decode window and the committed words are kept as text.
+- v1 decodes the whole hold (capped at 30 s; ~130 ms per tick with `base`). If holds get
+  long enough to matter, the audio before the committed prefix may be trimmed from the
+  decode window and the committed words kept as text.
 - Default model `mlx-community/whisper-base-mlx` (decode of 5 s of audio in ~100 ms on
   M-series; `small` is the accuracy step up, configurable). Loaded once at startup.
 - Measured target: a word is committed within ~0.5 s of being spoken.

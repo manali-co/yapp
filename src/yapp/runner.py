@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Protocol
 
 from yapp import intent as intent_mod
-from yapp.catalog import search_files
+from yapp.catalog import installed_apps, search_files
 from yapp.config import Config
 from yapp.display import Display
+from yapp.executor import Executor
 from yapp.intent import Context
 from yapp.jev import Jev, JevError
+from yapp.learning import Learning
 from yapp.policy import decide
 from yapp.stream import Stream
 from yapp.types import App, Decision, Executed, Intent, Outcome, Result, Verdict
@@ -177,3 +179,11 @@ class Runner:
     def _report(self, r: Result) -> None:
         if self.display:
             self.display.show_result(r)
+
+
+def build_runner(cfg: Config, display: Display | None) -> Runner:
+    jev = Jev(model=cfg.model)
+    apps = installed_apps()
+    if display:
+        display.status(f"{len(apps)} apps in catalog · model {cfg.model}")
+    return Runner(cfg, jev, Executor(), apps, learning=Learning(cfg), display=display)

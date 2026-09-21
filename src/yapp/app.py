@@ -6,21 +6,10 @@ import argparse
 import sys
 import time
 
-from yapp.catalog import installed_apps
 from yapp.config import Config
 from yapp.display import Display
-from yapp.executor import Executor
-from yapp.jev import Jev, JevError
-from yapp.learning import Learning
-from yapp.runner import Runner
-
-
-def build_runner(cfg: Config, display: Display | None) -> Runner:
-    jev = Jev(model=cfg.model)
-    apps = installed_apps()
-    if display:
-        display.status(f"{len(apps)} apps in catalog · model {cfg.model}")
-    return Runner(cfg, jev, Executor(), apps, learning=Learning(cfg), display=display)
+from yapp.jev import JevError
+from yapp.runner import build_runner
 
 
 def run_once(text: str, cfg: Config, display: Display | None, per_tick: int = 2) -> int:

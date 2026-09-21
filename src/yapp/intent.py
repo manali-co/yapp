@@ -82,6 +82,17 @@ def _app_option(app: App, learned: list[str], negatives: list[str]) -> dict[str,
     return option
 
 
+def _with_learned_intent_examples(criteria: dict[str, Any], learned: Examples) -> dict[str, Any]:
+    """Phrases learned for app options are also open_app phrasings; tell the intent question."""
+    phrases = [p for key, ps in learned.items() if key not in KEY_COMBOS for p in ps[-2:]]
+    if not phrases:
+        return criteria
+    out = {k: (dict(v) if isinstance(v, dict) else v) for k, v in criteria.items()}
+    open_app = out["open_app"]
+    open_app["examples"] = (phrases + list(open_app.get("examples", [])))[:10]
+    return out
+
+
 def build_questions(ctx: Context, tail: str = "", limit: int = 60) -> dict[str, Question]:
     q = QUESTIONS
     if tail:
@@ -93,10 +104,9 @@ def build_questions(ctx: Context, tail: str = "", limit: int = 60) -> dict[str, 
         for a in apps
     }
     app_criteria["unsure"] = "None of these applications"
+    intent_criteria = _with_learned_intent_examples(q["intent"]["criteria"], ctx.examples)
     return {
-        "intent": Choice(
-            instructions=q["intent"]["instructions"], criteria=q["intent"]["criteria"]
-        ),
+        "intent": Choice(instructions=q["intent"]["instructions"], criteria=intent_criteria),
         "app": Choice(instructions="Which application does the user mean?", criteria=app_criteria),
         "key_combo": Choice(
             instructions=q["key_combo"]["instructions"], criteria=q["key_combo"]["criteria"]
