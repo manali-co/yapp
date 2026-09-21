@@ -23,12 +23,15 @@ def slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
+APP_ROOTS = ("/Applications/", "/System/Applications/", str(Path.home() / "Applications") + "/")
+
+
 def installed_apps(run: ShellRunner = run_capture) -> list[App]:
     out = run(["mdfind", "kMDItemKind == 'Application'"])
     seen: dict[str, App] = {}
     for line in out.splitlines():
         p = Path(line.strip())
-        if p.suffix != ".app":
+        if p.suffix != ".app" or not str(p).startswith(APP_ROOTS):
             continue
         name = p.stem
         if name not in seen:
