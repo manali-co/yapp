@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Yapp</title>
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  html, body { margin: 0; background: transparent; }
+  body { width: var(--yapp-pill-w); height: var(--yapp-pill-h); overflow: hidden; -webkit-font-smoothing: antialiased; }
+  body.demo { width: auto; height: 100vh; display: grid; place-items: center; background: linear-gradient(160deg, #E9E6E0, #CFCBC3); }
+  body.demo.dark { background: linear-gradient(160deg, #2A2926, #121110); }
+  .pill { width: var(--yapp-pill-w); height: var(--yapp-pill-h); box-sizing: border-box; border-radius: var(--yapp-pill-radius);
+    background: var(--yapp-chrome); border: 1px solid var(--yapp-chrome-border); box-shadow: var(--yapp-chrome-shadow);
+    display: flex; align-items: center; gap: var(--yapp-space-4); padding: 0 24px 0 18px; color: var(--yapp-ink); }
+  .pill canvas { flex: none; }
+  .text { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: var(--yapp-space-1); }
+  /* transcript: the tail stays visible as words stream in (rtl container clips on the left; inner span keeps ltr order) */
+  .transcript { font: var(--yapp-text-transcript); white-space: nowrap; overflow: hidden; direction: rtl; text-align: left; }
+  .transcript:empty { display: none; }
+  .transcript > span { direction: ltr; unicode-bidi: isolate; display: inline-block; }
+  .locked { color: var(--yapp-ink); }
+  .pending { color: var(--yapp-ink-3); transition: color var(--yapp-dur-base) var(--yapp-ease-out); }
+  .transcript.live .pending::after { content: ""; display: inline-block; width: 1.5px; height: .9em; margin-left: 2px; vertical-align: -0.1em; background: var(--yapp-ink-2); animation: caret 1s steps(2) infinite; }
+  @keyframes caret { to { opacity: 0; } }
+  .decision { font: var(--yapp-text-decision); letter-spacing: var(--yapp-tracking-display); color: var(--yapp-ink); min-width: 0;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-wrap: pretty; transition: color var(--yapp-dur-base) var(--yapp-ease-out); }
+  .decision:empty { display: none; }
+  .decision.muted { color: var(--yapp-ink-2); font-weight: 500; }
+  .decision.hint { color: var(--yapp-ink-2); font: var(--yapp-text-hint); }
+  kbd { font: var(--yapp-text-key); color: var(--yapp-ink-2); background: var(--yapp-key-bg); border: 1px solid var(--yapp-key-border); border-radius: 5px; height: 18px; min-width: 18px; padding: 0 4px;
+    display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; vertical-align: -3px; }
+  .swap { animation: swap var(--yapp-dur-base) var(--yapp-ease-out); }
+  @keyframes swap { from { opacity: 0; transform: translateY(3px); } }
+  #controls { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; gap: 6px; align-items: center;
+    background: var(--yapp-chrome); border: 1px solid var(--yapp-chrome-border); border-radius: 16px; padding: 10px 12px; box-shadow: var(--yapp-chrome-shadow); }
+  #controls button { white-space: nowrap; font: 500 12px/1 var(--yapp-font-text); color: var(--yapp-ink-2); background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 7px 10px; cursor: pointer; }
+  #controls button:hover { color: var(--yapp-ink); }
+  #controls button[aria-pressed="true"] { color: var(--yapp-ink); background: var(--yapp-key-bg); border-color: var(--yapp-key-border); }
+  .sep { width: 1px; height: 16px; background: var(--yapp-chrome-border); margin: 0 4px; }
+  body:not(.demo) #controls { display: none; }
+</style>
+</head>
+<body>
+<div class="pill" role="status" aria-live="polite">
+  <canvas id="avatar"></canvas>
+  <div class="text">
+    <div class="transcript" id="transcript"></div>
+    <div class="decision" id="decision"></div>
+  </div>
+</div>
+<div id="controls"><span id="states" style="display:flex;gap:6px"></span><span class="sep"></span><button id="commit">commit word</button><button id="bg">dark desktop</button></div>
+<script src="yapp-avatar.js"></script>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const demo = !q.has('embed') && !q.has('state');
+  if (demo) document.body.classList.add('demo');
+  // locked = words the recogniser has committed (solid); pending = still settling (dim)
+  const SAMPLES = {
+    idle:      { locked: '', pending: '', decision: '', hint: true, level: 0, confidence: 0 },
+    listening: { locked: 'open notes and', pending: 'switch to saf', live: true, decision: 'Opening Notes', muted: true, level: 'auto', confidence: 0 },
+    thinking:  { locked: 'open notes', pending: '', decision: '', confidence: 0.55 },
+    dictating: { locked: 'meeting moved to thursday', pending: 'at t', live: true, decision: 'Typing…', confidence: 0.9 },
+    acting:    { locked: 'open notes and', pending: 'swi', live: true, decision: 'Opening Notes', confidence: 0.93 },
+    done:      { locked: 'undo', pending: '', decision: 'Undone', confidence: 0.96 },
+    unsure:    { locked: 'uh open the thing', pending: '', decision: 'Not sure what you meant', muted: true, confidence: 0.31 },
+    error:     { locked: 'empty the trash', pending: '', decision: 'Won’t do that: could delete something', confidence: 0.88 }
+  };
+  const canvas = document.getElementById('avatar');
+  const av = new YappAvatar(canvas, { size: 84, hold: q.has('hold') || demo, autoCommit: q.has('hold') || demo });
+  const tEl = document.getElementById('transcript'), dEl = document.getElementById('decision');
+  let cur = { locked: '', pending: '' };
+  function setTranscript(locked, pending, live) {
+    cur.locked = locked || ''; cur.pending = pending || '';
+    tEl.innerHTML = (cur.locked || cur.pending) ? '<span><span class="locked">' + esc(cur.locked) + '</span>' + (cur.pending ? '<span class="pending"> ' + esc(cur.pending) + '</span>' : '') + '</span>' : '';
+    tEl.classList.toggle('live', !!live);
+  }
+  function esc(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+  function render(name, o) {
+    o = o || {};
+    setTranscript(o.locked, o.pending, o.live);
+    dEl.className = 'decision' + (o.hint ? ' hint' : o.muted ? ' muted' : '');
+    dEl.innerHTML = o.hint ? 'press <kbd>⌥</kbd> <kbd>Space</kbd> to talk' : esc(o.decision || '');
+    dEl.classList.remove('swap'); void dEl.offsetWidth; dEl.classList.add('swap');
+    av.autoLevel = o.level === 'auto';
+    av.setState(name, { level: o.level === 'auto' ? undefined : o.level, confidence: o.confidence, hold: o.hold, direction: o.direction });
+    sync(name);
+  }
+  window.yapp = {
+    // setState(name, {locked, pending, decision, live, muted, level, confidence, hold, direction, commit})
+    setState: (name, o) => {
+      o = o || {};
+      if (o.commit) return window.yapp.commit(o.word);
+      render(name, Object.assign({}, SAMPLES[name] || {}, o));
+    },
+    // a word locked in: moves it from pending to locked and ticks the avatar
+    commit: word => {
+      const p = cur.pending.trim().split(/\s+/).filter(Boolean);
+      const w = word != null ? word : p.shift();
+      if (word != null) p.shift();
+      setTranscript((cur.locked + ' ' + (w || '')).trim(), p.join(' '), tEl.classList.contains('live'));
+      av.commit();
+    },
+    setLevel: v => av.setLevel(v),
+    setConfidence: v => av.setConfidence(v),
+    setTranscript: (locked, pending, live) => setTranscript(locked, pending, live),
+    setDecision: (text, muted) => { dEl.className = 'decision' + (muted ? ' muted' : ''); dEl.textContent = text || ''; },
+    samples: SAMPLES, avatar: av,
+    get state() { return av.state; }
+  };
+  const states = document.getElementById('states');
+  YappAvatar.STATES.forEach((s, i) => { const b = document.createElement('button'); b.textContent = (i + 1) + ' ' + s; b.dataset.state = s; b.onclick = () => window.yapp.setState(s); states.appendChild(b); });
+  function sync(name) { states.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.state === name)); }
+  av.onchange = sync;
+  document.getElementById('commit').onclick = () => window.yapp.commit();
+  document.getElementById('bg').onclick = e => { document.body.classList.toggle('dark'); e.target.textContent = document.body.classList.contains('dark') ? 'light desktop' : 'dark desktop'; };
+  addEventListener('keydown', e => { const i = +e.key - 1; if (i >= 0 && i < 8) window.yapp.setState(YappAvatar.STATES[i]); if (e.key === ' ') window.yapp.commit(); });
+  window.yapp.setState(q.get('state') || 'idle');
+})();
+</script>
+</body>
+</html>

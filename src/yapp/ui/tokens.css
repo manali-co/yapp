@@ -1,0 +1,80 @@
+/* Yapp — design tokens. Sibling of What Should We Watch: near-black chrome, ink text, colour only on user actions. */
+:root {
+  /* chrome */
+  --yapp-chrome: #161513;
+  --yapp-chrome-2: #1E1D1A;
+  --yapp-chrome-border: rgba(255, 255, 255, 0.08);
+  --yapp-chrome-shadow: 0 12px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  /* ink */
+  --yapp-ink: #EFEBE4;
+  --yapp-ink-2: #A39E95;
+  --yapp-ink-3: #6B6760;
+  /* keycap (hotkey hint) */
+  --yapp-key-bg: rgba(255, 255, 255, 0.06);
+  --yapp-key-border: rgba(255, 255, 255, 0.14);
+  /* avatar body hue per state — the only colour in the UI. Mirrored in yapp-avatar.js STATES */
+  --yapp-body-idle: oklch(72% 0.015 75);
+  --yapp-body-listening: oklch(74% 0.05 55);
+  --yapp-body-thinking: oklch(68% 0.04 240);
+  --yapp-body-dictating: oklch(72% 0.04 90);
+  --yapp-body-acting: oklch(72% 0.09 45);
+  --yapp-body-done: oklch(74% 0.05 150);
+  --yapp-body-unsure: oklch(66% 0.006 75);
+  --yapp-body-error: oklch(55% 0.05 28);
+  --yapp-body-edge: rgba(20, 18, 16, 0.28);
+  /* type */
+  --yapp-font-display: "Bricolage Grotesque", "Helvetica Neue", Helvetica, sans-serif;
+  --yapp-font-text: "Figtree", "Helvetica Neue", Helvetica, sans-serif;
+  --yapp-font-mono: "SF Mono", Menlo, monospace;
+  --yapp-text-decision: 600 15px/1.25 var(--yapp-font-display);
+  --yapp-text-transcript: 400 14px/1.3 var(--yapp-font-text);
+  --yapp-text-hint: 400 14px/1.3 var(--yapp-font-text);
+  --yapp-text-key: 500 11px/1 var(--yapp-font-text);
+  --yapp-tracking-display: -0.01em;
+  /* spacing */
+  --yapp-space-1: 4px;
+  --yapp-space-2: 8px;
+  --yapp-space-3: 12px;
+  --yapp-space-4: 16px;
+  --yapp-space-6: 24px;
+  --yapp-pill-w: 360px;
+  --yapp-pill-h: 120px;
+  --yapp-pill-radius: 60px;
+  --yapp-avatar: 72px;      /* body footprint */
+  --yapp-avatar-box: 84px;  /* canvas incl. confidence ring */
+  --yapp-ring-width: 1.5px;
+  /* motion */
+  --yapp-dur-tick: 110ms;    /* word lock-in tick */
+  --yapp-dur-pulse: 380ms;   /* acting: stretch 170ms, snap back, blend into listening */
+  --yapp-dur-fast: 120ms;
+  --yapp-dur-base: 240ms;    /* text swaps */
+  --yapp-dur-slow: 480ms;    /* hue shifts */
+  --yapp-dur-settle: 1400ms; /* done / error return to idle */
+  --yapp-dur-fade: 1800ms;   /* unsure return to idle */
+  --yapp-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --yapp-ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --yapp-ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
+  /* avatar spring constants "stiffness damping" (see yapp-avatar.js) */
+  --yapp-spring-idle: 30 9;
+  --yapp-spring-listening: 110 16;
+  --yapp-spring-thinking: 150 20;
+  --yapp-spring-dictating: 130 18;
+  --yapp-spring-acting: 380 22;
+  --yapp-spring-done: 70 6.5;
+  --yapp-spring-unsure: 24 8;
+  --yapp-spring-error: 260 18;
+  /* terminal companion (Python rich) — same ink + body hues, see theme.py */
+  --yapp-term-transcript: #EFEBE4;         /* locked-in words */
+  --yapp-term-transcript-pending: #6B6760; /* words still settling */
+  --yapp-term-table-header: #6B6760;
+  --yapp-term-table-top: #E9B88F;      /* listening/acting hue: the winning intent */
+  --yapp-term-table-row: #A39E95;
+  --yapp-term-bar-fill: #E9B88F;
+  --yapp-term-bar-track: #3A3835;
+  --yapp-term-verdict-act: #E9B88F;     /* Opening Notes */
+  --yapp-term-verdict-typing: #DCCB9A;  /* Typing… */
+  --yapp-term-verdict-ok: #A7D2B3;      /* Undone */
+  --yapp-term-verdict-unsure: #A39E95;  /* Not sure what you meant */
+  --yapp-term-verdict-refuse: #C97A67;  /* Won't do that */
+  --yapp-term-dim: #6B6760;
+}
