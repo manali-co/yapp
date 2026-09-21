@@ -460,56 +460,94 @@ Mirrors `manali-co/what-should-we-watch`: `uv` project, Python 3.12, ruff
 Conventional Commits. Feature branches into `dev`, `dev` into `main`. MIT license,
 README explains the Jev model and the pipeline for other people who find the repo.
 
-## 10. UI and avatar
+## 10. The bar: UI, avatar, and the menu-bar app (revised 2026-09-21)
 
-Yapp has a face. It lives in one small, frameless, always-on-top window (a pill near the
-top of the screen, roughly 360 by 120 px) that shows the avatar, the live transcript, and
-the decision. The terminal keeps the developer view (full probability tables, latency,
-tokens); `yapp --headless` runs without the window.
+Yapp is a Spotlight-style bar. A global hotkey (default ⌥ Space, configurable) drops a
+frameless pill down from the top of the active screen and Yapp listens hands-free, acting
+as you talk. The hotkey again, Escape, or a few seconds of silence after the last committed
+word hides it. It runs as a menu-bar app with no Dock icon, so macOS asks *Yapp* for
+Microphone, Input Monitoring, and Accessibility rather than the terminal. The terminal
+hold-to-talk loop remains as `yapp dev` for development.
 
 ### 10.1 Design source of truth
 
-All visuals come from a Claude Design project first and are ported to code second; UI is
-never improvised in code (same rule as What Should We Watch). The brief for the design
-project is in `docs/design/avatar-brief.md`. Claude Design outputs HTML/CSS/JS, so the
-window renders web content: this makes the port 1:1 rather than a translation.
+All visuals come from the Claude Design project
+(https://claude.ai/design/p/be45c375-77cb-4cdf-9646-2ea5843fa7ee) and are ported to code
+1:1; UI is never improvised in code. The design delivered `window.html`, `yapp-avatar.js`,
+`tokens.css`, `support.js`, `yapp_theme.py` (terminal palette), and an icon. The bundle
+exposes `window.yapp.setState(name, {locked, pending, decision, live, muted, level,
+confidence, direction, commit})`, `commit(word)`, `setLevel(v)`, `setConfidence(v)`,
+`setTranscript(locked, pending, live)`, `setDecision(text, muted)`. Loaded with `?embed`
+so the demo controls are hidden. The Google Fonts link is replaced by bundled OFL font files.
 
 ### 10.2 Avatar
 
-- An abstract face on a fluid body: no literal eyes-nose-mouth, no limbs. A soft form that
-  breathes, stretches, and settles, with a minimal expression read from shape and motion.
-- States, each a distinct motion and silhouette, driven by pipeline events:
+A metaball body: the union of up to four spring-driven soft balls with a ray-marched
+contour, so the silhouette carries the state and hue is secondary. Eight states, each with
+its own spring stiffness and damping:
 
-| State | Trigger | Motion idea |
+| State | Driven by | Motion |
 |---|---|---|
-| idle | waiting for the hotkey | slow breathing, occasional drift |
-| listening | hotkey held | leans in, body ripples with mic amplitude; a small tick each time a word commits |
-| thinking | Jev request in flight | tightens, slow internal swirl |
-| acting | executor running | quick decisive pulse toward the action; can interrupt listening and return to it |
-| dictating | typing what it hears | steady, attentive, pulses per typed word |
-| done | Result ok | settles, brief glow |
-| unsure | policy Ignore/Refuse or empty transcript | softens, shrugs, fades back to idle |
-| error | Jev/executor error | short shiver, dims |
+| idle | bar shown, nothing heard yet | sagging drop that breathes and drifts |
+| listening | recorder armed | leans in, ripples with mic level, ticks on each committed word |
+| thinking | Jev request in flight | tightens into a taller dense column with an internal swirl |
+| dictating | stream in dictation mode | steady, pulses per typed word |
+| acting | executor running | stretches toward the action and snaps back inside 380 ms, then returns to whatever it interrupted |
+| done | `undo` succeeded, or the bar closes after actions | wobbles into rest with a brief glow |
+| unsure | verdict ignore/refuse shown, or empty transcript on close | slumps wide and soft, fades back |
+| error | Jev or executor error | flattens and shivers, dims, recovers |
 
-- Motion is continuous between states (no cuts); implemented as CSS/JS or canvas with
-  spring easing. The window is transparent outside the pill.
+A thin ring around the body fills with the intent confidence of the last decision.
 
-### 10.3 Window integration
+### 10.3 Window
 
-- `pywebview` hosts the bundle in a native macOS window (frameless, always on top,
-  transparent background, no dock icon). Python pushes state with
-  `window.evaluate_js("yapp.setState({...})")`. 
-- `ui/` in the repo holds the ported bundle (`index.html`, `avatar.js`, `styles.css`),
-  packaged as data files of the Python package.
-- Mic amplitude for the listening state is sampled from the audio callback at ~20 Hz and
-  forwarded as a 0 to 1 float. Committed and pending words are pushed on every tick so the
-  transcript line shows pending words dimmer than committed ones.
+- `pywebview` hosts the bundle: `frameless=True, transparent=True, on_top=True,
+  resizable=False, shadow=False, hidden=True`, pill 360 × 120 (from `tokens.css`),
+  positioned top-centre of the screen that holds the mouse cursor, 12% down.
+- The pywebview event loop owns the main thread (`webview.start(session_main)`); the
+  session runs in the thread pywebview provides. Python → JS goes through
+  `window.evaluate_js` with a small `Bar` façade: `show()`, `hide()`, `set_state(...)`,
+  `transcript(locked, pending)`, `decision(text, muted)`, `level(v)`, `confidence(v)`,
+  `commit()`. No JS → Python calls in v1.
+- The transcript shows locked words solid and pending words dim; the decision line shows
+  "Opening Notes", "Typing…", "Undone", "Not sure what you meant", "Won't do that: could
+  delete something". Idle shows the hint "press ⌥ Space to talk" until the bar has been
+  used five times (counter in `~/.yapp/state.json`).
 
-### 10.4 Order of work
+### 10.4 Session (replaces the hold loop when the bar is on)
 
-The pipeline (sections 3 to 8) is built and working in the terminal first. The window and
-avatar are the last step of v1, once the design project has produced the avatar. Until
-then `app.py` runs headless by default.
+```
+hotkey pressed  -> bar.show(); rec.arm(); stt.reset(); state idle -> listening
+every 400 ms    -> level to avatar; transcript = stt.update(snapshot); runner.tick(...)
+                   (runner's display hooks drive thinking / acting / dictating / unsure / error)
+stop when       -> hotkey again | Escape | no new committed word for `silence_seconds` (4)
+                   | `max_session_seconds` (60)
+on stop         -> runner.finish(); rec.disarm(); state done (if anything executed) else unsure;
+                   bar.hide() after the return animation (1.5 s)
+```
+
+Escape and the hotkey are global (`pynput.keyboard.GlobalHotKeys`); Escape is only honoured
+while the bar is visible.
+
+### 10.5 Menu-bar app
+
+- An `NSStatusItem` (PyObjC, already a pywebview dependency) with the icon; menu: "Listen
+  (⌥ Space)", "Pause hotkey", "Open developer log", "Quit".
+- `yapp install-app` writes `~/Applications/Yapp.app`: a minimal bundle whose executable
+  is a script that `exec`s this project's venv Python with `-m yapp app`, with
+  `Info.plist` carrying `CFBundleIdentifier co.manali.yapp`, `LSUIElement` (no Dock
+  icon), and the `NSMicrophoneUsageDescription` /
+  `NSInputMonitoringUsageDescription` strings. Ad-hoc `codesign` gives it a stable
+  identity so TCC grants stick. A py2app build is a later step for distribution.
+- `yapp` with no arguments launches the bar app; `yapp dev` is the terminal hold-to-talk
+  loop; `--once`, `eval`, and `keys` are unchanged.
+
+### 10.6 Display abstraction
+
+`Display` becomes a Protocol with two implementations sharing the runner: `Terminal`
+(rich, uses `yapp_theme.py`) and `BarDisplay` (drives the bar). The runner gains one hook,
+`thinking()`, called before each Jev request, so the avatar can tighten while the request
+is in flight. Both displays can be active at once (`yapp app --log`).
 
 ## 11. Governance and contribution policy
 
