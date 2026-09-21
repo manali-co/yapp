@@ -10,5 +10,5 @@ def test_defaults_are_pinned() -> None:
 
 
 def test_enums_are_strings() -> None:
-    assert Intent.OPEN_APP == "open_app"
-    assert Outcome.WAIT == "wait"
+    assert Intent.OPEN_APP.value == "open_app"
+    assert Outcome.WAIT.value == "wait"
