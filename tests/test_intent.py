@@ -9,6 +9,7 @@ from yapp.intent import (
     consumed_for,
     extract_file_query,
     extract_text,
+    strip_leading_conjunctions,
 )
 from yapp.jev import Jev
 from yapp.types import App, Intent
@@ -37,6 +38,11 @@ def test_extract_text() -> None:
 def test_extract_file_query() -> None:
     assert extract_file_query("open my resume") == "resume"
     assert extract_file_query("find the budget spreadsheet file") == "budget spreadsheet"
+
+
+def test_strip_leading_conjunctions() -> None:
+    assert strip_leading_conjunctions("and then switch to slack") == "switch to slack"
+    assert strip_leading_conjunctions("open notes and") == "open notes and"
 
 
 def test_consumed_stops_at_conjunction() -> None:

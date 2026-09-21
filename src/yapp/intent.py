@@ -50,6 +50,13 @@ def extract_file_query(tail: str) -> str:
     return FILE_TRAIL.sub("", FILE_VERB.sub("", tail, count=1)).strip()
 
 
+def strip_leading_conjunctions(tail: str) -> str:
+    words = tail.split()
+    while words and words[0] in CONJUNCTIONS:
+        words.pop(0)
+    return " ".join(words)
+
+
 def consumed_for(tail: str, intent: Intent) -> int:
     words = tail.split()
     lead = 0
@@ -110,7 +117,7 @@ def build_questions(ctx: Context, tail: str = "", limit: int = 60) -> dict[str, 
 
 def classify(tail: str, ctx: Context, jev: Jev, cfg: Config) -> Decision:
     state = {
-        "instruction_so_far": tail,
+        "instruction_so_far": strip_leading_conjunctions(tail),
         "already_done": ctx.already_done[-3:],
         "frontmost_app": ctx.frontmost_app,
         "dictating": ctx.dictating,
