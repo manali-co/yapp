@@ -20,14 +20,17 @@ run in isolation before it is wired to the next one.
 - Hold-to-talk narration that reliably opens apps, types text into the focused app,
   opens files found by Spotlight, and presses a small set of keys.
 - Jev is the only model in v1. Free text is never requested from a model; code extracts it.
-- Every action is gated by Jev's confidence with per-action thresholds.
+- Yapp acts or stays quiet. It never asks a question. Every action is gated by Jev's
+  confidence with per-action thresholds; below threshold nothing happens.
+- Wrong actions are cheap: a spoken "undo" reverses the last action, and that signal
+  teaches the app (section 4.9).
 - The intent layer is testable with plain strings, no microphone.
 - The design leaves a clean slot for a text-generating LLM (compound commands,
   screen understanding) without a rewrite.
 
 ### Non-goals for v1
 
-- Always-on listening, wake words, or spoken confirmation.
+- Always-on listening, wake words, confirmation prompts of any kind.
 - Reading the screen, clicking coordinates, or anything Jev cannot do from text.
 - A menu-bar app or web dashboard. v1 has one small floating window (section 10).
 - Multi-step commands ("open Notes and write a grocery list"). v1 detects them and asks
@@ -122,6 +125,7 @@ class Intent(StrEnum):
     TYPE_TEXT = "type_text"
     OPEN_FILE = "open_file"
     PRESS_KEY = "press_key"
+    UNDO = "undo"
     NONE = "none"
 
 @dataclass(frozen=True)
@@ -147,9 +151,8 @@ class Decision:
 
 class Outcome(StrEnum):
     EXECUTE = "execute"
-    CONFIRM = "confirm"
-    IGNORE = "ignore"
-    REFUSE = "refuse"
+    IGNORE = "ignore"     # below threshold or intent none: quiet
+    REFUSE = "refuse"     # destructive or compound: quiet, with a reason shown
 
 @dataclass(frozen=True)
 class Verdict:
@@ -228,9 +231,9 @@ Questions, all in one request (speculative fan-out):
 
 | Name | Type | Instructions | Options |
 |---|---|---|---|
-| `intent` | choice | "What does the user want the computer to do?" | `open_app`: "Launch or switch to an application"; `type_text`: "Type words into the app that is currently focused"; `open_file`: "Open a document, note, or file by name"; `press_key`: "Press a keyboard shortcut such as save, copy, or undo"; `none`: "Not an instruction to the computer, or unclear" |
+| `intent` | choice | "What does the user want the computer to do?" | `open_app`: "Launch or switch to an application"; `type_text`: "Type words into the app that is currently focused"; `open_file`: "Open a document, note, or file by name"; `press_key`: "Press a keyboard shortcut such as save, copy, or paste"; `undo`: "Reverse or cancel what Yapp just did ('undo', 'no', 'not that')"; `none`: "Not an instruction to the computer, or unclear" |
 | `app` | choice | "Which application does the user mean?" | the narrowed catalog from `catalog.narrow`, plus `unsure`: "None of these" |
-| `key_combo` | choice | "Which keyboard shortcut does the user mean?" | `cmd+s`: "Save"; `cmd+c`: "Copy"; `cmd+v`: "Paste"; `cmd+z`: "Undo"; `cmd+a`: "Select all"; `enter`: "Press enter or return"; `escape`: "Escape or cancel"; `unsure` |
+| `key_combo` | choice | "Which keyboard shortcut does the user mean?" | `cmd+s`: "Save"; `cmd+c`: "Copy"; `cmd+v`: "Paste"; `cmd+a`: "Select all"; `enter`: "Press enter or return"; `escape`: "Escape or cancel"; `unsure` |
 | `is_compound` | noul | "The user asks for more than one separate action" | |
 | `is_destructive` | noul | "Carrying this out could delete data, send a message, or spend money" | |
 
@@ -252,20 +255,23 @@ Rules:
 
 ### 4.6 `policy.py`: confidence gates
 
-Pure function `decide(d: Decision, cfg: Thresholds) -> Verdict`.
+Pure function `decide(d: Decision, cfg: Thresholds) -> Verdict`. Two outcomes only:
+execute, or stay quiet. Yapp never asks.
 
-| Action | Execute if | Confirm if | Otherwise |
-|---|---|---|---|
-| `open_app` | intent conf ≥ 0.80 and app conf ≥ 0.80 and app ≠ unsure | either conf in [0.50, 0.80) | ignore |
-| `type_text` | intent conf ≥ 0.85 | [0.50, 0.85) | ignore |
-| `open_file` | never auto; always confirm (user picks from Spotlight hits) | | ignore if intent conf < 0.50 |
-| `press_key` | intent conf ≥ 0.85 and combo conf ≥ 0.85 | [0.50, 0.85) | ignore |
-| any | `is_destructive` ≥ 0.50 forces Confirm regardless of other scores | | |
-| any | `is_compound` ≥ 0.70 → Refuse with reason "one thing at a time" | | |
-| `none` | | | ignore |
+| Action | Execute if | Otherwise |
+|---|---|---|
+| `open_app` | intent conf ≥ 0.60 and app ≠ unsure | ignore |
+| `type_text` | intent conf ≥ 0.70 and text non-empty | ignore |
+| `open_file` | intent conf ≥ 0.60 and Spotlight returned ≥ 1 hit; opens Jev's top pick | ignore |
+| `press_key` | intent conf ≥ 0.70 and combo ≠ unsure | ignore |
+| `undo` | intent conf ≥ 0.60 and there is a last action | ignore |
+| any | `is_destructive` ≥ 0.50 → refuse, window shows "won't do that: could delete/send/spend" | |
+| any | `is_compound` ≥ 0.70 → refuse, window shows "one thing at a time" | |
+| `none` | | ignore |
 
-Thresholds are named constants in `config.py`, not literals, and the display prints which
-threshold fired. These numbers are starting points to be tuned against `test_intent.py`.
+Thresholds start low on purpose: a wrong action costs one "undo", a missed action costs
+a repeat. They are named constants in `config.py` and only change with an eval table
+(section 6) in the PR. The window shows which threshold fired.
 
 ### 4.7 `executor.py`: macOS actions
 
@@ -276,6 +282,9 @@ threshold fired. These numbers are starting points to be tuned against `test_int
 - `press_key(combo: str) -> Result`: maps `cmd+s` style strings to System Events
   `keystroke "s" using command down`.
 - `open_file(path: Path) -> Result`: `open <path>`.
+- `undo(last: Executed) -> Result`: reverses the last action: quits the app that was
+  opened (`osascript -e 'quit app "X"'`), sends cmd+z for typed text, closes the window
+  of an opened file (cmd+w in the frontmost app). Best effort; failures are reported.
 - `frontmost_app() -> str`: System Events `name of first application process whose
   frontmost is true`.
 - All shell calls go through one `run(argv) -> CompletedProcess` seam so tests inject a
@@ -294,12 +303,31 @@ loop:
     transcript = stt.transcribe(samples)          -> panel: transcript, seconds
     decision = intent.classify(transcript, ...)   -> panel: probability table, nouls, latency, tokens
     verdict = policy.decide(decision)             -> panel: outcome + reason
-    if CONFIRM: y/n prompt (for open_file: numbered Spotlight hits)
-    if EXECUTE/confirmed: executor.run(decision)  -> panel: result
+    if EXECUTE: executor.run(decision)            -> panel: result; remember as last action
+    learning.record(decision, verdict)            -> section 4.9
 ```
 
 The display uses `rich`. `yapp --once "open notes"` skips audio and runs the rest of the
 pipeline on a typed string; this is the primary development and demo mode.
+
+### 4.9 `learning.py`: examples from acting, not asking
+
+Jev has no memory; criteria are JSON built per request. Yapp populates the `examples`
+of each option from three sources, merged by a builder before every call:
+
+1. Authored examples for the fixed questions (`intent`, `key_combo`), versioned in
+   `questions.yaml`, changed only through the eval loop.
+2. Generated examples for catalog options: derived deterministically from app names,
+   a small alias table (`chrome` → "browser"), and Spotlight metadata for files.
+3. Learned examples from use, labeled implicitly:
+   - an executed action with no `undo` within 10 s writes the transcript as a positive
+     example under the chosen option;
+   - an `undo` writes it as a negative example (goes into that option's `not_for`) and
+     reverses the action.
+   Stored in `~/.yapp/learned.jsonl`. The builder merges the five most recent positives
+   per option, capped at eight examples total per option, so state stays small.
+
+Whisper mishearings ("open node" for Notes) are exactly what accumulates here.
 
 ## 5. Error handling
 
@@ -323,6 +351,10 @@ pipeline on a typed string; this is the primary development and demo mode.
   AppleScript escaping function.
 - `test_catalog.py`: parsing of fake `mdfind` output, dedupe, deterministic order, and
   `narrow` keeping exact matches.
+- `tests/eval/transcripts.jsonl`: labeled transcripts (transcript, intent, app), grown
+  from real use. `yapp eval` runs them and prints accuracy per confidence bucket
+  (≥ 0.85, 0.60 to 0.85, < 0.60) per action. Thresholds in `config.py` change only
+  with that table in the PR description.
 - Audio and whisper are verified by hand; `yapp --once` covers everything else end to end.
 - CI (GitHub Actions): ruff, mypy --strict, pytest on macOS runner (needed for the
   `open`/`osascript` argv tests only in shape, they use the fake shell).
@@ -380,7 +412,6 @@ window renders web content: this makes the port 1:1 rather than a translation.
 | idle | waiting for the hotkey | slow breathing, occasional drift |
 | listening | hotkey held | leans in, body ripples with mic amplitude |
 | thinking | Jev request in flight | tightens, slow internal swirl |
-| confirm | policy returned Confirm | tilts, holds still, waits |
 | acting | executor running | quick decisive pulse toward the action |
 | done | Result ok | settles, brief glow |
 | unsure | policy Ignore/Refuse or empty transcript | softens, shrugs, fades back to idle |
@@ -393,8 +424,7 @@ window renders web content: this makes the port 1:1 rather than a translation.
 
 - `pywebview` hosts the bundle in a native macOS window (frameless, always on top,
   transparent background, no dock icon). Python pushes state with
-  `window.evaluate_js("yapp.setState({...})")`; JS calls back a small Python API for
-  confirm yes/no. The confirm prompt is therefore answered by keyboard in the window
+  `window.evaluate_js("yapp.setState({...})")`. The confirm prompt is therefore answered by keyboard in the window
   (Enter / Escape) or in the terminal, whichever comes first.
 - `ui/` in the repo holds the ported bundle (`index.html`, `avatar.js`, `styles.css`),
   packaged as data files of the Python package.

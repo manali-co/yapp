@@ -27,14 +27,13 @@ sibling: same restraint, more playful, because the name is "yap".
   a native window as-is. Expose `setState(name, {level})` where `level` is 0 to 1 mic
   amplitude for listening.
 
-### States (each needs a distinct silhouette and motion)
+### States (seven; each needs a distinct silhouette and motion). Yapp never asks a question, it acts or stays quiet.
 
 | State | When | Feel |
 |---|---|---|
 | idle | waiting | slow breath, occasional drift, half attention |
 | listening | key held, user talking | leans toward the user, body ripples with voice level |
 | thinking | decision request in flight, 100 to 500 ms | tightens, slow internal swirl |
-| confirm | app is unsure and asks "did you mean X?" | tilts, holds, expectant |
 | acting | executing | quick decisive pulse in the direction of the action |
 | done | success | settles, brief glow, back to idle |
 | unsure | did not understand | softens, small shrug, fades to idle |
@@ -45,19 +44,18 @@ sibling: same restraint, more playful, because the name is "yap".
 - One frameless pill near the top of the screen, about 360 by 120 px, transparent
   outside the pill, always on top. Never a dock icon.
 - Layout: avatar on the left (about 72 px), two text lines on the right: the live
-  transcript (what was heard) and the decision line (e.g. "Opening Notes", "Did you mean
-  Notes? Enter / Esc", "Not sure what you meant").
+  transcript (what was heard) and the decision line (e.g. "Opening Notes", "Not sure what
+  you meant", "Undone").
 - A confidence indicator that is honest but not a number: a thin bar or ring on the
   avatar that fills with the model's confidence.
 - Show the hotkey hint on idle ("hold ⌥ to talk") and drop it once the user has used it a
   few times.
-- Confirm state shows Enter / Esc affordances.
 - Also design the terminal companion palette (rich): colours for transcript, probability
   table, verdict, so the two views feel related.
 
 ## Deliverables
 
-1. `avatar.html`: the avatar with a state switcher for all eight states and a slider for
+1. `avatar.html`: the avatar with a state switcher for all seven states and a slider for
    mic level.
 2. `window.html`: the pill window with sample content for each state.
 3. `tokens.css`: colours, type, spacing, motion durations and easings.
