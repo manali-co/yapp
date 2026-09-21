@@ -6,19 +6,21 @@ Repo: `manali-co/yapp` (open source, MIT)
 
 ## 1. What Yapp is
 
-Yapp is a macOS command-line app. You hold a key, say what you want done on the Mac,
-release the key, and it happens. Speech is transcribed locally with Whisper. The
-transcript is turned into a typed decision by TypeSafe AI's Jev model. Code executes the
-decision natively (launch apps, type text, open files) and shows every intermediate
-result in the terminal so the pipeline is legible.
+Yapp is a macOS app. You hold a key and talk; the Mac acts while you are still talking.
+Speech is transcribed locally with Whisper as a growing stream of committed words. Each
+time the stream grows, the words not yet acted on go to TypeSafe AI's Jev model, which
+returns a typed decision and whether the instruction is complete enough to carry out.
+Code executes natively (launch apps, type text as you dictate it, open files) and shows
+every intermediate result in the terminal and a small window so the pipeline is legible.
 
 Yapp is also a learning project. Each module is small, has one job, and is explained and
 run in isolation before it is wired to the next one.
 
 ### Goals
 
-- Hold-to-talk narration that reliably opens apps, types text into the focused app,
-  opens files found by Spotlight, and presses a small set of keys.
+- Hold-to-talk narration that acts mid-sentence: opens apps, dictates text into the
+  focused app word by word, opens files found by Spotlight, presses a small set of keys.
+  "Open notes and switch to Safari" is two actions with no pause between them.
 - Jev is the only model in v1. Free text is never requested from a model; code extracts it.
 - Yapp acts or stays quiet. It never asks a question. Every action is gated by Jev's
   confidence with per-action thresholds; below threshold nothing happens.
@@ -33,8 +35,8 @@ run in isolation before it is wired to the next one.
 - Always-on listening, wake words, confirmation prompts of any kind.
 - Reading the screen, clicking coordinates, or anything Jev cannot do from text.
 - A menu-bar app or web dashboard. v1 has one small floating window (section 10).
-- Multi-step commands ("open Notes and write a grocery list"). v1 detects them and asks
-  for one thing at a time.
+- Planning. Yapp executes instructions in the order you say them; it never reorders or
+  infers steps you did not say.
 - Windows or Linux.
 
 ## 2. How Jev works (the model this design is built around)
@@ -70,21 +72,23 @@ Facts that drive the design:
 
 ## 3. Architecture
 
-Single Python process, a linear pipeline of modules that communicate through plain
-dataclasses. No server, no threads except the audio callback.
+Single Python process. Audio arrives on a callback thread into a ring buffer; everything
+else runs on one loop that ticks every ~400 ms while the key is held.
 
 ```
-hold key ──► audio.py ──► stt.py ──► intent.py ──► policy.py ──► executor.py
-             (samples)    (text)     (Decision)    (Verdict)     (Result)
-                                        │
-                                   catalog.py (installed apps, Spotlight)
-                                        │
-                                     jev.py (HTTP client wrapper)
+hold key ──► audio.py ──► stt.py ──────────► stream.py ──► intent.py ──► policy.py ──► executor.py
+             (ring buf)   (committed words)  (cursor,      (Decision)    (Verdict)     (Result)
+                                              tail text)       │
+                                                          catalog.py (installed apps, Spotlight)
+                                                               │
+                                                            jev.py (HTTP client wrapper)
 ```
 
-`app.py` owns the loop and the terminal display. Each stage emits an event to the display
-so the user sees the transcript, Jev's full probability table, the policy verdict, and the
-executed action for every utterance.
+`stream.py` owns the transcript cursor: the committed transcript minus everything already
+acted on is the "tail", and the tail is what Jev sees. When policy says execute, the
+cursor advances past the consumed words and the loop continues on the remainder.
+`app.py` owns the tick loop and the display; each stage emits an event so the user sees
+the growing transcript, Jev's probability table, the verdict, and the action.
 
 ### 3.1 Package layout
 
@@ -98,7 +102,10 @@ yapp/
     app.py                  CLI entry (`yapp`), main loop, terminal UI (rich)
     config.py               settings: model id, thresholds, hotkey, whisper model
     audio.py                hold-to-talk recorder
-    stt.py                  local whisper transcription
+    stt.py                  streaming whisper: committed-word transcript
+    stream.py               transcript cursor, dictation mode, de-duplication
+    learning.py             learned examples from act/undo (section 4.9)
+    questions.yaml          authored questions and examples for intent/key_combo
     catalog.py              installed apps + Spotlight search
     jev.py                  thin wrapper over typesafe-sdk with typed results
     intent.py               builds state + questions, calls jev, returns Decision
@@ -107,6 +114,7 @@ yapp/
     types.py                dataclasses shared across modules
   tests/
     test_intent.py          transcript -> Decision, hits the real API (cheap)
+    test_stream.py          scripted word sequences -> actions fired, cursor positions
     test_policy.py          pure
     test_executor.py        fake shell
     test_catalog.py         fake mdfind output
@@ -145,12 +153,15 @@ class Decision:
     text: str | None                 # for TYPE_TEXT, extracted in code
     key_combo: str | None            # for PRESS_KEY, e.g. "cmd+s"
     file_query: str | None           # for OPEN_FILE, extracted in code
-    is_compound: float               # noul
+    is_complete: float               # noul: instruction can be carried out now
+    ends_dictation: float            # noul: tail is a new instruction, not dictated text
     is_destructive: float            # noul
+    consumed_words: int              # how many tail words this decision covers
     raw: dict[str, Any]              # full Jev response, for the display
 
 class Outcome(StrEnum):
     EXECUTE = "execute"
+    WAIT = "wait"         # instruction not complete yet: keep the tail, next tick
     IGNORE = "ignore"     # below threshold or intent none: quiet
     REFUSE = "refuse"     # destructive or compound: quiet, with a reason shown
 
@@ -170,9 +181,10 @@ class Result:
 ### 4.1 `audio.py`: hold-to-talk recorder
 
 - Depends on `sounddevice` (PortAudio) and `pynput` for the global hotkey.
-- `record_while_held(key: Key) -> np.ndarray` blocks until the hotkey is pressed, records
-  16 kHz mono float32 while held, returns the buffer on release. Buffers shorter than
-  0.3 s are discarded (accidental taps).
+- `Recorder` opens a 16 kHz mono float32 input stream once. While the hotkey is held the
+  callback appends to a ring buffer holding the last 30 s; `snapshot() -> np.ndarray`
+  returns the audio since the key went down (capped at 30 s). `level() -> float` returns
+  the RMS of the last 100 ms, 0 to 1, for the avatar. Release clears the buffer.
 - Default hotkey: right Option. Configurable.
 - macOS requires Input Monitoring permission for the terminal to observe the global key,
   and Microphone permission. The app checks for a captured buffer of all zeros and prints
@@ -180,12 +192,18 @@ class Result:
 
 ### 4.2 `stt.py`: local transcription
 
-- `transcribe(samples: np.ndarray) -> str` using `mlx-whisper` with the
-  `mlx-community/whisper-small-mlx` model by default (configurable; `base` for speed,
-  `large-v3-turbo` for accuracy). Passing the numpy array directly avoids ffmpeg.
-- First call downloads the model; the app prints progress. Model is loaded once at
-  startup and held in memory.
-- Returns stripped text; empty string when whisper returns nothing.
+- Whisper is not a streaming model, so streaming is built on top of it with the
+  LocalAgreement technique: every tick, decode the audio since key-down (`mlx-whisper`,
+  numpy array in, no ffmpeg), then commit the longest word prefix that is identical
+  between this pass and the previous pass. Committed words never change; the uncommitted
+  suffix is shown in the window in a dimmer colour and may still change.
+- `StreamingTranscriber.update(samples) -> Transcript` where
+  `Transcript(committed: list[str], pending: list[str])`. `reset()` on key release.
+- To bound decode time, once the committed prefix exceeds ~8 s of audio the audio before
+  it is dropped from the decode window and the committed words are kept as text.
+- Default model `mlx-community/whisper-base-mlx` (decode of 5 s of audio in ~100 ms on
+  M-series; `small` is the accuracy step up, configurable). Loaded once at startup.
+- Measured target: a word is committed within ~0.5 s of being spoken.
 
 ### 4.3 `catalog.py`: the native index
 
@@ -214,18 +232,21 @@ class Result:
 
 ### 4.5 `intent.py`: transcript to Decision (the only module that designs Jev questions)
 
-State sent to Jev, as a JSON object with descriptive field names:
+`classify(tail: str, ctx: Context) -> Decision` is called once per tick in which the
+committed transcript grew. State sent to Jev, as a JSON object:
 
 ```json
 {
-  "utterance": "open notes",
-  "frontmost_app": "Safari",
-  "recent_utterances": ["open safari", "go to youtube"]
+  "instruction_so_far": "and switch to safari",
+  "already_done": ["open notes"],
+  "frontmost_app": "Notes",
+  "dictating": false
 }
 ```
 
-`frontmost_app` comes from `executor.frontmost_app()` (an AppleScript one-liner).
-`recent_utterances` is the last three transcripts. Both are context only.
+`instruction_so_far` is the tail (committed words after the cursor). `already_done` is the
+last three executed instructions, `frontmost_app` comes from `executor.frontmost_app()`,
+and `dictating` tells Jev whether Yapp is currently typing what it hears.
 
 Questions, all in one request (speculative fan-out):
 
@@ -234,19 +255,27 @@ Questions, all in one request (speculative fan-out):
 | `intent` | choice | "What does the user want the computer to do?" | `open_app`: "Launch or switch to an application"; `type_text`: "Type words into the app that is currently focused"; `open_file`: "Open a document, note, or file by name"; `press_key`: "Press a keyboard shortcut such as save, copy, or paste"; `undo`: "Reverse or cancel what Yapp just did ('undo', 'no', 'not that')"; `none`: "Not an instruction to the computer, or unclear" |
 | `app` | choice | "Which application does the user mean?" | the narrowed catalog from `catalog.narrow`, plus `unsure`: "None of these" |
 | `key_combo` | choice | "Which keyboard shortcut does the user mean?" | `cmd+s`: "Save"; `cmd+c`: "Copy"; `cmd+v`: "Paste"; `cmd+a`: "Select all"; `enter`: "Press enter or return"; `escape`: "Escape or cancel"; `unsure` |
-| `is_compound` | noul | "The user asks for more than one separate action" | |
+| `is_complete` | noul | "instruction_so_far is a complete instruction that can be carried out now, not a fragment that is still being spoken" | |
+| `ends_dictation` | noul | "instruction_so_far is a new instruction to the computer rather than text the user wants typed" (only meaningful when `dictating`) | |
 | `is_destructive` | noul | "Carrying this out could delete data, send a message, or spend money" | |
 
 Rules:
 
 - Every choice has an explicit "none/unsure" option so Jev is never forced to pick.
-- `app` and `key_combo` are asked on every utterance even when intent turns out to be
+- No compound-command question is needed: streaming acts on the first complete
+  instruction and the cursor moves on.
+- `app` and `key_combo` are asked on every tick even when intent turns out to be
   something else. Answers for the unselected intent are ignored. This costs nothing and
   saves a round trip.
+- `is_complete` is what lets Yapp act mid-sentence: "open" alone is incomplete, "open
+  notes" is complete, "open notes and" is complete for the first instruction. Its
+  criteria carry examples of fragments versus complete instructions.
+- `consumed_words` is computed in code: the tail up to and including the last word that
+  matched the intent's verb-object pattern; the remainder stays for the next tick.
 - Free-text extraction happens in code after Jev answers:
   - `type_text`: strip a leading verb phrase matching `^(type|write|enter|say)\b[:,]?\s*`
-    from the utterance; the remainder is `text`. If the remainder is empty, the decision
-    degrades to `NONE` with reason "nothing to type".
+    from the tail; the remainder (possibly empty at this tick) is `text` and is typed
+    immediately; dictation mode (section 4.10) then types every later committed word.
   - `open_file`: strip `^(open|find|show)\b\s*(my|the)?\s*` and trailing filler like
     "file", "document"; the remainder is `file_query`.
   - These regexes live in `intent.py` and are unit-tested.
@@ -260,13 +289,14 @@ execute, or stay quiet. Yapp never asks.
 
 | Action | Execute if | Otherwise |
 |---|---|---|
+| any | `is_complete` < 0.70 → wait (keep the tail, act on a later tick) | |
 | `open_app` | intent conf ≥ 0.60 and app ≠ unsure | ignore |
-| `type_text` | intent conf ≥ 0.70 and text non-empty | ignore |
+| `type_text` | intent conf ≥ 0.70 → enter dictation mode (section 4.10) | ignore |
 | `open_file` | intent conf ≥ 0.60 and Spotlight returned ≥ 1 hit; opens Jev's top pick | ignore |
 | `press_key` | intent conf ≥ 0.70 and combo ≠ unsure | ignore |
 | `undo` | intent conf ≥ 0.60 and there is a last action | ignore |
+| in dictation | `ends_dictation` ≥ 0.70 → leave dictation, then evaluate the tail as above | keep typing |
 | any | `is_destructive` ≥ 0.50 → refuse, window shows "won't do that: could delete/send/spend" | |
-| any | `is_compound` ≥ 0.70 → refuse, window shows "one thing at a time" | |
 | `none` | | ignore |
 
 Thresholds start low on purpose: a wrong action costs one "undo", a missed action costs
@@ -298,17 +328,37 @@ load config, check TYPESAFE_API_KEY
 load whisper model (print timing)
 build app catalog (print count)
 loop:
-    print "hold <key> to talk"
-    samples = audio.record_while_held()
-    transcript = stt.transcribe(samples)          -> panel: transcript, seconds
-    decision = intent.classify(transcript, ...)   -> panel: probability table, nouls, latency, tokens
-    verdict = policy.decide(decision)             -> panel: outcome + reason
-    if EXECUTE: executor.run(decision)            -> panel: result; remember as last action
-    learning.record(decision, verdict)            -> section 4.9
+    wait for hotkey down; stream.reset(); stt.reset()
+    while hotkey held, every ~400 ms:
+        transcript = stt.update(audio.snapshot())     -> window: committed + pending words
+        if transcript.committed grew:
+            if stream.dictating:
+                executor.type_text(stream.new_words()) -> typed as they commit
+            decision = intent.classify(stream.tail(), ctx)   -> panel: probabilities, nouls, latency
+            verdict = policy.decide(decision, stream.state)
+            if EXECUTE: executor.run(decision); stream.consume(decision.consumed_words)
+            if WAIT: nothing; tail carries to the next tick
+            learning.record(decision, verdict)
+    on release: final tick on the full transcript, then stream.reset()
 ```
 
-The display uses `rich`. `yapp --once "open notes"` skips audio and runs the rest of the
-pipeline on a typed string; this is the primary development and demo mode.
+The display uses `rich`. `yapp --once "open notes and switch to safari"` feeds the words
+through `stream.py` at a scripted pace with no audio; this is the primary development and
+demo mode and exercises the cursor exactly as live speech does.
+
+### 4.10 `stream.py`: cursor and dictation
+
+- Holds `committed: list[str]`, `cursor: int`, `dictating: bool`, and the last executed
+  action. `tail()` is `" ".join(committed[cursor:])`. `consume(n)` advances the cursor.
+- A decision is executed at most once per tail: the pair (cursor, consumed_words) is
+  remembered so a tick that sees the same tail with no new words never re-fires.
+- Dictation mode: entered when policy executes `type_text`. The cursor moves past the
+  verb phrase ("type", "write", "say"), and every subsequently committed word is typed
+  immediately with a leading space. Each tick still asks Jev about the tail with
+  `dictating: true`; when `ends_dictation` clears its threshold, dictation stops, the
+  words already typed stay, and the tail is evaluated as a fresh instruction. Saying
+  "stop typing" or releasing the key also ends dictation.
+- Typed words trail speech by the commit lag (~0.5 s), the same feel as native dictation.
 
 ### 4.9 `learning.py`: examples from acting, not asking
 
@@ -323,7 +373,9 @@ of each option from three sources, merged by a builder before every call:
    - an executed action with no `undo` within 10 s writes the transcript as a positive
      example under the chosen option;
    - an `undo` writes it as a negative example (goes into that option's `not_for`) and
-     reverses the action.
+     reverses the action. Undo after dictation removes the words typed in that dictation
+     span (one cmd+z per committed chunk is unreliable; Yapp sends backspaces equal to the
+     span length).
    Stored in `~/.yapp/learned.jsonl`. The builder merges the five most recent positives
    per option, capped at eight examples total per option, so state stays small.
 
@@ -335,18 +387,28 @@ Whisper mishearings ("open node" for Notes) are exactly what accumulates here.
   startup with one actionable line each.
 - Jev network or API error: report in the display, skip the utterance, keep listening.
 - Whisper returns empty text: display "heard nothing", keep listening.
+- A Jev call is still in flight when the next tick fires: the tick is skipped, not queued,
+  so decisions never arrive out of order.
+- Whisper revises a word after Yapp acted on it: the action stands (it was committed by
+  agreement across two passes); the user says "undo".
 - Executor failure (app not found, AppleScript denied): display the stderr, keep
   listening. Nothing retries an action automatically.
 - Ctrl-C exits cleanly and releases the audio stream.
 
 ## 6. Testing
 
-- `test_intent.py`: table of `(transcript, expected intent, expected app or None)` run
-  against the real API with a fixed fake catalog of 20 apps and a pinned model version.
+- `test_intent.py`: table of `(tail, expected intent, expected app or None, expected
+  is_complete high/low)` run against the real API with a fixed fake catalog of 20 apps
+  and a pinned model version. Fragments like "open", "switch to" must be low on
+  `is_complete`; "open notes" must be high.
   Marked with a `jev` marker; skipped when `TYPESAFE_API_KEY` is unset so CI without a
   key still passes. Also asserts the free-text regexes on ten phrasings each.
-- `test_policy.py`: every row of the threshold table, including boundary values and the
-  destructive and compound overrides.
+- `test_policy.py`: every row of the threshold table, including boundary values, the
+  destructive override, `is_complete` waiting, and dictation entry/exit.
+- `test_stream.py`: scripted committed-word sequences with a fake `classify` that returns
+  canned decisions; asserts which actions fire, in what order, cursor positions, that no
+  action fires twice for the same tail, and that dictation types exactly the words after
+  the verb and stops on `ends_dictation`.
 - `test_executor.py`: argv produced for each action via the fake `run`, and the
   AppleScript escaping function.
 - `test_catalog.py`: parsing of fake `mdfind` output, dedupe, deterministic order, and
@@ -361,9 +423,11 @@ Whisper mishearings ("open node" for Notes) are exactly what accumulates here.
 
 ## 7. Hybrid extension points (not built in v1)
 
-- `intent.py` exposes `classify(transcript, catalog, context) -> Decision`. A future
-  `splitter.py` (LLM) runs only when `is_compound` is high, returns a list of atomic
-  utterances, and calls `classify` on each. No other module changes.
+- `intent.py` exposes `classify(tail, context) -> Decision`. Streaming already segments
+  spoken sequences, so no LLM splitter is needed. A future LLM `planner.py` could take a
+  tail that Jev classifies as `none` with high `is_complete` (a goal rather than an
+  instruction, e.g. "email the report to Sam") and turn it into a list of instructions
+  fed back through `stream.py`. No other module changes.
 - `Decision.text` is the only free-text field. A future LLM "composer" can fill it for
   intents like `draft_text` without touching policy or executor.
 - A future web dashboard subscribes to the same display events `app.py` already emits.
@@ -374,11 +438,14 @@ Built in this order. Each step is run and its raw output shown before the next b
 
 1. One raw `curl` to Jev and one SDK call from a REPL; read the probability table.
 2. `catalog.py`: see your own app list, watch `narrow` cut it down.
-3. `intent.py` with tests: watch decisions change as question wording changes.
-4. `policy.py`: tune thresholds against the test table.
-5. `executor.py`: grant Accessibility, open Notes from `yapp --once`.
-6. `stt.py`: transcribe a recorded clip, compare whisper sizes.
-7. `audio.py` and the loop: hold the key, say "open notes".
+3. `intent.py` with tests: watch decisions change as question wording changes; watch
+   `is_complete` flip between "open" and "open notes".
+4. `policy.py` and `stream.py` with `yapp --once`: feed "open notes and switch to safari"
+   word by word and watch two actions fire from one sentence, with no audio yet.
+5. `executor.py`: grant Accessibility, open Notes from `yapp --once`; dictate a sentence.
+6. `stt.py`: stream a recorded clip, watch words commit, measure commit lag per model size.
+7. `audio.py` and the loop: hold the key, say "open notes and type hello there".
+8. `learning.py` and `yapp eval`: undo something, see the example land, run the table.
 
 ## 9. Repo conventions
 
@@ -410,9 +477,10 @@ window renders web content: this makes the port 1:1 rather than a translation.
 | State | Trigger | Motion idea |
 |---|---|---|
 | idle | waiting for the hotkey | slow breathing, occasional drift |
-| listening | hotkey held | leans in, body ripples with mic amplitude |
+| listening | hotkey held | leans in, body ripples with mic amplitude; a small tick each time a word commits |
 | thinking | Jev request in flight | tightens, slow internal swirl |
-| acting | executor running | quick decisive pulse toward the action |
+| acting | executor running | quick decisive pulse toward the action; can interrupt listening and return to it |
+| dictating | typing what it hears | steady, attentive, pulses per typed word |
 | done | Result ok | settles, brief glow |
 | unsure | policy Ignore/Refuse or empty transcript | softens, shrugs, fades back to idle |
 | error | Jev/executor error | short shiver, dims |
@@ -424,12 +492,12 @@ window renders web content: this makes the port 1:1 rather than a translation.
 
 - `pywebview` hosts the bundle in a native macOS window (frameless, always on top,
   transparent background, no dock icon). Python pushes state with
-  `window.evaluate_js("yapp.setState({...})")`. The confirm prompt is therefore answered by keyboard in the window
-  (Enter / Escape) or in the terminal, whichever comes first.
+  `window.evaluate_js("yapp.setState({...})")`. 
 - `ui/` in the repo holds the ported bundle (`index.html`, `avatar.js`, `styles.css`),
   packaged as data files of the Python package.
 - Mic amplitude for the listening state is sampled from the audio callback at ~20 Hz and
-  forwarded as a 0 to 1 float.
+  forwarded as a 0 to 1 float. Committed and pending words are pushed on every tick so the
+  transcript line shows pending words dimmer than committed ones.
 
 ### 10.4 Order of work
 

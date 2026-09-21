@@ -1,7 +1,7 @@
 # Yapp: avatar and window, design brief for Claude Design
 
-Yapp is a macOS voice assistant by Manali. You hold a key, say "open notes", release, and
-the Mac does it. Speech is transcribed locally; a fast decision model (TypeSafe Jev)
+Yapp is a macOS voice assistant by Manali. You hold a key and talk; the Mac acts while you
+are still talking ("open notes and switch to safari" is two actions, no pause). Speech is transcribed locally; a fast decision model (TypeSafe Jev)
 classifies the intent with a confidence score; code executes. Yapp needs a face and one
 small window.
 
@@ -27,14 +27,15 @@ sibling: same restraint, more playful, because the name is "yap".
   a native window as-is. Expose `setState(name, {level})` where `level` is 0 to 1 mic
   amplitude for listening.
 
-### States (seven; each needs a distinct silhouette and motion). Yapp never asks a question, it acts or stays quiet.
+### States (eight; each needs a distinct silhouette and motion). Yapp never asks a question, it acts or stays quiet.
 
 | State | When | Feel |
 |---|---|---|
 | idle | waiting | slow breath, occasional drift, half attention |
-| listening | key held, user talking | leans toward the user, body ripples with voice level |
+| listening | key held, user talking | leans toward the user, body ripples with voice level, a small tick each time a word locks in |
 | thinking | decision request in flight, 100 to 500 ms | tightens, slow internal swirl |
-| acting | executing | quick decisive pulse in the direction of the action |
+| acting | executing, often mid-sentence | quick decisive pulse in the direction of the action, then straight back to listening |
+| dictating | typing what it hears into the focused app | steady, attentive, a pulse per typed word |
 | done | success | settles, brief glow, back to idle |
 | unsure | did not understand | softens, small shrug, fades to idle |
 | error | something failed | short shiver, dims, recovers |
@@ -44,7 +45,7 @@ sibling: same restraint, more playful, because the name is "yap".
 - One frameless pill near the top of the screen, about 360 by 120 px, transparent
   outside the pill, always on top. Never a dock icon.
 - Layout: avatar on the left (about 72 px), two text lines on the right: the live
-  transcript (what was heard) and the decision line (e.g. "Opening Notes", "Not sure what
+  transcript (words that have locked in shown solid, words still settling shown dimmer) and the decision line (e.g. "Opening Notes", "Not sure what
   you meant", "Undone").
 - A confidence indicator that is honest but not a number: a thin bar or ring on the
   avatar that fills with the model's confidence.
@@ -55,7 +56,7 @@ sibling: same restraint, more playful, because the name is "yap".
 
 ## Deliverables
 
-1. `avatar.html`: the avatar with a state switcher for all seven states and a slider for
+1. `avatar.html`: the avatar with a state switcher for all eight states and a slider for
    mic level.
 2. `window.html`: the pill window with sample content for each state.
 3. `tokens.css`: colours, type, spacing, motion durations and easings.
