@@ -24,7 +24,7 @@ def run_once(text: str, cfg: Config, display: Display | None, per_tick: int = 2)
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="yapp")
-    p.add_argument("command", nargs="?", choices=["live", "eval"], default="live")
+    p.add_argument("command", nargs="?", choices=["live", "eval", "keys"], default="live")
     p.add_argument("--once", metavar="TEXT", help="run the pipeline on typed words, no audio")
     p.add_argument("--per-tick", type=int, default=2, help="words per tick in --once mode")
     p.add_argument("--headless", action="store_true", help="no window (default until UI ships)")
@@ -34,6 +34,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.once:
             return run_once(args.once, cfg, display, per_tick=args.per_tick)
+        if args.command == "keys":
+            from yapp.audio import debug_keys
+
+            return debug_keys(display, seconds=10)
         if args.command == "eval":
             from yapp.evaluate import run_eval
 

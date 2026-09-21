@@ -24,6 +24,10 @@ class Display:
     def status(self, msg: str) -> None:
         self.c.print(f"[bold cyan]{msg}[/]")
 
+    def listening(self, level: float) -> None:
+        bars = "▮" * int(level * 20) + "▯" * (20 - int(level * 20))
+        self.c.print(f"[bold green]● listening[/] {bars} {level:.2f}  (release to finish)")
+
     def show_transcript(self, committed: list[str], pending: list[str]) -> None:
         t = Text(" ".join(committed), style="bold")
         if pending:

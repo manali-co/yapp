@@ -31,8 +31,10 @@ def run_live(cfg: Config, display: Display) -> int:
             key.wait_down()
             rec.arm()
             stt.reset()
+            display.listening(0.0)
             while key.is_down():
                 tick_start = time.perf_counter()
+                display.listening(rec.level())
                 t = stt.update(rec.snapshot())
                 runner.tick(t.committed, t.pending)
                 elapsed = time.perf_counter() - tick_start
@@ -41,6 +43,7 @@ def run_live(cfg: Config, display: Display) -> int:
             runner.tick(t.committed, [])
             runner.finish()
             rec.disarm()
+            display.status("released")
     except KeyboardInterrupt:
         return 0
     finally:

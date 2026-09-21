@@ -98,3 +98,34 @@ class Hotkey:
 
     def is_down(self) -> bool:
         return self._down.is_set()
+
+
+def debug_keys(display: Any, seconds: int) -> int:
+    """Print every key pynput reports, so the hotkey name can be confirmed."""
+    import time
+
+    from pynput import keyboard
+
+    seen: list[str] = []
+
+    def on_press(key: Any) -> None:
+        name = getattr(key, "name", None) or getattr(key, "char", None) or repr(key)
+        seen.append(str(name))
+        display.status(f"press   {name!s:12} vk={getattr(key, 'vk', '?')}")
+
+    def on_release(key: Any) -> None:
+        name = getattr(key, "name", None) or getattr(key, "char", None) or repr(key)
+        display.status(f"release {name!s:12}")
+
+    display.status(f"press keys for {seconds}s; the right Option key should show as alt_r")
+    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+    listener.start()
+    time.sleep(seconds)
+    listener.stop()
+    if not seen:
+        display.status(
+            "no keys seen: grant Input Monitoring to this terminal app in "
+            "System Settings → Privacy & Security → Input Monitoring, then restart it"
+        )
+        return 1
+    return 0
