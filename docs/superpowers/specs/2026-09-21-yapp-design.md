@@ -136,11 +136,13 @@ class Intent(StrEnum):
     UNDO = "undo"
     NONE = "none"
 
+
 @dataclass(frozen=True)
 class App:
-    key: str            # stable slug, e.g. "notes"
-    name: str           # display name passed to `open -a`, e.g. "Notes"
-    description: str    # one line shown to Jev
+    key: str  # stable slug, e.g. "notes"
+    name: str  # display name passed to `open -a`, e.g. "Notes"
+    description: str  # one line shown to Jev
+
 
 @dataclass(frozen=True)
 class Decision:
@@ -148,27 +150,30 @@ class Decision:
     intent: Intent
     intent_confidence: float
     intent_probabilities: dict[str, float]
-    app: App | None                  # for OPEN_APP
+    app: App | None  # for OPEN_APP
     app_confidence: float | None
-    text: str | None                 # for TYPE_TEXT, extracted in code
-    key_combo: str | None            # for PRESS_KEY, e.g. "cmd+s"
-    file_query: str | None           # for OPEN_FILE, extracted in code
-    is_complete: float               # noul: instruction can be carried out now
-    ends_dictation: float            # noul: tail is a new instruction, not dictated text
-    is_destructive: float            # noul
-    consumed_words: int              # how many tail words this decision covers
-    raw: dict[str, Any]              # full Jev response, for the display
+    text: str | None  # for TYPE_TEXT, extracted in code
+    key_combo: str | None  # for PRESS_KEY, e.g. "cmd+s"
+    file_query: str | None  # for OPEN_FILE, extracted in code
+    is_complete: float  # noul: instruction can be carried out now
+    ends_dictation: float  # noul: tail is a new instruction, not dictated text
+    is_destructive: float  # noul
+    consumed_words: int  # how many tail words this decision covers
+    raw: dict[str, Any]  # full Jev response, for the display
+
 
 class Outcome(StrEnum):
     EXECUTE = "execute"
-    WAIT = "wait"         # instruction not complete yet: keep the tail, next tick
-    IGNORE = "ignore"     # below threshold or intent none: quiet
-    REFUSE = "refuse"     # destructive or compound: quiet, with a reason shown
+    WAIT = "wait"  # instruction not complete yet: keep the tail, next tick
+    IGNORE = "ignore"  # below threshold or intent none: quiet
+    REFUSE = "refuse"  # destructive or compound: quiet, with a reason shown
+
 
 @dataclass(frozen=True)
 class Verdict:
     outcome: Outcome
-    reason: str          # human-readable, shown in the terminal
+    reason: str  # human-readable, shown in the terminal
+
 
 @dataclass(frozen=True)
 class Result:

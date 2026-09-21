@@ -1,0 +1,54 @@
+[project]
+name = "yapp"
+version = "0.1.0"
+description = "Hold a key, talk, and your Mac acts while you're still talking. Local Whisper + TypeSafe Jev."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [{ name = "Manali" }]
+dependencies = [
+  "typesafe-sdk>=0.7,<1",
+  "mlx-whisper>=0.4",
+  "sounddevice>=0.5",
+  "pynput>=1.7",
+  "rapidfuzz>=3.9",
+  "rich>=13.7",
+  "pyyaml>=6.0",
+  "numpy>=1.26",
+]
+
+[project.scripts]
+yapp = "yapp.app:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.2",
+  "mypy>=1.10",
+  "ruff>=0.5",
+  "httpx>=0.27",
+  "types-PyYAML>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/yapp"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["jev: hits the real TypeSafe API; skipped without TYPESAFE_API_KEY"]

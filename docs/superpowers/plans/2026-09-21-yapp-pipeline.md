@@ -540,8 +540,12 @@ from yapp.jev import Jev, JevError
 CANNED = {
     "model": "jev-1.13.0",
     "answers": {
-        "intent": {"type": "choice", "choice": "open_app", "confidence": 0.9,
-                   "probabilities": {"open_app": 0.93, "none": 0.07}},
+        "intent": {
+            "type": "choice",
+            "choice": "open_app",
+            "confidence": 0.9,
+            "probabilities": {"open_app": 0.93, "none": 0.07},
+        },
         "is_complete": {"type": "noul", "noul": 0.88},
     },
     "usage": {"input_tokens": 120, "output_tokens": 10},
@@ -563,8 +567,10 @@ def test_ask_parses_choice_and_noul() -> None:
     jev = make_jev(httpx.MockTransport(handler))
     resp = jev.ask(
         {"instruction_so_far": "open notes"},
-        {"intent": Choice(instructions="?", criteria={"open_app": "x", "none": "y"}),
-         "is_complete": Noul(instructions="?")},
+        {
+            "intent": Choice(instructions="?", criteria={"open_app": "x", "none": "y"}),
+            "is_complete": Noul(instructions="?"),
+        },
     )
     assert resp.choice("intent").key == "open_app"
     assert resp.choice("intent").confidence == 0.9
@@ -903,8 +909,11 @@ from yapp.intent import (
 from yapp.jev import Jev
 from yapp.types import App, Intent
 
-APPS = [App("notes", "Notes", "Launch Notes"), App("safari", "Safari", "Launch Safari"),
-        App("slack", "Slack", "Launch Slack")]
+APPS = [
+    App("notes", "Notes", "Launch Notes"),
+    App("safari", "Safari", "Launch Safari"),
+    App("slack", "Slack", "Launch Slack"),
+]
 
 
 def ctx(**kw: object) -> Context:
@@ -938,7 +947,14 @@ def test_build_questions_has_unsure_and_learned_examples() -> None:
     assert "unsure" in app.criteria
     notes = app.criteria["notes"]
     assert isinstance(notes, dict) and "open node" in notes["examples"]  # type: ignore[index]
-    assert set(q) == {"intent", "app", "key_combo", "is_complete", "ends_dictation", "is_destructive"}
+    assert set(q) == {
+        "intent",
+        "app",
+        "key_combo",
+        "is_complete",
+        "ends_dictation",
+        "is_destructive",
+    }
 
 
 @pytest.mark.jev
@@ -1047,7 +1063,9 @@ def build_questions(ctx: Context, tail: str = "", limit: int = 60) -> dict[str, 
     }
     app_criteria["unsure"] = "None of these applications"
     return {
-        "intent": Choice(instructions=q["intent"]["instructions"], criteria=q["intent"]["criteria"]),
+        "intent": Choice(
+            instructions=q["intent"]["instructions"], criteria=q["intent"]["criteria"]
+        ),
         "app": Choice(instructions="Which application does the user mean?", criteria=app_criteria),
         "key_combo": Choice(
             instructions=q["key_combo"]["instructions"], criteria=q["key_combo"]["criteria"]
@@ -1135,9 +1153,15 @@ NOTES = App("notes", "Notes", "Launch Notes")
 
 
 def d(**kw: object) -> Decision:
-    base: dict[str, object] = dict(tail="x", intent=Intent.OPEN_APP, intent_confidence=0.9,
-                                   intent_probabilities={}, app=NOTES, app_confidence=0.9,
-                                   is_complete=0.9)
+    base: dict[str, object] = dict(
+        tail="x",
+        intent=Intent.OPEN_APP,
+        intent_confidence=0.9,
+        intent_probabilities={},
+        app=NOTES,
+        app_confidence=0.9,
+        is_complete=0.9,
+    )
     base.update(kw)
     return Decision(**base)  # type: ignore[arg-type]
 
@@ -1303,7 +1327,9 @@ def test_dictation_holds_back_lookahead() -> None:
 
 def test_reset() -> None:
     s = Stream(lookahead=2)
-    s.set_committed(["a", "b"]); s.consume(1); s.mark_fired(1)
+    s.set_committed(["a", "b"])
+    s.consume(1)
+    s.mark_fired(1)
     s.reset()
     assert s.committed == [] and s.cursor == 0 and s.dictating is False
 ```
@@ -1359,7 +1385,11 @@ class Stream:
 
     def dictation_words(self, *, flush: bool = False) -> list[str]:
         """Words to type now. Holds back the last `lookahead` words unless flushing."""
-        end = len(self.committed) if flush else max(self._typed_upto, len(self.committed) - self.lookahead)
+        end = (
+            len(self.committed)
+            if flush
+            else max(self._typed_upto, len(self.committed) - self.lookahead)
+        )
         words = self.committed[self._typed_upto : end]
         self._typed_upto = end
         return words
@@ -1434,14 +1464,22 @@ def test_frontmost() -> None:
 
 def test_undo_open_app_quits() -> None:
     f = Fake()
-    d = Decision(tail="open notes", intent=Intent.OPEN_APP, intent_confidence=1, intent_probabilities={}, app=NOTES)
+    d = Decision(
+        tail="open notes",
+        intent=Intent.OPEN_APP,
+        intent_confidence=1,
+        intent_probabilities={},
+        app=NOTES,
+    )
     Executor(f).undo(Executed(d, Result(True, "")))
     assert 'quit app "Notes"' in f.calls[0][2]
 
 
 def test_undo_dictation_backspaces() -> None:
     f = Fake()
-    d = Decision(tail="type hi", intent=Intent.TYPE_TEXT, intent_confidence=1, intent_probabilities={})
+    d = Decision(
+        tail="type hi", intent=Intent.TYPE_TEXT, intent_confidence=1, intent_probabilities={}
+    )
     Executor(f).undo(Executed(d, Result(True, ""), typed_chars=3))
     assert "key code 51" in f.calls[0][2] and "repeat 3 times" in f.calls[0][2]
 
@@ -1467,7 +1505,12 @@ from yapp.catalog import ShellRunner, run_capture
 from yapp.types import App, Executed, Intent, Result
 
 KEY_CODES = {"enter": 36, "escape": 53, "backspace": 51}
-MODIFIERS = {"cmd": "command down", "shift": "shift down", "alt": "option down", "ctrl": "control down"}
+MODIFIERS = {
+    "cmd": "command down",
+    "shift": "shift down",
+    "alt": "option down",
+    "ctrl": "control down",
+}
 
 
 def applescript_escape(s: str) -> str:
@@ -1576,19 +1619,67 @@ def canned(tail: str, dictating: bool) -> Decision:
     if dictating:
         ends = 0.95 if words and words[0] in {"switch", "open", "stop"} else 0.05
         if words[:1] == ["stop"]:
-            return Decision(tail=tail, intent=Intent.NONE, intent_confidence=0.9, intent_probabilities={}, is_complete=0.9, ends_dictation=ends)
+            return Decision(
+                tail=tail,
+                intent=Intent.NONE,
+                intent_confidence=0.9,
+                intent_probabilities={},
+                is_complete=0.9,
+                ends_dictation=ends,
+            )
     else:
         ends = 0.0
     if words[:1] == ["open"] and len(words) >= 2:
         app = NOTES if words[1] == "notes" else SAFARI
-        return Decision(tail=tail, intent=Intent.OPEN_APP, intent_confidence=0.9, intent_probabilities={}, app=app, app_confidence=0.9, is_complete=0.95, ends_dictation=ends, consumed_words=len(tail.split()) if "and" not in tail.split()[1:] else tail.split().index("and", 1))
+        return Decision(
+            tail=tail,
+            intent=Intent.OPEN_APP,
+            intent_confidence=0.9,
+            intent_probabilities={},
+            app=app,
+            app_confidence=0.9,
+            is_complete=0.95,
+            ends_dictation=ends,
+            consumed_words=len(tail.split())
+            if "and" not in tail.split()[1:]
+            else tail.split().index("and", 1),
+        )
     if words[:2] == ["switch", "to"] and len(words) >= 3:
-        return Decision(tail=tail, intent=Intent.OPEN_APP, intent_confidence=0.9, intent_probabilities={}, app=SAFARI, app_confidence=0.9, is_complete=0.95, ends_dictation=ends, consumed_words=len(tail.split()))
+        return Decision(
+            tail=tail,
+            intent=Intent.OPEN_APP,
+            intent_confidence=0.9,
+            intent_probabilities={},
+            app=SAFARI,
+            app_confidence=0.9,
+            is_complete=0.95,
+            ends_dictation=ends,
+            consumed_words=len(tail.split()),
+        )
     if words[:1] == ["type"]:
-        return Decision(tail=tail, intent=Intent.TYPE_TEXT, intent_confidence=0.9, intent_probabilities={}, is_complete=0.9, consumed_words=1)
+        return Decision(
+            tail=tail,
+            intent=Intent.TYPE_TEXT,
+            intent_confidence=0.9,
+            intent_probabilities={},
+            is_complete=0.9,
+            consumed_words=1,
+        )
     if words[:1] == ["undo"]:
-        return Decision(tail=tail, intent=Intent.UNDO, intent_confidence=0.9, intent_probabilities={}, is_complete=0.9)
-    return Decision(tail=tail, intent=Intent.OPEN_APP if words[:1] == ["open"] else Intent.NONE, intent_confidence=0.5, intent_probabilities={}, is_complete=0.2)
+        return Decision(
+            tail=tail,
+            intent=Intent.UNDO,
+            intent_confidence=0.9,
+            intent_probabilities={},
+            is_complete=0.9,
+        )
+    return Decision(
+        tail=tail,
+        intent=Intent.OPEN_APP if words[:1] == ["open"] else Intent.NONE,
+        intent_confidence=0.5,
+        intent_probabilities={},
+        is_complete=0.2,
+    )
 
 
 class FakeExec:
@@ -1596,32 +1687,44 @@ class FakeExec:
         self.log: list[str] = []
 
     def open_app(self, app: App) -> object:
-        self.log.append(f"open:{app.name}"); return _ok()
+        self.log.append(f"open:{app.name}")
+        return _ok()
 
     def type_text(self, text: str) -> object:
-        self.log.append(f"type:{text}"); return _ok()
+        self.log.append(f"type:{text}")
+        return _ok()
 
     def press_key(self, combo: str) -> object:
-        self.log.append(f"key:{combo}"); return _ok()
+        self.log.append(f"key:{combo}")
+        return _ok()
 
     def open_file(self, path: object) -> object:
-        self.log.append(f"file:{path}"); return _ok()
+        self.log.append(f"file:{path}")
+        return _ok()
 
     def frontmost_app(self) -> str:
         return "Finder"
 
     def undo(self, last: object) -> object:
-        self.log.append("undo"); return _ok()
+        self.log.append("undo")
+        return _ok()
 
 
 def _ok() -> object:
     from yapp.types import Result
+
     return Result(True, "ok")
 
 
 def make(classify: Callable[[str, bool], Decision]) -> tuple[Runner, FakeExec]:
     ex = FakeExec()
-    r = Runner(Config(), jev=None, executor=ex, apps=APPS, classify=lambda tail, ctx: classify(tail, ctx.dictating))  # type: ignore[arg-type]
+    r = Runner(
+        Config(),
+        jev=None,
+        executor=ex,
+        apps=APPS,
+        classify=lambda tail, ctx: classify(tail, ctx.dictating),
+    )  # type: ignore[arg-type]
     return r, ex
 
 
@@ -1640,7 +1743,10 @@ def test_two_actions_from_one_sentence() -> None:
 
 def test_fragment_waits_then_fires_once() -> None:
     r, ex = make(canned)
-    r.tick(["open"]); r.tick(["open", "notes"]); r.tick(["open", "notes"]); r.finish()
+    r.tick(["open"])
+    r.tick(["open", "notes"])
+    r.tick(["open", "notes"])
+    r.finish()
     assert ex.log == ["open:Notes"]
 
 
@@ -1682,7 +1788,12 @@ from rich.text import Text
 
 from yapp.types import Decision, Outcome, Result, Verdict
 
-COLORS = {Outcome.EXECUTE: "green", Outcome.WAIT: "yellow", Outcome.IGNORE: "grey50", Outcome.REFUSE: "red"}
+COLORS = {
+    Outcome.EXECUTE: "green",
+    Outcome.WAIT: "yellow",
+    Outcome.IGNORE: "grey50",
+    Outcome.REFUSE: "red",
+}
 
 
 class Display:
@@ -1700,7 +1811,8 @@ class Display:
 
     def show_decision(self, d: Decision) -> None:
         table = Table(title=f"jev {d.latency_ms} ms · tail: “{d.tail}”", show_header=True)
-        table.add_column("intent"); table.add_column("p", justify="right")
+        table.add_column("intent")
+        table.add_column("p", justify="right")
         for k, p in sorted(d.intent_probabilities.items(), key=lambda kv: -kv[1]):
             table.add_row(k, f"{p:.2f}", style="bold" if k == d.intent else "")
         table.add_row("[dim]confidence[/]", f"{d.intent_confidence:.2f}")
@@ -1839,7 +1951,9 @@ class Runner:
             return Verdict(Outcome.IGNORE, f"jev error: {e}")
         if self.display:
             self.display.show_decision(d)
-        v = decide(d, self.cfg.thresholds, dictating=self.stream.dictating, has_last=self.last is not None)
+        v = decide(
+            d, self.cfg.thresholds, dictating=self.stream.dictating, has_last=self.last is not None
+        )
         if self.display:
             self.display.show_verdict(v)
         if v.outcome == Outcome.EXECUTE and not self.stream.already_fired(d.consumed_words):
@@ -1889,7 +2003,9 @@ class Runner:
         text = " ".join(words) + " "
         r = self.executor.type_text(text)
         if self.last is not None and self.last.decision.intent == Intent.TYPE_TEXT:
-            self.last = Executed(self.last.decision, r, typed_chars=self.last.typed_chars + len(text))
+            self.last = Executed(
+                self.last.decision, r, typed_chars=self.last.typed_chars + len(text)
+            )
         self._report(r)
 
     def _report(self, r: Result) -> None:
@@ -1997,7 +2113,14 @@ NOTES = App("notes", "Notes", "")
 
 
 def dec(tail: str) -> Decision:
-    return Decision(tail=tail, intent=Intent.OPEN_APP, intent_confidence=0.9, intent_probabilities={}, app=NOTES, consumed_words=2)
+    return Decision(
+        tail=tail,
+        intent=Intent.OPEN_APP,
+        intent_confidence=0.9,
+        intent_probabilities={},
+        app=NOTES,
+        consumed_words=2,
+    )
 
 
 def test_positive_after_delay(tmp_path: Path) -> None:
@@ -2155,15 +2278,27 @@ from yapp.intent import Context, classify
 from yapp.jev import Jev
 from yapp.types import App
 
-EVAL_APPS = [App(k, n, f"Launch {n}") for k, n in [
-    ("notes", "Notes"), ("safari", "Safari"), ("slack", "Slack"), ("numbers", "Numbers"),
-    ("google_chrome", "Google Chrome"), ("terminal", "Terminal"), ("finder", "Finder"),
-    ("mail", "Mail"), ("messages", "Messages"), ("music", "Music"),
-]]
+EVAL_APPS = [
+    App(k, n, f"Launch {n}")
+    for k, n in [
+        ("notes", "Notes"),
+        ("safari", "Safari"),
+        ("slack", "Slack"),
+        ("numbers", "Numbers"),
+        ("google_chrome", "Google Chrome"),
+        ("terminal", "Terminal"),
+        ("finder", "Finder"),
+        ("mail", "Mail"),
+        ("messages", "Messages"),
+        ("music", "Music"),
+    ]
+]
 BUCKETS = [(0.85, "≥ 0.85"), (0.60, "0.60–0.85"), (0.0, "< 0.60")]
 
 
-def run_eval(cfg: Config, display: Display, path: Path = Path("tests/eval/transcripts.jsonl")) -> int:
+def run_eval(
+    cfg: Config, display: Display, path: Path = Path("tests/eval/transcripts.jsonl")
+) -> int:
     jev = Jev(model=cfg.model)
     ctx = Context(apps=EVAL_APPS, frontmost_app="Finder", already_done=[], dictating=False)
     rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
@@ -2171,7 +2306,9 @@ def run_eval(cfg: Config, display: Display, path: Path = Path("tests/eval/transc
     wrong: list[str] = []
     for row in rows:
         d = classify(row["tail"], ctx, jev, cfg)
-        ok = d.intent == row["intent"] and (row.get("app") is None or (d.app and d.app.key == row["app"]))
+        ok = d.intent == row["intent"] and (
+            row.get("app") is None or (d.app and d.app.key == row["app"])
+        )
         if "complete" in row:
             ok = ok and ((d.is_complete >= cfg.thresholds.complete) == row["complete"])
         for lo, label in BUCKETS:
@@ -2179,9 +2316,13 @@ def run_eval(cfg: Config, display: Display, path: Path = Path("tests/eval/transc
                 stats[label].append(bool(ok))
                 break
         if not ok:
-            wrong.append(f"{row['tail']!r} → {d.intent} {d.app.key if d.app else ''} conf {d.intent_confidence:.2f}")
+            wrong.append(
+                f"{row['tail']!r} → {d.intent} {d.app.key if d.app else ''} conf {d.intent_confidence:.2f}"
+            )
     t = Table(title=f"yapp eval · {len(rows)} rows · {cfg.model}")
-    t.add_column("confidence"); t.add_column("n", justify="right"); t.add_column("accuracy", justify="right")
+    t.add_column("confidence")
+    t.add_column("n", justify="right")
+    t.add_column("accuracy", justify="right")
     for _, label in BUCKETS:
         xs = stats[label]
         t.add_row(label, str(len(xs)), f"{(sum(xs) / len(xs) * 100):.0f}%" if xs else "–")
@@ -2218,7 +2359,13 @@ from yapp.stt import StreamingTranscriber, Transcript, agree, normalize
 
 
 def test_normalize_strips_punctuation_and_case() -> None:
-    assert normalize("Open Notes, and then... Safari!") == ["open", "notes", "and", "then", "safari"]
+    assert normalize("Open Notes, and then... Safari!") == [
+        "open",
+        "notes",
+        "and",
+        "then",
+        "safari",
+    ]
 
 
 def test_agree_is_common_prefix_length() -> None:
@@ -2228,7 +2375,15 @@ def test_agree_is_common_prefix_length() -> None:
 
 
 def test_commits_only_on_two_pass_agreement() -> None:
-    outputs = iter(["open", "open notes", "open notes and", "open notes and switch", "open notes and switch to safari"])
+    outputs = iter(
+        [
+            "open",
+            "open notes",
+            "open notes and",
+            "open notes and switch",
+            "open notes and switch to safari",
+        ]
+    )
     st = StreamingTranscriber("x", decode=lambda samples: next(outputs))
     a = np.zeros(16000, dtype=np.float32)
     assert st.update(a) == Transcript([], ["open"])
@@ -2241,7 +2396,8 @@ def test_committed_never_shrinks_on_revision() -> None:
     outputs = iter(["open notes", "open notes", "open nodes please"])
     st = StreamingTranscriber("x", decode=lambda samples: next(outputs))
     a = np.zeros(16000, dtype=np.float32)
-    st.update(a); st.update(a)
+    st.update(a)
+    st.update(a)
     t = st.update(a)
     assert t.committed == ["open", "notes"]
     assert t.pending == ["please"]
@@ -2321,7 +2477,9 @@ class StreamingTranscriber:
         if stable > len(self._committed) and cur[: len(self._committed)] == self._committed:
             self._committed = cur[:stable]
         self._prev = cur
-        pending = cur[len(self._committed) :] if cur[: len(self._committed)] == self._committed else []
+        pending = (
+            cur[len(self._committed) :] if cur[: len(self._committed)] == self._committed else []
+        )
         return Transcript(list(self._committed), pending)
 ```
 
@@ -2368,7 +2526,8 @@ def test_snapshot_only_while_armed() -> None:
     r.push(np.ones(100, dtype=np.float32))
     assert r.snapshot().size == 0
     r.arm()
-    r.push(np.ones(100, dtype=np.float32)); r.push(np.ones(50, dtype=np.float32))
+    r.push(np.ones(100, dtype=np.float32))
+    r.push(np.ones(50, dtype=np.float32))
     assert r.snapshot().size == 150
     r.disarm()
     assert r.snapshot().size == 0
@@ -2377,7 +2536,8 @@ def test_snapshot_only_while_armed() -> None:
 def test_cap_keeps_latest() -> None:
     r = Recorder(sample_rate=100, max_seconds=1)
     r.arm()
-    r.push(np.zeros(80, dtype=np.float32)); r.push(np.ones(80, dtype=np.float32))
+    r.push(np.zeros(80, dtype=np.float32))
+    r.push(np.ones(80, dtype=np.float32))
     s = r.snapshot()
     assert s.size == 100 and s[-1] == 1.0
 
