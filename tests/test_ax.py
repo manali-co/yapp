@@ -37,8 +37,15 @@ def test_criteria_are_structured() -> None:
     assert "type here" in CTRL[1].criteria()["what"]
 
 
-def test_narrow_scores_by_path_and_label() -> None:
-    top = narrow(MENU + CTRL, "find on page", 2)
+def test_narrow_scores_by_path_and_label_case_insensitively() -> None:
+    junk = Target(
+        "m9",
+        "menu",
+        "AXMenuItem",
+        "Show Messages in Finder",
+        "Apple › Recent Items › Show Messages in Finder",
+    )
+    top = narrow(MENU + CTRL + [junk], "find on page", 2)
     assert {t.key for t in top} == {"m1", "m2"}
     top = narrow(MENU + CTRL, "new tab", 2)
     assert {t.key for t in top} == {"m0", "c0"}

@@ -184,8 +184,9 @@ def ax_focus(t: Target) -> bool:
 
 
 def score(words: str, t: Target) -> float:
-    by_label = fuzz.token_set_ratio(words, t.label)
-    by_path = fuzz.partial_ratio(words, t.path) * 0.9 if t.kind == "menu" else 0.0
+    w = words.lower()
+    by_label = fuzz.token_set_ratio(w, t.label.lower())
+    by_path = fuzz.partial_ratio(w, t.path.lower()) * 0.9 if t.kind == "menu" else 0.0
     return float(max(by_label, by_path))
 
 
