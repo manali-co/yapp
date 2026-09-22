@@ -91,11 +91,16 @@ class Session:
     # ---- the loop ----
     def run_forever(self) -> None:
         while not self._quit.is_set():
-            self._wanted.wait()
-            self._wanted.clear()
-            if self._quit.is_set():
-                break
-            self.run_one()
+            self.run_forever_once()
+
+    def run_forever_once(self) -> bool:
+        """Wait for one toggle and run one session. Returns False when quitting."""
+        self._wanted.wait()
+        self._wanted.clear()
+        if self._quit.is_set():
+            return False
+        self.run_one()
+        return True
 
     def run_one(self) -> bool:
         cfg = self.cfg
