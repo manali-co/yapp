@@ -20,6 +20,7 @@ from yapp.bardisplay import BarDisplay
 from yapp.config import Config
 from yapp.display import Display, Terminal
 from yapp.menubar import install_status_item
+from yapp.native import make_transparent
 from yapp.permwindow import PermWindow, handle_event, poll_loop
 from yapp.runner import build_runner
 from yapp.session import Session
@@ -130,6 +131,7 @@ def run_app(cfg: Config, log: bool = False) -> int:
         raise RuntimeError("pywebview could not create the windows")
     for w in (bar_window, perm_window):
         w.events.loaded += lambda w=w: w.evaluate_js(BRIDGE_JS)
+    bar_window.events.loaded += lambda: make_transparent(bar_window)
 
     bar = Bar(bar_window, width, height)
     bardisplay = BarDisplay(bar, silence_total=cfg.silence_seconds)
