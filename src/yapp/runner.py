@@ -109,6 +109,8 @@ class Runner:
         return out
 
     def _step(self, tail: str) -> Verdict:
+        if self.display:
+            self.display.thinking()
         try:
             d = self._classify(tail, self._ctx())
         except JevError as e:

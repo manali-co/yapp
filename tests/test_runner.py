@@ -137,3 +137,47 @@ def test_verdict_outcomes_reported() -> None:
     r, _ = make(canned)
     outs = [v.outcome for v in r.tick(["open"])]
     assert outs == [Outcome.WAIT]
+
+
+class SpyDisplay:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def status(self, msg: str) -> None:
+        self.calls.append("status")
+
+    def listening(self, level: float) -> None:
+        self.calls.append("listening")
+
+    def thinking(self) -> None:
+        self.calls.append("thinking")
+
+    def show_transcript(self, committed: list[str], pending: list[str]) -> None:
+        self.calls.append("transcript")
+
+    def show_decision(self, d: Decision) -> None:
+        self.calls.append("decision")
+
+    def show_verdict(self, v: object) -> None:
+        self.calls.append("verdict")
+
+    def show_result(self, r: Result) -> None:
+        self.calls.append("result")
+
+    def show_error(self, msg: str) -> None:
+        self.calls.append("error")
+
+
+def test_runner_calls_thinking_before_decision() -> None:
+    ex = FakeExec()
+    spy = SpyDisplay()
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        display=spy,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+    )
+    r.tick(["open", "notes"])
+    assert spy.calls[:4] == ["transcript", "thinking", "decision", "verdict"]

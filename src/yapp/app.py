@@ -7,7 +7,7 @@ import sys
 import time
 
 from yapp.config import Config
-from yapp.display import Display
+from yapp.display import Display, Terminal
 from yapp.jev import JevError
 from yapp.runner import build_runner
 
@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--headless", action="store_true", help="no window (default until UI ships)")
     args = p.parse_args(argv)
     cfg = Config()
-    display = Display()
+    display = Terminal()
     try:
         if args.once:
             return run_once(args.once, cfg, display, per_tick=args.per_tick)
