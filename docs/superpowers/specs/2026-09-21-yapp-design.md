@@ -578,3 +578,36 @@ Applied to both `dev` and `main` via `gh api`:
 - `main` additionally requires linear history (squash merges from `dev`).
 
 Releases flow `feature/* → dev → main`; release-please opens the version PR on `main`.
+
+## 12. Screen actions: any app, on the fly (added 2026-09-22)
+
+Yapp gains one intent, `screen_action`: do something inside the current app by name
+("new tab", "zoom in", "find on page", "search for fable five", "bold this"). Nothing is
+written per app. The app's own UI, read live through the macOS Accessibility API, is the
+list of options; Jev picks one.
+
+### 12.1 Loop
+
+```
+tail complete, intent = screen_action
+  perceive  : menu items of the frontmost app (cached per app for 5 min) + labelled
+              controls of its focused window (walked now, ≤ 3000 nodes, ≤ 0.5 s)
+  narrow    : normalise labels (strip …, collapse spaces), score by label and menu path
+              against the spoken words, keep 30, sort by key
+  decide    : one Jev call: target (choice over the 30 + none), operation (press | type |
+              none), text (choice over spans cut from the words), submit (noul)
+  act       : press = AXPress on the element (menu items included); type = focus the
+              field, select all, type the chosen span, Enter if submit ≥ 0.5
+  observe   : the next tick re-reads the window; "undo" sends ⌘Z to the app
+```
+
+### 12.2 Gates
+
+Target confidence ≥ 0.60 and target ≠ none, else quiet with "I don't see that here".
+Operation must fit the target's role (press for buttons, links, tabs, menu items; type for
+text and search fields); a mismatch is treated as none. Spans are chosen, never generated.
+
+### 12.3 Costs
+
+Two Jev calls per screen command (intent, then target). Perception ~150 ms with the menu
+cache warm, ~1 s cold. Only the frontmost app is read; secure fields are skipped.
