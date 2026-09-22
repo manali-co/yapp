@@ -1,9 +1,22 @@
-"""Python -> JavaScript façade for the pill window. Every call becomes one window.yapp.* call."""
+"""Python -> JavaScript façade for the pill window, and the JS -> Python event bridge."""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any, Protocol
+
+from yapp.permissions import Grant, Permissions
+
+EVENTS = ("action", "escape", "open-settings", "later", "permissions-complete")
+
+# Injected after each page loads: forwards the page's yapp:* CustomEvents to Python.
+BRIDGE_JS = (
+    "(function(){var names=" + json.dumps(list(EVENTS)) + ";"
+    "names.forEach(function(n){window.addEventListener('yapp:'+n,function(e){"
+    "if(window.pywebview&&window.pywebview.api){window.pywebview.api.event(n,e.detail||{});}"
+    "});});})();"
+)
 
 
 class WindowLike(Protocol):
@@ -18,8 +31,28 @@ def _j(v: Any) -> str:
     return json.dumps(v).replace("/", "\\/")
 
 
+def grants_for_page(p: Permissions) -> dict[str, bool | None]:
+    """The pages want true / false / null, never strings."""
+    to_bool = {Grant.GRANTED: True, Grant.MISSING: False, Grant.UNKNOWN: None}
+    return {
+        "mic": to_bool[p.mic],
+        "input": to_bool[p.input],
+        "accessibility": to_bool[p.accessibility],
+    }
+
+
+class Events:
+    """Exposed to the page as window.pywebview.api; BRIDGE_JS calls event(name, detail)."""
+
+    def __init__(self, on_event: Callable[[str, dict[str, Any]], None]) -> None:
+        self._on_event = on_event
+
+    def event(self, name: str, detail: dict[str, Any] | None = None) -> None:
+        self._on_event(str(name), dict(detail or {}))
+
+
 class Bar:
-    def __init__(self, window: WindowLike, width: int = 360, height: int = 120) -> None:
+    def __init__(self, window: WindowLike, width: int = 400, height: int = 96) -> None:
         self.w = window
         self.width = width
         self.height = height
@@ -61,12 +94,18 @@ class Bar:
     def commit(self) -> None:
         self._call("commit")
 
-    def countdown(self, seconds: float | None) -> None:
-        """Seconds until the bar closes for silence; None clears it."""
-        self._call("setCountdown", round(seconds, 1) if seconds is not None else 0)
+    def countdown(self, seconds: float | None, total: float = 4.0) -> None:
+        """Seconds until the bar closes for silence; None clears the ring."""
+        if seconds is None:
+            self._call("setCountdown", None)
+        else:
+            self._call("setCountdown", round(max(0.0, seconds), 1), total)
 
-    def hint(self, visible: bool) -> None:
-        self._call("setHint", visible)
+    def hint(self, value: bool | int | str) -> None:
+        self._call("setHint", value)
 
-    def permissions(self, grants: dict[str, str]) -> None:
-        self._call("setPermissions", grants)
+    def permissions(self, p: Permissions) -> None:
+        self._call("setPermissions", grants_for_page(p))
+
+    def appearance(self, mode: str | None) -> None:
+        self._call("setAppearance", mode)
