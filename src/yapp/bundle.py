@@ -12,10 +12,12 @@ from pathlib import Path
 from yapp.config import Config
 from yapp.display import Terminal
 
+BUNDLE_ID = "co.manali.yapp"
+
 PLIST = {
     "CFBundleName": "Yapp",
     "CFBundleDisplayName": "Yapp",
-    "CFBundleIdentifier": "co.manali.yapp",
+    "CFBundleIdentifier": BUNDLE_ID,
     "CFBundleVersion": "0.1.0",
     "CFBundleShortVersionString": "0.1.0",
     "CFBundlePackageType": "APPL",
@@ -112,8 +114,21 @@ def install_app(cfg: Config, display: Terminal) -> int:
     project = Path(__file__).resolve().parents[2]
     icon = Path(str(resources.files("yapp.ui").joinpath("icon-1024.png")))
     write_bundle(dest, Path(sys.executable), project, icon)
+    # An identifier-based designated requirement keeps the user's permission grants valid
+    # across reinstalls, even when the launcher or bundle resources change.
     subprocess.run(
-        ["codesign", "--force", "--deep", "--sign", "-", "-i", "co.manali.yapp", str(dest)],
+        [
+            "codesign",
+            "--force",
+            "--deep",
+            "--sign",
+            "-",
+            "-i",
+            BUNDLE_ID,
+            "-r",
+            f'=designated => identifier "{BUNDLE_ID}"',
+            str(dest),
+        ],
         check=False,
     )
     display.status(f"installed {dest}")

@@ -10,11 +10,10 @@ from pathlib import Path
 from typing import Any
 
 import webview
-from pynput import keyboard
 from rich.console import Console
 
 from yapp import permissions as perms
-from yapp.audio import Recorder
+from yapp.audio import Hotkeys, Recorder
 from yapp.bar import BRIDGE_JS, Bar, Events, pill_size
 from yapp.bardisplay import BarDisplay
 from yapp.config import Config
@@ -165,7 +164,7 @@ def run_app(cfg: Config, log: bool = False) -> int:
 
         def start_hotkeys() -> None:
             try:
-                hot[0] = keyboard.GlobalHotKeys({cfg.hotkey_combo: toggle, "<esc>": escape})
+                hot[0] = Hotkeys(on_toggle=toggle, on_escape=escape)
                 hot[0].start()
                 time.sleep(0.5)
                 display.status(f"hotkey listener alive: {hot[0].is_alive()} ({cfg.hotkey_combo})")
