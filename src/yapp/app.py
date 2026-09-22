@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from pathlib import Path
 
 from yapp.config import Config
 from yapp.display import Terminal
@@ -33,6 +34,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("eval", help="accuracy per confidence bucket on tests/eval")
     sub.add_parser("keys", help="print what the hotkey listener sees")
     sub.add_parser("install-app", help="write ~/Applications/Yapp.app")
+    ax = sub.add_parser("ax", help="spike: read an app's UI via Accessibility and let Jev pick")
+    ax.add_argument("--app", default=None, help="running app name; default frontmost")
+    ax.add_argument("--phrases", default="new tab|find on page|zoom in|search for fable five")
+    ax.add_argument("--out", default=str(Path.home() / ".yapp" / "ax.log"))
     p.set_defaults(command="app", log=False)
     return p
 
@@ -56,6 +61,10 @@ def main(argv: list[str] | None = None) -> int:
             from yapp.audio import debug_keys
 
             return debug_keys(display, seconds=10)
+        if args.command == "ax":
+            from yapp.ax import run_ax
+
+            return run_ax(args.app, args.phrases.split("|"), cfg.model, args.out)
         if args.command == "install-app":
             from yapp.bundle import install_app
 
