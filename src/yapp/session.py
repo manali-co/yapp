@@ -16,6 +16,7 @@ from yapp.bar import Bar
 from yapp.bardisplay import BarDisplay
 from yapp.config import Config
 from yapp.runner import Runner
+from yapp.state import AppState
 from yapp.stt import Transcript
 
 
@@ -47,7 +48,9 @@ class Session:
         screen: Screen,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        state: AppState | None = None,
     ) -> None:
+        self.state = state
         self.cfg = cfg
         self.runner = runner
         self.rec = rec
@@ -100,6 +103,9 @@ class Session:
             self.running = True
             self.stop_requested = False
         try:
+            if self.state is not None:
+                n = self.state.bump_sessions()
+                self.bardisplay.hint_index = (n - 1) % 4 if self.state.show_hint else None
             self.bar.show_at_top(*self.screen())
             self.bardisplay.begin()
             self.rec.arm()

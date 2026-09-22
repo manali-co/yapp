@@ -43,10 +43,10 @@ def test_execute_pulses_toward_action_then_result_text() -> None:
     assert bd.acted
 
 
-def test_refuse_is_unsure_with_copy() -> None:
+def test_refuse_is_its_own_state_with_copy() -> None:
     bd, w = make()
     bd.show_verdict(Verdict(Outcome.REFUSE, "won't do that: could delete, send, or spend"))
-    assert 'setState("unsure"' in w.js[0]
+    assert 'setState("refused"' in w.js[0]
     assert "Won" in w.js[1] and "delete" in w.js[1]
 
 
@@ -94,7 +94,32 @@ def test_end_states() -> None:
     assert 'setState("unsure"' in w.js[-2] and "Not sure" in w.js[-1]
 
 
-def test_error_state() -> None:
+def test_error_kinds() -> None:
     bd, w = make()
-    bd.show_error("boom")
-    assert 'setState("error"' in w.js[0] and "boom" in w.js[1]
+    bd.show_error("TypeSafe API unreachable")
+    assert 'setState("error-jev"' in w.js[0] and "unreachable" in w.js[1]
+    bd.show_error("no microphone input device")
+    assert 'setState("error-mic"' in w.js[-2]
+
+
+def test_begin_sends_hint_index_or_false() -> None:
+    bd, w = make()
+    bd.begin()
+    assert w.js[-1].endswith("setHint(false)")
+    bd.hint_index = 2
+    bd.begin()
+    assert w.js[-1].endswith("setHint(2)")
+
+
+def test_undo_result_enters_undone_state() -> None:
+    bd, w = make()
+    bd.show_result(Result(True, "quit Notes"))
+    assert w.js[0].endswith('setDecision("Undone", false)')
+    assert 'setState("undone"' in w.js[1]
+
+
+def test_countdown_carries_silence_total() -> None:
+    bd, w = make()
+    bd.silence_total = 4.0
+    bd.countdown(1.25)
+    assert w.js[-1].endswith("setCountdown(1.2, 4.0)")

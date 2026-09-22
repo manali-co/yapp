@@ -30,11 +30,21 @@ def level_gain(rms: float) -> float:
     return min(1.0, float(max(0.0, rms * 12) ** 0.7))
 
 
+def error_kind(msg: str) -> str:
+    """Which error frame the page should show for an error message."""
+    low = msg.lower()
+    if "mic" in low or "audio" in low or "input device" in low:
+        return "error-mic"
+    return "error-jev"
+
+
 class BarDisplay:
-    def __init__(self, bar: Bar) -> None:
+    def __init__(self, bar: Bar, *, silence_total: float = 4.0) -> None:
         self.bar = bar
+        self.silence_total = silence_total
         self.dictating = False
         self.acted = False
+        self.hint_index: int | None = None
         self._words = 0
         self._state = ""
 
@@ -53,6 +63,7 @@ class BarDisplay:
         self.bar.decision("")
         self.bar.transcript("", "")
         self._set("listening", level=0.0)
+        self.bar.hint(self.hint_index if self.hint_index is not None else False)
 
     def end(self, acted: bool) -> None:
         if acted:
@@ -65,7 +76,7 @@ class BarDisplay:
         return None
 
     def countdown(self, seconds: float | None) -> None:
-        self.bar.countdown(seconds)
+        self.bar.countdown(seconds, total=self.silence_total)
 
     def listening(self, level: float) -> None:
         self.bar.level(level_gain(level))
@@ -93,19 +104,22 @@ class BarDisplay:
                 self._state = "acting"
                 self.bar.set_state("acting", direction=DIRECTION.get(verb, 0.0))
             case Outcome.REFUSE:
-                self._set("unsure")
+                self._set("refused")
                 self.bar.decision(REFUSE_COPY)
             case _:
                 self._resting()
 
     def show_result(self, r: Result) -> None:
         if r.ok:
-            self.bar.decision(result_copy(r.message))
+            copy = result_copy(r.message)
+            self.bar.decision(copy)
+            if copy == "Undone":
+                self._set("undone")
             if r.message == "dictating":
                 self.dictating = True
         else:
             self.bar.decision(result_copy(r.message), muted=True)
 
     def show_error(self, msg: str) -> None:
-        self._set("error")
+        self._set(error_kind(msg))
         self.bar.decision(msg, muted=True)

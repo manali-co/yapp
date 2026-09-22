@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 
 from tests.test_runner import APPS, FakeExec, canned
@@ -138,6 +140,22 @@ def test_escape_only_acts_while_running() -> None:
 def test_countdown_is_sent_after_first_word() -> None:
     s, _, w = make("open notes")
     s.run_one()
-    values = [float(j.rsplit("(", 1)[1].rstrip(")")) for j in w.js if "setCountdown" in j]
+    args = [j.rsplit("(", 1)[1].rstrip(")") for j in w.js if "setCountdown" in j]
+    values = [float(a.split(",")[0]) for a in args if a != "null"]
     assert values and values[0] <= 2.0 and values[-1] <= 0.5  # counts down to the close
     assert values == sorted(values, reverse=True)  # monotonic once the last word landed
+
+
+def test_session_counts_and_hints_first_runs(tmp_path: Path) -> None:
+    from yapp.state import AppState
+
+    s, _, w = make("open notes")
+    s.state = AppState(tmp_path / "state.json")
+    s.run_one()
+    assert s.state.sessions == 1
+    assert any(j.endswith("setHint(0)") for j in w.js)
+    for _ in range(5):
+        s.stt.reset()
+        s.run_one()
+    assert s.state.sessions == 6
+    assert w.js[-1] != "" and not any(j.endswith("setHint(1)") for j in w.js[-40:])
