@@ -1,23 +1,31 @@
-"""Provenance for src/yapp/ui: pulled 2026-09-21 from the Claude Design project
-https://claude.ai/design/p/be45c375-77cb-4cdf-9646-2ea5843fa7ee via DesignSync get_file.
+"""Provenance for src/yapp/ui.
 
-Ported verbatim: yapp-avatar.js, tokens.css, icon-1024.png, yapp_theme.py -> src/yapp/theme.py.
-Edited on port: window.html (Google Fonts link -> fonts.css; idle hint says
-"press ⌥ Space to talk"; setState merges the demo SAMPLES only in demo mode, the embedded
-app passes real transcript/decision text, fixed 2026-09-22),
-icon.svg (c2pa provenance <metadata> block removed; drawing untouched).
-Not ported: support.js (Claude Design's own preview runtime, unreferenced by window.html).
-Fonts: Bricolage Grotesque and Figtree (OFL) fetched from fonts.gstatic.com as Latin woff2 subsets.
+Pulled 2026-09-22 from the Claude Design project
+https://claude.ai/design/p/be45c375-77cb-4cdf-9646-2ea5843fa7ee via Share -> Export ->
+Project archive (.zip), unzipped, and copied byte-for-byte: window.html, permissions.html,
+avatar.html, yapp-avatar.js, tokens.css, icon.svg, icon-1024.png, icon-16.png, icon-32.png,
+menubar-glyph.svg, menubar-glyph-listening.svg, menubar-glyph-paused.svg,
+menubar-glyph-attention.svg, and yapp_theme.py -> src/yapp/theme.py (reformatted by ruff only).
 
-Re-pull from a Claude Code session with the DesignSync tool; this file is a record, not a fetcher.
+No edits were made on port. Visual changes go through the design project first.
+Not ported: support.js (Claude Design's preview runtime), Yapp.dc.html and wireframes.dc.html
+(showcase pages), screenshots/.
 """
 
 FILES = [
     "window.html",
+    "permissions.html",
+    "avatar.html",
     "yapp-avatar.js",
     "tokens.css",
     "icon.svg",
     "icon-1024.png",
+    "icon-16.png",
+    "icon-32.png",
+    "menubar-glyph.svg",
+    "menubar-glyph-listening.svg",
+    "menubar-glyph-paused.svg",
+    "menubar-glyph-attention.svg",
     "yapp_theme.py",
 ]
 

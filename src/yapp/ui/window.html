@@ -3,121 +3,222 @@
 <head>
 <meta charset="utf-8">
 <title>Yapp</title>
-<link rel="stylesheet" href="fonts.css">
 <link rel="stylesheet" href="tokens.css">
 <style>
   html, body { margin: 0; background: transparent; }
-  body { width: var(--yapp-pill-w); height: var(--yapp-pill-h); overflow: hidden; -webkit-font-smoothing: antialiased; }
-  body.demo { width: auto; height: 100vh; display: grid; place-items: center; background: linear-gradient(160deg, #E9E6E0, #CFCBC3); }
-  body.demo.dark { background: linear-gradient(160deg, #2A2926, #121110); }
+  body { font: var(--yapp-text-body); color: var(--yapp-label); -webkit-font-smoothing: antialiased; }
+  body.embed { width: var(--yapp-pill-w); height: var(--yapp-pill-h); overflow: hidden; }
+  body.single { width: 480px; height: 160px; display: grid; place-items: center; overflow: hidden; }
+  body.gallery { padding: 32px; display: flex; flex-direction: column; gap: 18px; background: var(--yapp-material-window); }
+  .wall { position: fixed; inset: 0; z-index: -1; background: radial-gradient(120% 90% at 20% 10%, #dfe7f1, transparent 60%), radial-gradient(90% 90% at 90% 80%, #e8d9cf, transparent 60%), linear-gradient(135deg, #c8d3e2, #d9dde6); }
+  :root.appearance-dark .wall, :root:not(.appearance-light) .wall.auto-dark { background: radial-gradient(120% 90% at 20% 10%, #2a3446, transparent 60%), radial-gradient(90% 90% at 90% 80%, #3e2f2c, transparent 60%), linear-gradient(135deg, #171b24, #23262e); }
   .pill { width: var(--yapp-pill-w); height: var(--yapp-pill-h); box-sizing: border-box; border-radius: var(--yapp-pill-radius);
-    background: var(--yapp-chrome); border: 1px solid var(--yapp-chrome-border); box-shadow: var(--yapp-chrome-shadow);
-    display: flex; align-items: center; gap: var(--yapp-space-4); padding: 0 24px 0 18px; color: var(--yapp-ink); }
+    background: var(--yapp-material); -webkit-backdrop-filter: blur(40px) saturate(180%); backdrop-filter: blur(40px) saturate(180%);
+    box-shadow: 0 0 0 0.5px var(--yapp-material-border), inset 0 0.5px 0 var(--yapp-material-highlight), var(--yapp-shadow);
+    display: flex; align-items: center; gap: 14px; padding: 0 26px 0 16px; color: var(--yapp-label);
+    transition: opacity var(--yapp-dur-base) var(--yapp-ease-out); }
+  .pill.closing { opacity: 0.6; }
+  .pill.blocked canvas { opacity: 0.5; }
   .pill canvas { flex: none; }
-  .text { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: var(--yapp-space-1); }
-  /* transcript: the tail stays visible as words stream in (rtl container clips on the left; inner span keeps ltr order) */
-  .transcript { font: var(--yapp-text-transcript); white-space: nowrap; overflow: hidden; direction: rtl; text-align: left; }
+  .text { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+  .transcript { font: var(--yapp-text-transcript); white-space: nowrap; overflow: hidden; direction: rtl; text-align: left; color: var(--yapp-label); }
   .transcript:empty { display: none; }
   .transcript > span { direction: ltr; unicode-bidi: isolate; display: inline-block; }
-  .locked { color: var(--yapp-ink); }
-  .pending { color: var(--yapp-ink-3); transition: color var(--yapp-dur-base) var(--yapp-ease-out); }
-  .transcript.live .pending::after { content: ""; display: inline-block; width: 1.5px; height: .9em; margin-left: 2px; vertical-align: -0.1em; background: var(--yapp-ink-2); animation: caret 1s steps(2) infinite; }
+  .locked { color: var(--yapp-label); }
+  .locked.just { display: inline-block; animation: lock var(--yapp-dur-tick) var(--yapp-ease-out); }
+  @keyframes lock { from { transform: translateY(1px); color: var(--yapp-label-2); } }
+  .pending { color: var(--yapp-label-2); text-decoration: underline dotted; text-decoration-color: var(--yapp-label-3); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .pending.struck { text-decoration: line-through; text-decoration-color: var(--yapp-label-3); }
+  .transcript.live .pending::after { content: ""; display: inline-block; width: 1px; height: 0.9em; margin-left: 2px; vertical-align: -0.1em; background: var(--yapp-label-2); animation: caret 1s steps(2) infinite; }
   @keyframes caret { to { opacity: 0; } }
-  .decision { font: var(--yapp-text-decision); letter-spacing: var(--yapp-tracking-display); color: var(--yapp-ink); min-width: 0;
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-wrap: pretty; transition: color var(--yapp-dur-base) var(--yapp-ease-out); }
+  .decision { font: var(--yapp-text-decision); color: var(--yapp-label); min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 0; }
   .decision:empty { display: none; }
-  .decision.muted { color: var(--yapp-ink-2); font-weight: 500; }
-  .decision.hint { color: var(--yapp-ink-2); font: var(--yapp-text-hint); }
-  kbd { font: var(--yapp-text-key); color: var(--yapp-ink-2); background: var(--yapp-key-bg); border: 1px solid var(--yapp-key-border); border-radius: 5px; height: 18px; min-width: 18px; padding: 0 4px;
-    display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; vertical-align: -3px; }
+  .decision.muted .main { color: var(--yapp-label-2); }
+  .main { white-space: nowrap; }
+  .detail { font: var(--yapp-text-detail); color: var(--yapp-label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .detail a { color: var(--yapp-accent); text-decoration: none; cursor: pointer; }
+  .detail a:hover { text-decoration: underline; }
+  .hint { font: var(--yapp-text-hint); color: var(--yapp-label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hint:empty { display: none; }
+  .hint kbd { font: 500 11px/1 var(--yapp-font); color: var(--yapp-label-2); border: 1px solid var(--yapp-control-border); background: var(--yapp-control-bg); border-radius: 4px; padding: 1px 4px; }
   .swap { animation: swap var(--yapp-dur-base) var(--yapp-ease-out); }
   @keyframes swap { from { opacity: 0; transform: translateY(3px); } }
-  #controls { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; gap: 6px; align-items: center;
-    background: var(--yapp-chrome); border: 1px solid var(--yapp-chrome-border); border-radius: 16px; padding: 10px 12px; box-shadow: var(--yapp-chrome-shadow); }
-  #controls button { white-space: nowrap; font: 500 12px/1 var(--yapp-font-text); color: var(--yapp-ink-2); background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 7px 10px; cursor: pointer; }
-  #controls button:hover { color: var(--yapp-ink); }
-  #controls button[aria-pressed="true"] { color: var(--yapp-ink); background: var(--yapp-key-bg); border-color: var(--yapp-key-border); }
-  .sep { width: 1px; height: 16px; background: var(--yapp-chrome-border); margin: 0 4px; }
-  body:not(.demo) #controls { display: none; }
+  .meter { display: none; align-items: center; gap: 2px; height: 14px; }
+  .meter.on { display: flex; }
+  .meter i { display: block; width: 3px; height: 3px; border-radius: 1.5px; background: var(--yapp-accent); }
+  /* gallery */
+  .g-row { display: grid; grid-template-columns: 120px 480px 480px; gap: 16px; align-items: center; }
+  .g-row .lbl { font: var(--yapp-text-detail); color: var(--yapp-label-2); }
+  .g-row iframe { width: 480px; height: 160px; border: 0; border-radius: 12px; background: transparent; }
+  .g-head { font: var(--yapp-text-title); color: var(--yapp-label); }
 </style>
 </head>
 <body>
-<div class="pill" role="status" aria-live="polite">
+<div class="pill" id="pill" role="status" aria-live="polite">
   <canvas id="avatar"></canvas>
   <div class="text">
     <div class="transcript" id="transcript"></div>
     <div class="decision" id="decision"></div>
+    <div class="hint" id="hint"></div>
   </div>
 </div>
-<div id="controls"><span id="states" style="display:flex;gap:6px"></span><span class="sep"></span><button id="commit">commit word</button><button id="bg">dark desktop</button></div>
 <script src="yapp-avatar.js"></script>
 <script>
 (function () {
   const q = new URLSearchParams(location.search);
-  const demo = !q.has('embed') && !q.has('state');
-  if (demo) document.body.classList.add('demo');
-  // locked = words the recogniser has committed (solid); pending = still settling (dim)
+  const appearance = q.get('appearance');
+  if (appearance) document.documentElement.classList.add('appearance-' + appearance);
+  const MODE = q.has('embed') ? 'embed' : (q.get('demo') ? 'single' : 'gallery');
+  document.body.classList.add(MODE);
+  const A = 'accessibility';
+  const HINTS = ['say <b>"open Notes"</b> · <kbd>⌥ Space</kbd> or <kbd>Esc</kbd> closes', 'try <b>"type hello there"</b> to dictate', 'try <b>"open the report on my Desktop"</b>', 'try <b>"run Morning"</b> to run a Shortcut', 'say <b>"undo"</b> to reverse the last thing'];
+  // demo copy only. Never merged in embed mode.
   const SAMPLES = {
-    idle:      { locked: '', pending: '', decision: '', hint: true, level: 0, confidence: 0 },
-    listening: { locked: 'open notes and', pending: 'switch to saf', live: true, decision: 'Opening Notes', muted: true, level: 'auto', confidence: 0 },
-    thinking:  { locked: 'open notes', pending: '', decision: '', confidence: 0.55 },
-    dictating: { locked: 'meeting moved to thursday', pending: 'at t', live: true, decision: 'Typing…', confidence: 0.9 },
-    acting:    { locked: 'open notes and', pending: 'swi', live: true, decision: 'Opening Notes', confidence: 0.93 },
-    done:      { locked: 'undo', pending: '', decision: 'Undone', confidence: 0.96 },
-    unsure:    { locked: 'uh open the thing', pending: '', decision: 'Not sure what you meant', muted: true, confidence: 0.31 },
-    error:     { locked: 'empty the trash', pending: '', decision: 'Won’t do that: could delete something', confidence: 0.88 }
+    keydown:   { avatar: 'listening', locked: '', pending: '', decision: 'Listening', hint: 0, level: 0.06 },
+    hint:      { avatar: 'listening', locked: '', pending: '', decision: 'Listening', hint: 1, level: 0.06 },
+    listening: { avatar: 'listening', locked: 'open notes and', pending: 'switch to saf', live: true, decision: 'Listening', muted: true, meter: true, level: 'auto' },
+    thinking:  { avatar: 'thinking', locked: 'open notes and', pending: 'switch to safari', live: true, decision: 'Listening ···', muted: true, meter: true, level: 0.2, confidence: 0.4 },
+    acting:    { avatar: 'acting', locked: 'open notes and switch', pending: 'to safari', live: true, decision: 'Opening Notes', confidence: 0.75, level: 0.3 },
+    dictating: { avatar: 'dictating', locked: 'type meeting moved to', pending: 'thursday at t', live: true, decision: 'Typing into Notes', detail: '“meeting moved to”' },
+    done:      { avatar: 'done', locked: 'open notes and switch to safari', decision: 'Opened Notes, Safari', detail: '✓', confidence: 0.93 },
+    undone:    { avatar: 'done', locked: 'undo', decision: 'Undone', detail: 'closed Safari', confidence: 0.96 },
+    unsure:    { avatar: 'unsure', locked: 'uh open the thing', decision: 'Not sure what you meant', detail: 'try “open Notes”', confidence: 0.31 },
+    refused:   { avatar: 'refused', locked: 'empty the trash', decision: 'Won’t do that', detail: 'could delete something' },
+    'error-jev': { avatar: 'error', locked: 'open notes', decision: 'Heard you, can’t decide', detail: 'Jev is off · ', action: { label: 'Show log', id: 'log' } },
+    'error-mic': { avatar: 'error', decision: 'No microphone', detail: 'nothing coming in · check Sound settings · ', action: { label: 'Fix', id: 'permissions', permission: 'mic' } },
+    closing:   { avatar: 'done', locked: 'open notes and switch to safari', decision: 'Opened Notes, Safari', detail: '✓ · closing', confidence: 0.93 },
+    cancelled: { avatar: 'idle', locked: 'open notes and', pending: 'switch to saf', struck: true, decision: 'Cancelled', muted: true, detail: 'kept Notes open', dim: true },
+    'silence-1': { avatar: 'listening', locked: 'open notes', decision: 'Opened Notes ✓', muted: true, detail: 'still listening', countdown: 2.6, level: 0 },
+    'silence-2': { avatar: 'listening', locked: 'open notes', decision: 'Closing…', muted: true, detail: 'say more to keep it open', countdown: 1.2, level: 0 },
+    'blocked-input': { permissions: { input: false }, state: 'keydown' },
+    'blocked-access': { permissions: { accessibility: false }, state: 'acting', locked: 'open notes', level: 0.2 },
+    'blocked-mic': { permissions: { mic: false }, state: 'keydown' }
   };
-  const canvas = document.getElementById('avatar');
-  const av = new YappAvatar(canvas, { size: 84, hold: q.has('hold') || demo, autoCommit: q.has('hold') || demo });
-  const tEl = document.getElementById('transcript'), dEl = document.getElementById('decision');
-  let cur = { locked: '', pending: '' };
-  function setTranscript(locked, pending, live) {
-    cur.locked = locked || ''; cur.pending = pending || '';
-    tEl.innerHTML = (cur.locked || cur.pending) ? '<span><span class="locked">' + esc(cur.locked) + '</span>' + (cur.pending ? '<span class="pending"> ' + esc(cur.pending) + '</span>' : '') + '</span>' : '';
-    tEl.classList.toggle('live', !!live);
+  const ORDER = ['keydown', 'hint', 'listening', 'thinking', 'acting', 'dictating', 'done', 'undone', 'unsure', 'refused', 'error-jev', 'error-mic', 'closing', 'cancelled', 'silence-1', 'silence-2', 'blocked-input', 'blocked-access', 'blocked-mic'];
+
+  if (MODE === 'gallery') {
+    document.getElementById('pill').remove();
+    const h = document.createElement('div'); h.className = 'g-head'; h.textContent = 'Yapp bar — every state, light and dark'; document.body.appendChild(h);
+    ORDER.forEach(s => {
+      const row = document.createElement('div'); row.className = 'g-row';
+      row.innerHTML = '<div class="lbl">' + s + '</div>' + ['light', 'dark'].map(a => '<iframe title="' + s + ' ' + a + '" src="window.html?demo=' + s + '&appearance=' + a + '&hold"></iframe>').join('');
+      document.body.appendChild(row);
+    });
+    return;
   }
-  function esc(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
-  function render(name, o) {
+  if (MODE === 'single') { const w = document.createElement('div'); w.className = 'wall'; document.body.prepend(w); }
+
+  const pill = document.getElementById('pill'), tEl = document.getElementById('transcript'), dEl = document.getElementById('decision'), hEl = document.getElementById('hint');
+  const canvas = document.getElementById('avatar');
+  const av = new YappAvatar(canvas, { size: 64, hold: q.has('hold') });
+  const cur = { locked: '', pending: '', live: false, struck: false, state: 'idle' };
+  const perms = { mic: true, input: true, accessibility: true };
+  let hintIndex = 0;
+  const esc = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const emit = (name, detail) => { window.dispatchEvent(new CustomEvent('yapp:' + name, { detail })); try { window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.yapp && window.webkit.messageHandlers.yapp.postMessage(Object.assign({ event: name }, detail)); } catch (e) {} };
+
+  function setTranscript(locked, pending, o) {
+    o = typeof o === 'boolean' ? { live: o } : (o || {});
+    cur.locked = (locked || '').trim(); cur.pending = (pending || '').trim(); cur.live = !!o.live; cur.struck = !!o.struck;
+    if (!cur.locked && !cur.pending) { tEl.innerHTML = ''; return; }
+    let inner = '';
+    if (cur.locked) {
+      if (o.justLocked) { const i = cur.locked.lastIndexOf(' '); inner += '<span class="locked">' + esc(i < 0 ? '' : cur.locked.slice(0, i + 1)) + '</span><span class="locked just">' + esc(i < 0 ? cur.locked : cur.locked.slice(i + 1)) + '</span>'; }
+      else inner += '<span class="locked">' + esc(cur.locked) + '</span>';
+    }
+    if (cur.pending) inner += '<span class="pending' + (cur.struck ? ' struck' : '') + '">' + (cur.locked ? ' ' : '') + esc(cur.pending) + '</span>';
+    tEl.innerHTML = '<span>' + inner + '</span>'; tEl.classList.toggle('live', cur.live);
+  }
+  function setDecision(text, o) {
     o = o || {};
-    setTranscript(o.locked, o.pending, o.live);
-    dEl.className = 'decision' + (o.hint ? ' hint' : o.muted ? ' muted' : '');
-    dEl.innerHTML = o.hint ? 'press <kbd>⌥</kbd> <kbd>Space</kbd> to talk' : esc(o.decision || '');
+    dEl.className = 'decision' + (o.muted ? ' muted' : '');
+    let html = text ? '<span class="main">' + esc(text) + '</span>' : '';
+    if (o.meter) html += '<span class="meter on" id="meter">' + '<i></i>'.repeat(7) + '</span>';
+    if (o.detail || o.action) {
+      html += '<span class="detail">' + esc(o.detail || '');
+      if (o.action) html += '<a data-id="' + esc(o.action.id) + '" data-perm="' + esc(o.action.permission || '') + '">' + esc(o.action.label) + '</a>';
+      html += '</span>';
+    }
+    dEl.innerHTML = html;
     dEl.classList.remove('swap'); void dEl.offsetWidth; dEl.classList.add('swap');
-    av.autoLevel = o.level === 'auto';
-    av.setState(name, { level: o.level === 'auto' ? undefined : o.level, confidence: o.confidence, hold: o.hold, direction: o.direction });
-    sync(name);
+  }
+  dEl.addEventListener('click', e => { const a = e.target.closest('a'); if (!a) return; e.preventDefault(); emit('action', { id: a.dataset.id, permission: a.dataset.perm || undefined }); });
+  function setHint(v) {
+    if (v === false || v == null) { hEl.innerHTML = ''; return; }
+    if (v === true) { hEl.innerHTML = HINTS[hintIndex % HINTS.length]; hintIndex++; return; }
+    if (typeof v === 'number') { hEl.innerHTML = HINTS[v % HINTS.length]; return; }
+    hEl.textContent = String(v);
+  }
+  function setCountdown(seconds, total) {
+    if (seconds == null) { av.setCountdown(null); pill.classList.remove('closing'); return; }
+    total = total || 3; av.setCountdown(Math.max(0, seconds) / total); pill.classList.toggle('closing', seconds <= 2);
+  }
+  // returns the permission that blocks `state`, or null
+  function blockedBy(state) {
+    if (perms.mic === false) return 'mic';
+    if (perms.input === false && (state === 'keydown' || state === 'idle')) return 'input';
+    if (perms[A] === false && (state === 'acting' || state === 'dictating' || state === 'listening' || state === 'thinking')) return A;
+    return null;
+  }
+  const fix = p => ({ label: 'Fix', id: 'permissions', permission: p });
+  function renderBlocked(p, state) {
+    pill.classList.add('blocked'); setHint(false); setCountdown(null);
+    if (p === 'mic') { setTranscript('', ''); setDecision('No microphone access', { detail: 'allow it in Settings · ', action: fix('mic') }); av.setState('idle'); }
+    else if (p === 'input') { setTranscript('', ''); setDecision('Can’t see ⌥ Space yet', { detail: 'Input Monitoring is off · ', action: fix('input') }); av.setState('idle'); }
+    else { setDecision('Heard you, can’t act yet', { detail: 'Accessibility is off · ', action: fix(A) }); av.setState('listening'); }
+  }
+  function apply(name, s) {
+    if (s.state) name = s.state;
+    cur.state = name; pill.classList.remove('blocked');
+    if (s.permissions) setPermissions(s.permissions, true);
+    const b = blockedBy(name);
+    if (b && b !== A) return renderBlocked(b, name);
+    if (s.locked != null || s.pending != null) setTranscript(s.locked, s.pending, { live: s.live, struck: s.struck });
+    if (s.decision != null || s.detail != null || s.action != null || s.meter != null) setDecision(s.decision, s);
+    if (s.hint != null) setHint(s.hint); else if (cur.locked || cur.pending) setHint(false);
+    pill.classList.toggle('closing', !!s.dim);
+    av.autoLevel = s.level === 'auto';
+    av.setState(s.avatar || AVATAR[name] || 'idle', { level: s.level === 'auto' ? undefined : s.level, confidence: s.confidence, hold: s.hold, direction: s.direction });
+    if (s.countdown != null) setCountdown(s.countdown); else setCountdown(null);
+    if (b === A) renderBlocked(b, name);
+  }
+  const AVATAR = { idle: 'idle', keydown: 'listening', listening: 'listening', thinking: 'thinking', acting: 'acting', dictating: 'dictating', done: 'done', undone: 'done', unsure: 'unsure', refused: 'refused', error: 'error', 'error-jev': 'error', 'error-mic': 'error', closing: 'done', cancelled: 'idle', blocked: 'idle' };
+  function setPermissions(p, quiet) {
+    Object.assign(perms, p || {});
+    if (quiet) return;
+    const b = blockedBy(cur.state);
+    if (b) renderBlocked(b, cur.state); else if (pill.classList.contains('blocked')) { pill.classList.remove('blocked'); setDecision(''); }
+  }
+  function commit(word) {
+    const p = cur.pending.split(/\s+/).filter(Boolean);
+    const w = word != null ? word : p.shift(); if (word != null) p.shift();
+    if (!w) return;
+    setTranscript((cur.locked + ' ' + w).trim(), p.join(' '), { live: cur.live, justLocked: true });
+    av.commit();
   }
   window.yapp = {
-    // setState(name, {locked, pending, decision, live, muted, level, confidence, hold, direction, commit})
+    // setState(name, {locked, pending, live, struck, decision, muted, detail, action:{label,id}, meter, hint, level, confidence, countdown, direction, hold, commit, word})
+    // names: idle keydown(=bar just opened with ⌥ Space) listening thinking acting dictating done undone unsure refused error-jev error-mic closing cancelled
     setState: (name, o) => {
       o = o || {};
-      if (o.commit) return window.yapp.commit(o.word);
-      // demo mode shows the sample copy per state; the embedded app supplies real text
-      render(name, Object.assign({}, demo ? (SAMPLES[name] || {}) : (name === 'idle' ? { hint: true } : {}), o));
+      if (o.commit) return commit(o.word);
+      apply(name, MODE === 'embed' ? o : Object.assign({}, SAMPLES[name] || {}, o));
     },
-    // a word locked in: moves it from pending to locked and ticks the avatar
-    commit: word => {
-      const p = cur.pending.trim().split(/\s+/).filter(Boolean);
-      const w = word != null ? word : p.shift();
-      if (word != null) p.shift();
-      setTranscript((cur.locked + ' ' + (w || '')).trim(), p.join(' '), tEl.classList.contains('live'));
-      av.commit();
-    },
+    setTranscript, setDecision, setHint, setCountdown, commit,
     setLevel: v => av.setLevel(v),
     setConfidence: v => av.setConfidence(v),
-    setTranscript: (locked, pending, live) => setTranscript(locked, pending, live),
-    setDecision: (text, muted) => { dEl.className = 'decision' + (muted ? ' muted' : ''); dEl.textContent = text || ''; },
-    samples: SAMPLES, avatar: av,
-    get state() { return av.state; }
+    setPermissions: p => setPermissions(p, false),
+    setAppearance: a => { document.documentElement.classList.remove('appearance-light', 'appearance-dark'); if (a) document.documentElement.classList.add('appearance-' + a); av.syncColors(); },
+    permissions: perms, avatar: av, samples: MODE === 'embed' ? undefined : SAMPLES,
+    get state() { return cur.state; }
   };
-  const states = document.getElementById('states');
-  YappAvatar.STATES.forEach((s, i) => { const b = document.createElement('button'); b.textContent = (i + 1) + ' ' + s; b.dataset.state = s; b.onclick = () => window.yapp.setState(s); states.appendChild(b); });
-  function sync(name) { states.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.state === name)); }
-  av.onchange = sync;
-  document.getElementById('commit').onclick = () => window.yapp.commit();
-  document.getElementById('bg').onclick = e => { document.body.classList.toggle('dark'); e.target.textContent = document.body.classList.contains('dark') ? 'light desktop' : 'dark desktop'; };
-  addEventListener('keydown', e => { const i = +e.key - 1; if (i >= 0 && i < 8) window.yapp.setState(YappAvatar.STATES[i]); if (e.key === ' ') window.yapp.commit(); });
-  window.yapp.setState(q.get('state') || 'idle');
+  // meter follows raw mic level
+  (function loop() { const m = document.getElementById('meter'); if (m) { const l = av.level.v, t = av.t; m.querySelectorAll('i').forEach((el, i) => { const n = .5 + .5 * Math.sin(t * (9 + i * 1.7) + i * 1.9); el.style.height = (3 + l * 11 * n) + 'px'; }); } requestAnimationFrame(loop); })();
+  addEventListener('keydown', e => { if (e.key === 'Escape') emit('escape', {}); });
+  if (MODE === 'single') {
+    av.autoCommit = true;
+    window.yapp.setState(q.get('demo'));
+  }
 })();
 </script>
 </body>
