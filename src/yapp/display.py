@@ -37,6 +37,8 @@ VERDICT_STYLE = {
 class Terminal:
     def __init__(self, console: Console | None = None) -> None:
         self.c = console or Console(theme=YAPP_THEME)
+        if console is not None:
+            self.c.push_theme(YAPP_THEME)  # a caller's console must know our style names too
 
     def status(self, msg: str) -> None:
         self.c.print(f"[bold cyan]{msg}[/]")
