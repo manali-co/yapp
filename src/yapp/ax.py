@@ -78,7 +78,7 @@ class Target:
         else:
             what = f"{self.role[2:]} '{self.label}' in this window: click it"
             examples = [base, f"click {base}", f"press {base}"]
-        return {"what": what, "examples": [e for e in examples if e.strip()][:3]}
+        return {"what": what, "examples": [e for e in examples if e.strip()][:4]}
 
 
 # ---------------------------------------------------------------- perception (AX)
@@ -261,8 +261,8 @@ def fits(operation: str, target: Target | None) -> bool:
 def decide(words: str, targets: list[Target], jev: Jev) -> ScreenDecision:
     criteria: dict[str, Any] = {t.key: t.criteria() for t in targets}
     criteria["none"] = {
-        "what": "Nothing on this screen or in these menus is what the user asked for",
-        "examples": ["open safari", "what time is it", "never mind"],
+        "what": "Nothing listed fits: the user wants another app, or is not giving a command",
+        "examples": ["open safari", "what time is it", "never mind", "switch to notes"],
     }
     candidates = spans(words)
     text_criteria = {f"s{i}": s for i, s in enumerate(candidates)}
