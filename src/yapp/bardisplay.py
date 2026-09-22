@@ -64,6 +64,9 @@ class BarDisplay:
     def status(self, msg: str) -> None:
         return None
 
+    def countdown(self, seconds: float | None) -> None:
+        self.bar.countdown(seconds)
+
     def listening(self, level: float) -> None:
         self.bar.level(level_gain(level))
 

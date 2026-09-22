@@ -39,7 +39,9 @@ class Bar:
         self.visible = False
 
     def _call(self, fn: str, *args: Any) -> None:
-        self.w.evaluate_js(f"window.yapp.{fn}({', '.join(_j(a) for a in args)})")
+        # Guarded so a page that predates a method treats the call as a no-op.
+        call = f"window.yapp.{fn}({', '.join(_j(a) for a in args)})"
+        self.w.evaluate_js(f"window.yapp && window.yapp.{fn} && {call}")
 
     def set_state(self, name: str, **opts: Any) -> None:
         self._call("setState", name, opts)
@@ -58,3 +60,13 @@ class Bar:
 
     def commit(self) -> None:
         self._call("commit")
+
+    def countdown(self, seconds: float | None) -> None:
+        """Seconds until the bar closes for silence; None clears it."""
+        self._call("setCountdown", round(seconds, 1) if seconds is not None else 0)
+
+    def hint(self, visible: bool) -> None:
+        self._call("setHint", visible)
+
+    def permissions(self, grants: dict[str, str]) -> None:
+        self._call("setPermissions", grants)

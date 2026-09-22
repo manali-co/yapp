@@ -39,7 +39,7 @@ def test_execute_pulses_toward_action_then_result_text() -> None:
     bd.show_verdict(Verdict(Outcome.EXECUTE, "open Notes (0.99 ≥ 0.6)"))
     bd.show_result(Result(True, "opened Notes"))
     assert 'setState("acting"' in w.js[0] and '"direction": 0.0' in w.js[0]
-    assert w.js[1] == 'window.yapp.setDecision("Opening Notes", false)'
+    assert w.js[1].endswith('setDecision("Opening Notes", false)')
     assert bd.acted
 
 
@@ -77,7 +77,7 @@ def test_level_has_gain() -> None:
     bd.listening(0.02)
     assert "setLevel(0.3" in w.js[-1] or "setLevel(0.4" in w.js[-1]
     bd.listening(0.5)
-    assert w.js[-1] == "window.yapp.setLevel(1.0)"
+    assert w.js[-1].endswith("setLevel(1.0)")
 
 
 def test_dictation_result_enters_dictating() -> None:

@@ -116,7 +116,9 @@ class Session:
                     words = len(t.committed)
                     last_growth = self.clock()
                 now = self.clock()
-                if words > 0 and now - last_growth >= cfg.silence_seconds:
+                remaining = cfg.silence_seconds - (now - last_growth)
+                self.bardisplay.countdown(remaining if words > 0 else None)
+                if words > 0 and remaining <= 0:
                     break
                 if now - start >= cfg.max_session_seconds:
                     break

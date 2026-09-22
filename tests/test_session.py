@@ -133,3 +133,11 @@ def test_escape_only_acts_while_running() -> None:
     s, _, _ = make("open notes")
     s.escape()
     assert not s.wanted() and not s.stop_requested
+
+
+def test_countdown_is_sent_after_first_word() -> None:
+    s, _, w = make("open notes")
+    s.run_one()
+    values = [float(j.rsplit("(", 1)[1].rstrip(")")) for j in w.js if "setCountdown" in j]
+    assert values and values[0] <= 2.0 and values[-1] <= 0.5  # counts down to the close
+    assert values == sorted(values, reverse=True)  # monotonic once the last word landed
