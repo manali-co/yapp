@@ -90,7 +90,8 @@ def write_bundle(dest: Path, python: Path, project: Path, icon_png: Path) -> Pat
         "#!/bin/zsh\n"
         'source "$HOME/.zshenv" 2>/dev/null\n'
         f'cd "{project}"\n'
-        f'exec "{python}" -m yapp app "$@"\n'
+        'mkdir -p "$HOME/.yapp"\n'
+        f'exec "{python}" -m yapp ${{YAPP_ARGS:-app}} "$@" 2>>"$HOME/.yapp/app.err"\n'
     )
     script.chmod(0o755)
     launcher = macos / "yapp"

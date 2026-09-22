@@ -17,7 +17,8 @@ def test_bundle_layout_and_plist(tmp_path: Path) -> None:
     assert "NSMicrophoneUsageDescription" in plist
     script = (app / "Contents" / "Resources" / "launch.sh").read_text()
     assert script.startswith("#!/bin/zsh")
-    assert 'exec "/venv/bin/python" -m yapp app' in script
+    assert 'exec "/venv/bin/python" -m yapp ${YAPP_ARGS:-app}' in script
+    assert "app.err" in script
     launcher = app / "Contents" / "MacOS" / "yapp"
     assert launcher.stat().st_mode & 0o111
     head = launcher.read_bytes()[:4]

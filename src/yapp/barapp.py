@@ -153,17 +153,24 @@ def run_app(cfg: Config, log: bool = False) -> int:
         showing_for_perms = [False]
 
         def toggle() -> None:
+            display.status("hotkey: toggle")
             if showing_for_perms[0] and not session.running:
                 showing_for_perms[0] = False
             session.toggle()
 
         def escape() -> None:
+            display.status("hotkey: escape")
             session.escape()
             hide_permission_row()
 
         def start_hotkeys() -> None:
-            hot[0] = keyboard.GlobalHotKeys({cfg.hotkey_combo: toggle, "<esc>": escape})
-            hot[0].start()
+            try:
+                hot[0] = keyboard.GlobalHotKeys({cfg.hotkey_combo: toggle, "<esc>": escape})
+                hot[0].start()
+                time.sleep(0.5)
+                display.status(f"hotkey listener alive: {hot[0].is_alive()} ({cfg.hotkey_combo})")
+            except Exception as e:  # noqa: BLE001 - surface listener failures in the log
+                display.show_error(f"hotkey listener failed: {e!r}")
 
         def stop_hotkeys() -> None:
             if hot[0] is not None:
