@@ -1,0 +1,74 @@
+intent:
+  instructions: >
+    What does the user want the computer to do with instruction_so_far?
+    Judge only the first instruction if several are chained with "and" or "then".
+  criteria:
+    open_app:
+      what: Launch an application or bring it to the front
+      not_for: Opening a named document or file (that is open_file); pressing a shortcut
+      examples: ["open notes", "launch safari", "switch to slack", "bring up the terminal", "go to chrome"]
+    type_text:
+      what: Type or dictate words into the app that is currently focused
+      not_for: Naming an app or a file to open
+      examples: ["type hello there", "write dear sam", "say thanks for the update", "enter my address"]
+    open_file:
+      what: Open a specific document, note, or file by its name
+      not_for: Launching an app with no file named
+      examples: ["open my resume", "find the budget spreadsheet", "show the tax pdf"]
+    press_key:
+      what: Press a keyboard shortcut
+      not_for: Typing words
+      examples: ["save", "copy that", "paste", "select all", "hit enter", "press escape"]
+    undo:
+      what: Reverse or cancel what Yapp just did
+      not_for: The undo shortcut inside an app while dictating a document
+      examples: ["undo", "no", "not that", "undo that", "wrong app"]
+    none:
+      what: Not an instruction to the computer, or too unclear to act on
+      examples: ["um", "what was I", "hmm let me think", "okay so"]
+
+key_combo:
+  instructions: Which keyboard shortcut does the user mean?
+  criteria:
+    cmd+s: Save
+    cmd+c: Copy
+    cmd+v: Paste
+    cmd+a: Select all
+    cmd+w: Close the window or tab
+    enter: Press enter or return
+    escape: Escape or cancel
+    unsure: None of these or not a shortcut
+
+is_complete:
+  instructions: >
+    The first instruction in instruction_so_far is complete: it names an action and, where
+    one is needed, its target, so it can be carried out right now. Trailing connectors such
+    as "and", "then", or "and then" after a complete instruction do NOT make it incomplete.
+    A fragment that is still missing its target is incomplete.
+  criteria:
+    "true":
+      what: A verb and its target are both present (or the verb needs no target)
+      examples: ["open notes", "open notes and", "open notes and then", "switch to safari and", "type hello", "save", "undo", "copy that"]
+    "false":
+      what: The verb has no target yet, or only filler so far
+      examples: ["open", "switch to", "go to the", "um open", "type", "and", "open the"]
+
+ends_dictation:
+  instructions: >
+    The user is dictating text into an app. instruction_so_far is a new instruction to the
+    computer rather than more words to type.
+  criteria:
+    "true":
+      what: A command aimed at the computer
+      examples: ["stop typing", "open safari", "undo", "switch to notes", "save that"]
+    "false":
+      what: Ordinary sentence content that belongs in the document
+      examples: ["and then we went home", "thanks for your help", "the meeting is at five", "open to suggestions"]
+
+is_destructive:
+  instructions: Carrying out instruction_so_far could delete data, send a message, or spend money.
+  criteria:
+    "true":
+      examples: ["delete everything", "send the email", "empty the trash", "buy it now", "close without saving"]
+    "false":
+      examples: ["open notes", "type hello", "save", "undo"]
