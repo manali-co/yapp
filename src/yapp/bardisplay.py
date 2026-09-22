@@ -25,36 +25,50 @@ def result_copy(message: str) -> str:
     return message[:1].upper() + message[1:]
 
 
+def level_gain(rms: float) -> float:
+    """Mic RMS of speech at a laptop is ~0.02-0.1; map that onto the avatar's 0-1 ripple."""
+    return min(1.0, float(max(0.0, rms * 12) ** 0.7))
+
+
 class BarDisplay:
     def __init__(self, bar: Bar) -> None:
         self.bar = bar
         self.dictating = False
         self.acted = False
         self._words = 0
+        self._state = ""
+
+    def _set(self, name: str, **opts: object) -> None:
+        """Only send a state when it changes; re-sending resets the avatar's springs."""
+        if name == self._state and not opts:
+            return
+        self._state = name
+        self.bar.set_state(name, **opts)
 
     def begin(self) -> None:
         self._words = 0
         self.acted = False
         self.dictating = False
+        self._state = ""
         self.bar.decision("")
         self.bar.transcript("", "")
-        self.bar.set_state("listening", level=0.0)
+        self._set("listening", level=0.0)
 
     def end(self, acted: bool) -> None:
         if acted:
-            self.bar.set_state("done")
+            self._set("done")
         else:
-            self.bar.set_state("unsure")
+            self._set("unsure")
             self.bar.decision(UNSURE_COPY, muted=True)
 
     def status(self, msg: str) -> None:
         return None
 
     def listening(self, level: float) -> None:
-        self.bar.level(level)
+        self.bar.level(level_gain(level))
 
     def thinking(self) -> None:
-        self.bar.set_state("thinking")
+        self._set("thinking")
 
     def show_transcript(self, committed: list[str], pending: list[str]) -> None:
         self.bar.transcript(" ".join(committed), " ".join(pending))
@@ -66,16 +80,17 @@ class BarDisplay:
         self.bar.confidence(d.intent_confidence)
 
     def _resting(self) -> None:
-        self.bar.set_state("dictating" if self.dictating else "listening")
+        self._set("dictating" if self.dictating else "listening")
 
     def show_verdict(self, v: Verdict) -> None:
         match v.outcome:
             case Outcome.EXECUTE:
                 verb = v.reason.split()[0]
                 self.acted = True
+                self._state = "acting"
                 self.bar.set_state("acting", direction=DIRECTION.get(verb, 0.0))
             case Outcome.REFUSE:
-                self.bar.set_state("unsure")
+                self._set("unsure")
                 self.bar.decision(REFUSE_COPY)
             case _:
                 self._resting()
@@ -89,5 +104,5 @@ class BarDisplay:
             self.bar.decision(result_copy(r.message), muted=True)
 
     def show_error(self, msg: str) -> None:
-        self.bar.set_state("error")
+        self._set("error")
         self.bar.decision(msg, muted=True)

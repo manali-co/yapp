@@ -3,7 +3,8 @@ https://claude.ai/design/p/be45c375-77cb-4cdf-9646-2ea5843fa7ee via DesignSync g
 
 Ported verbatim: yapp-avatar.js, tokens.css, icon-1024.png, yapp_theme.py -> src/yapp/theme.py.
 Edited on port: window.html (Google Fonts link -> fonts.css; idle hint says
-"press ⌥ Space to talk"),
+"press ⌥ Space to talk"; setState merges the demo SAMPLES only in demo mode, the embedded
+app passes real transcript/decision text, fixed 2026-09-22),
 icon.svg (c2pa provenance <metadata> block removed; drawing untouched).
 Not ported: support.js (Claude Design's own preview runtime, unreferenced by window.html).
 Fonts: Bricolage Grotesque and Figtree (OFL) fetched from fonts.gstatic.com as Latin woff2 subsets.

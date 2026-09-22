@@ -17,6 +17,7 @@ def test_window_html_uses_local_fonts_and_new_hint() -> None:
     assert 'href="fonts.css"' in html
     assert "press <kbd>⌥</kbd> <kbd>Space</kbd> to talk" in html
     assert "window.yapp = {" in html
+    assert "demo ? (SAMPLES[name] || {})" in html  # samples never leak into the embedded app
 
 
 def test_theme_has_verdict_styles() -> None:

@@ -59,6 +59,27 @@ def test_wait_returns_to_listening_or_dictating() -> None:
     assert 'setState("dictating"' in w.js[-1]
 
 
+def test_same_state_is_not_resent_every_tick() -> None:
+    bd, w = make()
+    bd.begin()
+    n = len(w.js)
+    bd.show_verdict(Verdict(Outcome.WAIT, "x"))
+    bd.show_verdict(Verdict(Outcome.WAIT, "x"))
+    assert len(w.js) == n  # still listening; nothing sent
+    bd.thinking()
+    assert 'setState("thinking"' in w.js[-1]
+    bd.show_verdict(Verdict(Outcome.WAIT, "x"))
+    assert 'setState("listening"' in w.js[-1]
+
+
+def test_level_has_gain() -> None:
+    bd, w = make()
+    bd.listening(0.02)
+    assert "setLevel(0.3" in w.js[-1] or "setLevel(0.4" in w.js[-1]
+    bd.listening(0.5)
+    assert w.js[-1] == "window.yapp.setLevel(1.0)"
+
+
 def test_dictation_result_enters_dictating() -> None:
     bd, w = make()
     bd.show_result(Result(True, "dictating"))

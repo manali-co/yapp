@@ -92,7 +92,8 @@
     setState: (name, o) => {
       o = o || {};
       if (o.commit) return window.yapp.commit(o.word);
-      render(name, Object.assign({}, SAMPLES[name] || {}, o));
+      // demo mode shows the sample copy per state; the embedded app supplies real text
+      render(name, Object.assign({}, demo ? (SAMPLES[name] || {}) : (name === 'idle' ? { hint: true } : {}), o));
     },
     // a word locked in: moves it from pending to locked and ticks the avatar
     commit: word => {
