@@ -29,5 +29,9 @@ class Config:
     dictation_lookahead_words: int = 2
     learn_after_seconds: float = 10.0
     catalog_limit: int = 60
+    hotkey_combo: str = "<alt>+<space>"
+    silence_seconds: float = 4.0
+    max_session_seconds: float = 60.0
+    hide_after_seconds: float = 1.5
     thresholds: Thresholds = field(default_factory=Thresholds)
     learned_path: Path = field(default_factory=lambda: Path.home() / ".yapp" / "learned.jsonl")
