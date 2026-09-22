@@ -55,9 +55,16 @@ LAUNCHER_C = Path(__file__).with_name("launcher.c")
 
 
 def _compile_launcher(dest: Path) -> bool:
-    """Build the tiny native main executable. Returns False when no compiler is available."""
+    """Build the tiny native main executable. Returns False when no compiler is available.
+
+    -Wl,-no_uuid keeps the binary's code-directory hash identical across rebuilds, so the
+    ad-hoc signature's designated requirement (cdhash) and therefore the user's Accessibility
+    and Input Monitoring grants survive `yapp install-app` runs.
+    """
     r = subprocess.run(
-        ["clang", "-O2", "-Wall", "-o", str(dest), str(LAUNCHER_C)], capture_output=True, text=True
+        ["clang", "-O2", "-Wall", "-Wl,-no_uuid", "-o", str(dest), str(LAUNCHER_C)],
+        capture_output=True,
+        text=True,
     )
     return r.returncode == 0
 
