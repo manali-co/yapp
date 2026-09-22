@@ -1,35 +1,14 @@
-"""The first-run permissions window: page façade, event routing, and the 2 s poll loop."""
+"""Permission flow: page event routing and the 2 s poll loop (the row lives in the bar)."""
 
 from __future__ import annotations
 
-import json
 import threading
 from collections.abc import Callable
 from typing import Any
 
-from yapp.bar import WindowLike, grants_for_page
-from yapp.permissions import Permissions, Watcher, open_settings
+from yapp.permissions import Watcher, open_settings
 
-
-class PermWindow:
-    def __init__(self, window: WindowLike) -> None:
-        self.w = window
-        self.visible = False
-
-    def show(self) -> None:
-        self.w.show()
-        self.visible = True
-
-    def hide(self) -> None:
-        self.w.hide()
-        self.visible = False
-
-    def set(self, p: Permissions) -> None:
-        payload = json.dumps(grants_for_page(p)).replace("/", "\\/")
-        self.w.evaluate_js(
-            f"window.yappPermissions && window.yappPermissions.set && "
-            f"window.yappPermissions.set({payload})"
-        )
+PERMS = ("mic", "input", "accessibility")
 
 
 def handle_event(
@@ -43,18 +22,14 @@ def handle_event(
     on_escape: Callable[[], None] = lambda: None,
 ) -> str:
     """Route one page event. Returns what was done, for logs and tests."""
-    if name == "open-settings" and detail.get("permission") in ("mic", "input", "accessibility"):
+    if name == "open-settings" and detail.get("permission") in PERMS:
         open_settings_fn(str(detail["permission"]))
         return f"settings:{detail['permission']}"
     if name == "action":
-        if detail.get("id") == "fix" and detail.get("permission") in (
-            "mic",
-            "input",
-            "accessibility",
-        ):
+        if detail.get("id") in ("permissions", "fix") and detail.get("permission") in PERMS:
             open_settings_fn(str(detail["permission"]))
             return f"settings:{detail['permission']}"
-        if detail.get("id") == "show_log":
+        if detail.get("id") in ("log", "show_log"):
             show_log()
             return "show_log"
         return "ignored"

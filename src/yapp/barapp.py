@@ -21,7 +21,7 @@ from yapp.config import Config
 from yapp.display import Display, Terminal
 from yapp.menubar import install_status_item
 from yapp.native import make_transparent
-from yapp.permwindow import PermWindow, handle_event, poll_loop
+from yapp.permwindow import handle_event, poll_loop
 from yapp.runner import build_runner
 from yapp.session import Session
 from yapp.state import AppState
@@ -118,24 +118,13 @@ def run_app(cfg: Config, log: bool = False) -> int:
         focus=False,
         js_api=Events(on_event),
     )
-    perm_window = webview.create_window(
-        "Yapp – Permissions",
-        url=f"file://{_ui_path('permissions.html')}?embed",
-        width=460,
-        height=560,
-        resizable=False,
-        hidden=True,
-        js_api=Events(on_event),
-    )
-    if bar_window is None or perm_window is None:
-        raise RuntimeError("pywebview could not create the windows")
-    for w in (bar_window, perm_window):
-        w.events.loaded += lambda w=w: w.evaluate_js(BRIDGE_JS)
+    if bar_window is None:
+        raise RuntimeError("pywebview could not create the window")
+    bar_window.events.loaded += lambda: bar_window.evaluate_js(BRIDGE_JS)
     bar_window.events.loaded += lambda: make_transparent(bar_window)
 
     bar = Bar(bar_window, width, height)
     bardisplay = BarDisplay(bar, silence_total=cfg.silence_seconds)
-    permwin = PermWindow(perm_window)
 
     log_path = Path.home() / ".yapp" / "app.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -158,11 +147,19 @@ def run_app(cfg: Config, log: bool = False) -> int:
             cfg, runner, rec, stt, bar, bardisplay, screen=screen_under_mouse, state=state
         )
         hot: list[Any] = [None]
+        showing_for_perms = [False]
+
+        def toggle() -> None:
+            if showing_for_perms[0] and not session.running:
+                showing_for_perms[0] = False
+            session.toggle()
+
+        def escape() -> None:
+            session.escape()
+            hide_permission_row()
 
         def start_hotkeys() -> None:
-            hot[0] = keyboard.GlobalHotKeys(
-                {cfg.hotkey_combo: session.toggle, "<esc>": session.escape}
-            )
+            hot[0] = keyboard.GlobalHotKeys({cfg.hotkey_combo: toggle, "<esc>": escape})
             hot[0].start()
 
         def stop_hotkeys() -> None:
@@ -178,14 +175,30 @@ def run_app(cfg: Config, log: bool = False) -> int:
         def quit_app() -> None:
             stop.set()
             session.quit()
-            perm_window.destroy()
             bar_window.destroy()
 
+        def show_permission_row() -> None:
+            """Bring the bar up in its blocked state so the Fix link is reachable."""
+            if session.running:
+                return
+            p = watcher.current
+            if p is None:
+                return
+            bar.show_at_top(*screen_under_mouse())
+            bar.set_state("listening" if "accessibility" in p.missing else "idle")
+            bar.permissions(p)
+            showing_for_perms[0] = True
+
+        def hide_permission_row() -> None:
+            if showing_for_perms[0] and not session.running:
+                bar.hide()
+                showing_for_perms[0] = False
+
         status = install_status_item(
-            on_listen=session.toggle,
+            on_listen=toggle,
             on_pause=lambda paused: stop_hotkeys() if paused else start_hotkeys(),
             on_show_log=show_log,
-            on_permissions=permwin.show,
+            on_permissions=lambda: show_permission_row(),
             on_quit=quit_app,
             glyphs={
                 "default": str(_ui_path("menubar-glyph.svg")),
@@ -197,14 +210,17 @@ def run_app(cfg: Config, log: bool = False) -> int:
 
         def on_grants(p: perms.Permissions) -> None:
             display.status(f"permissions: {p.as_dict()}")
-            permwin.set(p)
             bar.permissions(p)
-            if p.missing and not session.running:
+            if p.missing:
                 status.set_variant("attention")
-                if not permwin.visible:
-                    permwin.show()
-            elif status.variant == "attention":
-                status.set_variant("default")
+                # Without the mic or Input Monitoring the user can't even summon the bar,
+                # so bring it up with the Fix link; Accessibility shows inside a session.
+                if ("mic" in p.missing or "input" in p.missing) and not session.running:
+                    show_permission_row()
+            else:
+                if status.variant == "attention":
+                    status.set_variant("default")
+                threading.Timer(1.5, hide_permission_row).start()
 
         watcher = perms.Watcher(on_change=on_grants)
         stop = threading.Event()
@@ -217,9 +233,9 @@ def run_app(cfg: Config, log: bool = False) -> int:
                 name,
                 detail,
                 show_log=show_log,
-                on_later=permwin.hide,
-                on_complete=lambda: threading.Timer(1.5, permwin.hide).start(),
-                on_escape=session.escape,
+                on_later=hide_permission_row,
+                on_complete=hide_permission_row,
+                on_escape=escape,
             )
             display.status(f"page event {name} {detail} -> {what}")
 

@@ -1,35 +1,7 @@
 import threading
 
 from yapp.permissions import Grant, Permissions, Watcher
-from yapp.permwindow import PermWindow, handle_event, poll_loop
-
-
-class FakeWindow:
-    def __init__(self) -> None:
-        self.js: list[str] = []
-        self.shown = False
-
-    def evaluate_js(self, js: str) -> object:
-        self.js.append(js)
-        return None
-
-    def show(self) -> None:
-        self.shown = True
-
-    def hide(self) -> None:
-        self.shown = False
-
-    def move(self, x: int, y: int) -> None:
-        return None
-
-
-def test_set_sends_booleans() -> None:
-    w = FakeWindow()
-    pw = PermWindow(w)
-    pw.set(Permissions(Grant.GRANTED, Grant.MISSING, Grant.UNKNOWN))
-    assert w.js[0].endswith('set({"mic": true, "input": false, "accessibility": null})')
-    pw.show()
-    assert w.shown and pw.visible
+from yapp.permwindow import handle_event, poll_loop
 
 
 def test_handle_event_routes() -> None:
@@ -48,8 +20,8 @@ def test_handle_event_routes() -> None:
         )
 
     assert route("open-settings", {"permission": "accessibility"}) == "settings:accessibility"
-    assert route("action", {"id": "fix", "permission": "mic"}) == "settings:mic"
-    assert route("action", {"id": "show_log"}) == "show_log"
+    assert route("action", {"id": "permissions", "permission": "mic"}) == "settings:mic"
+    assert route("action", {"id": "log"}) == "show_log"
     assert route("later", {}) == "later"
     assert route("permissions-complete", {}) == "complete"
     assert route("escape", {}) == "escape"
