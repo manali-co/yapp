@@ -5,7 +5,7 @@ intent:
   criteria:
     open_app:
       what: Launch an application or bring it to the front
-      not_for: Opening a named document or file (that is open_file); pressing a shortcut
+      not_for: Opening a named document or file (that is open_file); commands inside the current app (that is screen_action)
       examples: ["open notes", "launch safari", "switch to slack", "bring up the terminal", "go to chrome"]
     type_text:
       what: Type or dictate words into the app that is currently focused
@@ -16,9 +16,13 @@ intent:
       not_for: Launching an app with no file named
       examples: ["open my resume", "find the budget spreadsheet", "show the tax pdf"]
     press_key:
-      what: Press a keyboard shortcut
-      not_for: Typing words
+      what: Press one of the basic keyboard shortcuts (save, copy, paste, select all, close, enter, escape)
+      not_for: Typing words; commands that live in an app's menus or buttons (that is screen_action)
       examples: ["save", "copy that", "paste", "select all", "hit enter", "press escape"]
+    screen_action:
+      what: Do something inside the app in front by naming a menu command, button, tab, link, or field
+      not_for: Launching a different app; typing free text with no field named; the basic shortcuts above
+      examples: ["new tab", "zoom in", "find on page", "search for fable five", "bold this", "close this tab", "go to the address bar", "reply to this email", "click sign in"]
     undo:
       what: Reverse or cancel what Yapp just did
       not_for: The undo shortcut inside an app while dictating a document
@@ -48,10 +52,10 @@ is_complete:
   criteria:
     "true":
       what: A verb and its target are both present (or the verb needs no target)
-      examples: ["open notes", "open notes and", "open notes and then", "switch to safari and", "type hello", "save", "undo", "copy that"]
+      examples: ["open notes", "open notes and", "open notes and then", "switch to safari and", "type hello", "save", "undo", "copy that", "new tab", "zoom in", "find on page", "search for cats", "bold this", "close this tab", "next tab and"]
     "false":
       what: The verb has no target yet, or only filler so far
-      examples: ["open", "switch to", "go to the", "um open", "type", "and", "open the"]
+      examples: ["open", "switch to", "go to the", "um open", "type", "and", "open the", "search for", "find", "new", "zoom"]
 
 ends_dictation:
   instructions: >

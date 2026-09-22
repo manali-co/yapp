@@ -12,6 +12,7 @@ class Intent(StrEnum):
     TYPE_TEXT = "type_text"
     OPEN_FILE = "open_file"
     PRESS_KEY = "press_key"
+    SCREEN = "screen_action"
     UNDO = "undo"
     NONE = "none"
 

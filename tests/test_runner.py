@@ -51,6 +51,8 @@ def canned(tail: str, dictating: bool) -> Decision:
         return mk(tail, Intent.TYPE_TEXT, 0.9, 0.9, ends, consumed=1)
     if words[:1] == ["undo"]:
         return mk(tail, Intent.UNDO, 0.9, 0.9, ends, consumed=1)
+    if words[:2] == ["zoom", "in"]:
+        return mk(tail, Intent.SCREEN, 0.9, 0.9, ends, consumed=len(tail.split()))
     intent = Intent.OPEN_APP if words[:1] == ["open"] else Intent.NONE
     return mk(tail, intent, 0.5, 0.2, ends)
 
@@ -81,6 +83,10 @@ class FakeExec:
     def undo(self, last: Executed) -> Result:
         self.log.append("undo")
         return Result(True, "ok")
+
+    def screen(self, words: str) -> Result:
+        self.log.append(f"screen:{words}")
+        return Result(True, f"pressed menu: View › {words}")
 
 
 def make(classify: Callable[[str, bool], Decision]) -> tuple[Runner, FakeExec]:
@@ -189,3 +195,12 @@ def test_failed_open_is_not_remembered_for_undo() -> None:
     r = Runner(Config(), None, ex, APPS, classify=lambda tail, ctx: canned(tail, ctx.dictating))
     feed(r, "open notes")
     assert r.last is None
+
+
+def test_screen_action_is_delegated_and_undoable() -> None:
+    r, ex = make(canned)
+    feed(r, "zoom in")
+    assert ex.log == ["screen:zoom in"]
+    assert r.last is not None and r.last.decision.intent == Intent.SCREEN
+    feed(r, "undo")
+    assert ex.log[-1] == "undo"

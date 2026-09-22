@@ -70,3 +70,10 @@ def test_none_ignores() -> None:
 )
 def test_press_key(combo: str | None, expected: Outcome) -> None:
     assert decide(d(intent=Intent.PRESS_KEY, app=None, key_combo=combo), T).outcome == expected
+
+
+def test_screen_action_gate() -> None:
+    d_ok = d(intent=Intent.SCREEN, app=None, intent_confidence=0.7)
+    assert decide(d_ok, T).outcome == Outcome.EXECUTE
+    d_low = d(intent=Intent.SCREEN, app=None, intent_confidence=0.5)
+    assert decide(d_low, T).outcome == Outcome.IGNORE

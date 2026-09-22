@@ -37,6 +37,8 @@ def decide(
             if not has_last:
                 return Verdict(Outcome.IGNORE, "nothing to undo")
             return _gate(c, t.undo, "undo")
+        case Intent.SCREEN:
+            return _gate(c, t.screen, f"screen '{d.tail}'")
     return Verdict(Outcome.IGNORE, "unhandled intent")
 
 

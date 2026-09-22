@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from yapp.catalog import ShellError, ShellRunner, run_capture
@@ -22,8 +23,17 @@ def applescript_escape(s: str) -> str:
 
 
 class Executor:
-    def __init__(self, run: ShellRunner = run_capture) -> None:
+    def __init__(
+        self, run: ShellRunner = run_capture, screen: Callable[[str], Result] | None = None
+    ) -> None:
         self._run = run
+        self.screen_fn = screen
+
+    def screen(self, words: str) -> Result:
+        """A screen action: the app in front is read live and Jev picks a target (see ax.py)."""
+        if self.screen_fn is None:
+            return Result(False, "screen actions are not available")
+        return self.screen_fn(words)
 
     def _osa(self, script: str) -> str:
         return self._run(["osascript", "-e", script])
@@ -84,7 +94,7 @@ class Executor:
             case Intent.OPEN_FILE:
                 self._osa(f'{SE}keystroke "w" using {{command down}}')
                 return Result(True, "closed window")
-            case Intent.PRESS_KEY:
+            case Intent.PRESS_KEY | Intent.SCREEN:
                 self._osa(f'{SE}keystroke "z" using {{command down}}')
                 return Result(True, "sent cmd+z")
         return Result(False, "nothing to undo")

@@ -12,3 +12,7 @@
 {"tail": "no not that", "intent": "undo", "app": null}
 {"tail": "um so", "intent": "none", "app": null}
 {"tail": "what was i doing", "intent": "none", "app": null}
+{"tail": "new tab", "intent": "screen_action", "app": null}
+{"tail": "zoom in", "intent": "screen_action", "app": null}
+{"tail": "find on page", "intent": "screen_action", "app": null}
+{"tail": "search for fable five", "intent": "screen_action", "app": null}

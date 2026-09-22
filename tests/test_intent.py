@@ -81,6 +81,10 @@ def test_build_questions_has_unsure_and_learned_examples() -> None:
         ("undo", Intent.UNDO, None, True),
         ("save that", Intent.PRESS_KEY, None, True),
         ("um so", Intent.NONE, None, False),
+        ("new tab", Intent.SCREEN, None, True),
+        ("zoom in", Intent.SCREEN, None, True),
+        ("find on page", Intent.SCREEN, None, True),
+        ("search for fable five", Intent.SCREEN, None, True),
     ],
 )
 def test_live_classification(tail: str, intent: Intent, app: str | None, complete: bool) -> None:

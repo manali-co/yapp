@@ -15,7 +15,7 @@ from yapp.runner import build_runner
 
 def run_once(text: str, cfg: Config, display: Terminal, per_tick: int = 2) -> int:
     runner = build_runner(cfg, display)
-    words = text.split()
+    words = text.replace("+", " ").split()
     for i in range(per_tick, len(words) + per_tick, per_tick):
         runner.tick(words[:i], words[i : i + 1])
         time.sleep(cfg.tick_seconds)

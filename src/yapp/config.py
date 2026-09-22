@@ -14,6 +14,7 @@ class Thresholds:
     open_file: float = 0.60
     press_key: float = 0.70
     undo: float = 0.60
+    screen: float = 0.60
     destructive: float = 0.50
     ends_dictation: float = 0.70
 

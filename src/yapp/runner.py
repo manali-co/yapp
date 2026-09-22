@@ -29,6 +29,7 @@ class ExecutorLike(Protocol):
     def open_file(self, path: Path) -> Result: ...
     def frontmost_app(self) -> str: ...
     def undo(self, last: Executed) -> Result: ...
+    def screen(self, words: str) -> Result: ...
 
 
 class LearningLike(Protocol):
@@ -157,6 +158,10 @@ class Runner:
                 r = self.executor.press_key(d.key_combo)
                 if r.ok:
                     self.last = Executed(d, r)
+            case Intent.SCREEN:
+                r = self.executor.screen(" ".join(d.tail.split()[: d.consumed_words]))
+                if r.ok:
+                    self.last = Executed(d, r)
             case Intent.UNDO if self.last is not None:
                 r = self.executor.undo(self.last)
                 if self.learning:
@@ -186,8 +191,19 @@ class Runner:
 
 
 def build_runner(cfg: Config, display: Display | None) -> Runner:
+    from yapp.ax import Screen
+
     jev = Jev(model=cfg.model)
     apps = installed_apps()
     if display:
         display.status(f"{len(apps)} apps in catalog · model {cfg.model}")
-    return Runner(cfg, jev, Executor(), apps, learning=Learning(cfg), display=display)
+    executor = Executor()
+    screen = Screen(
+        jev,
+        type_text=executor.type_text,
+        press_key=executor.press_key,
+        threshold=cfg.thresholds.screen,
+        log=display.status if display else (lambda s: None),
+    )
+    executor.screen_fn = screen.run
+    return Runner(cfg, jev, executor, apps, learning=Learning(cfg), display=display)

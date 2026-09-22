@@ -18,10 +18,16 @@ def result_copy(message: str) -> str:
     m = re.match(r"opened (.+)", message)
     if m:
         return f"Opening {m.group(1)}"
+    m = re.match(r"typed '(.+)' into (.+)", message)
+    if m:
+        return f"Typed “{m.group(1)}”"
     if message.startswith(("typed", "dictating", "nothing to type")):
         return "Typing…"
     if message.startswith(("quit ", "erased", "closed", "sent cmd+z", "undone")):
         return "Undone"
+    m = re.match(r"pressed (?:menu: )?(.+?)(?: \(.*\))?$", message)
+    if m:
+        return f"Pressed {m.group(1).split(' › ')[-1]}"
     return message[:1].upper() + message[1:]
 
 

@@ -123,3 +123,11 @@ def test_countdown_carries_silence_total() -> None:
     bd.silence_total = 4.0
     bd.countdown(1.25)
     assert w.js[-1].endswith("setCountdown(1.2, 4.0)")
+
+
+def test_screen_result_copy() -> None:
+    from yapp.bardisplay import result_copy
+
+    assert result_copy("pressed menu: View › Zoom In (⌘+)") == "Pressed Zoom In"
+    assert result_copy("pressed Button: New Tab") == "Pressed Button: New Tab"
+    assert result_copy("typed 'fable five' into Address and search bar") == "Typed “fable five”"
