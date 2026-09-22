@@ -72,3 +72,14 @@ def test_open_file() -> None:
     f = Fake()
     Executor(f).open_file(Path("/tmp/a b.pdf"))
     assert f.calls == [["open", "/tmp/a b.pdf"]]
+
+
+def test_failed_command_is_reported_not_hidden() -> None:
+    from yapp.catalog import ShellError
+
+    def failing(argv: list[str]) -> str:
+        raise ShellError("Unable to find application named 'Nope'")
+
+    r = Executor(failing).open_app(App("nope", "Nope", ""))
+    assert r == Result(False, "Unable to find application named 'Nope'")
+    assert Executor(failing).frontmost_app() == "unknown"

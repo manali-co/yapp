@@ -33,7 +33,7 @@ class Learning:
         self.cfg = cfg
         self._pos: dict[str, list[str]] = defaultdict(list)
         self._neg: dict[str, list[str]] = defaultdict(list)
-        self._pending: _Pending | None = None
+        self._pending: list[_Pending] = []
         self._load()
 
     def _load(self) -> None:
@@ -63,17 +63,19 @@ class Learning:
         if opt is None:
             return
         phrase = " ".join(d.tail.split()[: d.consumed_words])
-        self._pending = _Pending(opt, phrase, at)
+        self._pending.append(_Pending(opt, phrase, at))
 
     def undone(self, at: float) -> None:
-        if self._pending is None:
+        """The most recent pending action was reversed: it becomes a negative example."""
+        if not self._pending:
             return
-        self._neg[self._pending.option].append(self._pending.phrase)
-        self._append(self._pending.option, self._pending.phrase, "negative")
-        self._pending = None
+        p = self._pending.pop()
+        self._neg[p.option].append(p.phrase)
+        self._append(p.option, p.phrase, "negative")
 
     def flush(self, now: float) -> None:
-        if self._pending and now - self._pending.at >= self.cfg.learn_after_seconds:
-            self._pos[self._pending.option].append(self._pending.phrase)
-            self._append(self._pending.option, self._pending.phrase, "positive")
-            self._pending = None
+        due = [p for p in self._pending if now - p.at >= self.cfg.learn_after_seconds]
+        for p in due:
+            self._pos[p.option].append(p.phrase)
+            self._append(p.option, p.phrase, "positive")
+        self._pending = [p for p in self._pending if p not in due]
