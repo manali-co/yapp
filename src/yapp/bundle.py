@@ -51,20 +51,36 @@ def _icns(icon_png: Path, dest: Path) -> None:
     shutil.rmtree(iconset, ignore_errors=True)
 
 
+LAUNCHER_C = Path(__file__).with_name("launcher.c")
+
+
+def _compile_launcher(dest: Path) -> bool:
+    """Build the tiny native main executable. Returns False when no compiler is available."""
+    r = subprocess.run(
+        ["clang", "-O2", "-Wall", "-o", str(dest), str(LAUNCHER_C)], capture_output=True, text=True
+    )
+    return r.returncode == 0
+
+
 def write_bundle(dest: Path, python: Path, project: Path, icon_png: Path) -> Path:
     macos = dest / "Contents" / "MacOS"
     res = dest / "Contents" / "Resources"
     macos.mkdir(parents=True, exist_ok=True)
     res.mkdir(parents=True, exist_ok=True)
     (dest / "Contents" / "Info.plist").write_bytes(plistlib.dumps(PLIST))
-    launcher = macos / "yapp"
-    launcher.write_text(
+    script = res / "launch.sh"
+    script.write_text(
         "#!/bin/zsh\n"
         'source "$HOME/.zshenv" 2>/dev/null\n'
         f'cd "{project}"\n'
         f'exec "{python}" -m yapp app "$@"\n'
     )
-    launcher.chmod(0o755)
+    script.chmod(0o755)
+    launcher = macos / "yapp"
+    if not _compile_launcher(launcher):
+        # No compiler: fall back to the script itself (permissions then attach to Python).
+        launcher.write_text(script.read_text())
+        launcher.chmod(0o755)
     _icns(icon_png, res / "yapp.icns")
     return dest
 
@@ -78,7 +94,10 @@ def install_app(cfg: Config, display: Terminal) -> int:
     project = Path(__file__).resolve().parents[2]
     icon = Path(str(resources.files("yapp.ui").joinpath("icon-1024.png")))
     write_bundle(dest, Path(sys.executable), project, icon)
-    subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(dest)], check=False)
+    subprocess.run(
+        ["codesign", "--force", "--deep", "--sign", "-", "-i", "co.manali.yapp", str(dest)],
+        check=False,
+    )
     display.status(f"installed {dest}")
     display.status(
         "open it once from Finder; grant Microphone, Input Monitoring, Accessibility to Yapp"

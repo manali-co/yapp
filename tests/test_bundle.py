@@ -15,8 +15,11 @@ def test_bundle_layout_and_plist(tmp_path: Path) -> None:
     assert plist["CFBundleIdentifier"] == "co.manali.yapp"
     assert plist["LSUIElement"] is True
     assert "NSMicrophoneUsageDescription" in plist
-    launcher = (app / "Contents" / "MacOS" / "yapp").read_text()
-    assert launcher.startswith("#!/bin/zsh")
-    assert 'exec "/venv/bin/python" -m yapp app' in launcher
-    assert (app / "Contents" / "MacOS" / "yapp").stat().st_mode & 0o111
+    script = (app / "Contents" / "Resources" / "launch.sh").read_text()
+    assert script.startswith("#!/bin/zsh")
+    assert 'exec "/venv/bin/python" -m yapp app' in script
+    launcher = app / "Contents" / "MacOS" / "yapp"
+    assert launcher.stat().st_mode & 0o111
+    head = launcher.read_bytes()[:4]
+    assert head in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe") or head.startswith(b"#!")
     assert (app / "Contents" / "Resources" / "yapp.icns").exists()
