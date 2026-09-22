@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import plistlib
 import shutil
 import subprocess
@@ -55,18 +56,27 @@ LAUNCHER_C = Path(__file__).with_name("launcher.c")
 
 
 def _compile_launcher(dest: Path) -> bool:
-    """Build the tiny native main executable. Returns False when no compiler is available.
+    """Put the tiny native main executable at `dest`. Returns False when no compiler exists.
 
-    -Wl,-no_uuid keeps the binary's code-directory hash identical across rebuilds, so the
-    ad-hoc signature's designated requirement (cdhash) and therefore the user's Accessibility
-    and Input Monitoring grants survive `yapp install-app` runs.
+    Every clang build gets a different code-directory hash, and an ad-hoc signature's
+    designated requirement is exactly that hash, so a rebuilt launcher would orphan the user's
+    Accessibility and Input Monitoring grants. The binary is therefore compiled once per
+    launcher.c revision, cached under ~/.yapp/launcher/, and reused byte-for-byte.
     """
-    r = subprocess.run(
-        ["clang", "-O2", "-Wall", "-Wl,-no_uuid", "-o", str(dest), str(LAUNCHER_C)],
-        capture_output=True,
-        text=True,
-    )
-    return r.returncode == 0
+    digest = hashlib.sha256(LAUNCHER_C.read_bytes()).hexdigest()[:16]
+    cache = Path.home() / ".yapp" / "launcher" / f"yapp-{digest}"
+    if not cache.exists():
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(
+            ["clang", "-O2", "-Wall", "-o", str(cache), str(LAUNCHER_C)],
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode != 0:
+            return False
+    shutil.copy2(cache, dest)
+    dest.chmod(0o755)
+    return True
 
 
 def write_bundle(dest: Path, python: Path, project: Path, icon_png: Path) -> Path:
