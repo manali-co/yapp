@@ -52,3 +52,72 @@ def make_transparent(window: Any) -> None:
             pass
 
     AppHelper.callAfter(apply)
+
+
+# Room around the pill so its drop shadow is not clipped by the window edge.
+MARGIN = 24
+EMBED_CSS = (
+    "body.embed{width:100vw;height:100vh;margin:0;display:grid;place-items:center;"
+    "overflow:visible;background:transparent}"
+)
+INJECT_CSS_JS = (
+    "(function(){var s=document.createElement('style');s.textContent="
+    + repr(EMBED_CSS)
+    + ";document.head.appendChild(s);})();"
+)
+
+
+def accessory_app() -> None:
+    """No Dock icon, and showing our windows never activates the app (no Space switching)."""
+    from PyObjCTools import AppHelper
+
+    def apply() -> None:
+        from AppKit import NSApp, NSApplicationActivationPolicyAccessory
+
+        NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+
+    AppHelper.callAfter(apply)
+
+
+class OverlayWindow:
+    """WindowLike adapter that shows and hides without activating the app.
+
+    pywebview's own show() calls makeKeyAndOrderFront and activates the application, which
+    pulls the user out of a full-screen Space and steals keyboard focus from the app they are
+    dictating into. Ordering front "regardless" avoids both.
+    """
+
+    def __init__(self, window: Any) -> None:
+        self._w = window
+
+    def _native(self) -> Any:
+        from webview.platforms import cocoa
+
+        bv = cocoa.BrowserView.instances.get(self._w.uid)
+        return bv.window if bv is not None else None
+
+    def evaluate_js(self, js: str) -> object:
+        return self._w.evaluate_js(js)
+
+    def move(self, x: int, y: int) -> None:
+        self._w.move(x, y)
+
+    def show(self) -> None:
+        from PyObjCTools import AppHelper
+
+        def apply() -> None:
+            ns = self._native()
+            if ns is not None:
+                ns.orderFrontRegardless()
+
+        AppHelper.callAfter(apply)
+
+    def hide(self) -> None:
+        from PyObjCTools import AppHelper
+
+        def apply() -> None:
+            ns = self._native()
+            if ns is not None:
+                ns.orderOut_(None)
+
+        AppHelper.callAfter(apply)

@@ -20,7 +20,7 @@ from yapp.bardisplay import BarDisplay
 from yapp.config import Config
 from yapp.display import Display, Terminal
 from yapp.menubar import install_status_item
-from yapp.native import make_transparent
+from yapp.native import INJECT_CSS_JS, MARGIN, OverlayWindow, accessory_app, make_transparent
 from yapp.permwindow import handle_event, poll_loop
 from yapp.runner import build_runner
 from yapp.session import Session
@@ -93,7 +93,8 @@ def _ui_path(name: str) -> Path:
 
 
 def run_app(cfg: Config, log: bool = False) -> int:
-    width, height = pill_size(UI.joinpath("tokens.css").read_text())
+    pill_w, pill_h = pill_size(UI.joinpath("tokens.css").read_text())
+    width, height = pill_w + 2 * MARGIN, pill_h + 2 * MARGIN
     pending: list[tuple[str, dict[str, Any]]] = []
     router: dict[str, Any] = {}  # filled once the session thread has built everything
 
@@ -121,9 +122,10 @@ def run_app(cfg: Config, log: bool = False) -> int:
     if bar_window is None:
         raise RuntimeError("pywebview could not create the window")
     bar_window.events.loaded += lambda: bar_window.evaluate_js(BRIDGE_JS)
+    bar_window.events.loaded += lambda: bar_window.evaluate_js(INJECT_CSS_JS)
     bar_window.events.loaded += lambda: make_transparent(bar_window)
 
-    bar = Bar(bar_window, width, height)
+    bar = Bar(OverlayWindow(bar_window), width, height)
     bardisplay = BarDisplay(bar, silence_total=cfg.silence_seconds)
 
     log_path = Path.home() / ".yapp" / "app.log"
@@ -137,6 +139,7 @@ def run_app(cfg: Config, log: bool = False) -> int:
     display: Display = Tee(*displays)
 
     def session_main() -> None:
+        accessory_app()
         display.status(f"loading whisper {cfg.whisper_model} …")
         stt = StreamingTranscriber(cfg.whisper_model)
         runner = build_runner(cfg, display)
