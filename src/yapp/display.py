@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Protocol
 
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
@@ -52,10 +51,11 @@ class Terminal:
         self.c.print("[yapp.dim]thinking…[/]")
 
     def show_transcript(self, committed: list[str], pending: list[str]) -> None:
-        t = Text(" ".join(committed), style="yapp.transcript")
+        t = Text("heard: ", style="yapp.dim")
+        t.append(" ".join(committed), style="yapp.transcript")
         if pending:
             t.append(" " + " ".join(pending), style="yapp.transcript.pending")
-        self.c.print(Panel(t, title="heard", border_style="yapp.dim"))
+        self.c.print(t)
 
     def show_decision(self, d: Decision) -> None:
         table = Table(

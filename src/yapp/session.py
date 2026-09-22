@@ -129,6 +129,10 @@ class Session:
                 now = self.clock()
                 remaining = cfg.silence_seconds - (now - last_growth)
                 self.bardisplay.countdown(remaining if words > 0 else None)
+                if self.runner.display:
+                    self.runner.display.status(
+                        f"tick words={words} remaining={remaining:.1f}s t={now - start:.1f}s"
+                    )
                 if words > 0 and remaining <= 0:
                     break
                 if now - start >= cfg.max_session_seconds:
