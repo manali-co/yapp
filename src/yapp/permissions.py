@@ -85,6 +85,39 @@ def probe_microphone() -> Grant:
         return Grant.UNKNOWN
 
 
+def request_input_monitoring() -> None:
+    """Ask macOS for Input Monitoring: shows the system prompt and adds the app's row."""
+    try:
+        iokit = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/IOKit.framework/IOKit")
+        iokit.IOHIDRequestAccess.restype = ctypes.c_bool
+        iokit.IOHIDRequestAccess.argtypes = [ctypes.c_uint32]
+        iokit.IOHIDRequestAccess(1)  # kIOHIDRequestTypeListenEvent
+    except (OSError, AttributeError):
+        pass
+
+
+def request_accessibility() -> None:
+    """Ask macOS for Accessibility: shows the system prompt and adds the app's row."""
+    try:
+        from ApplicationServices import (
+            AXIsProcessTrustedWithOptions,
+        )
+        from Foundation import NSDictionary
+
+        AXIsProcessTrustedWithOptions(
+            NSDictionary.dictionaryWithObject_forKey_(True, "AXTrustedCheckOptionPrompt")
+        )
+    except Exception:  # noqa: BLE001 - prompting is best effort
+        pass
+
+
+def request_missing(p: Permissions) -> None:
+    if p.input == Grant.MISSING:
+        request_input_monitoring()
+    if p.accessibility == Grant.MISSING:
+        request_accessibility()
+
+
 def snapshot(
     *,
     mic: Callable[[], Grant] = probe_microphone,

@@ -194,7 +194,9 @@ def run_app(cfg: Config, log: bool = False) -> int:
             if p is None:
                 return
             bar.show_at_top(*screen_under_mouse())
-            bar.set_state("listening" if "accessibility" in p.missing else "idle")
+            # The page picks the row by state: idle surfaces mic / Input Monitoring first.
+            hotkey_blocked = "mic" in p.missing or "input" in p.missing
+            bar.set_state("idle" if hotkey_blocked else "listening")
             bar.permissions(p)
             showing_for_perms[0] = True
 
@@ -217,11 +219,16 @@ def run_app(cfg: Config, log: bool = False) -> int:
             },
         )
 
+        prompted = [False]
+
         def on_grants(p: perms.Permissions) -> None:
             display.status(f"permissions: {p.as_dict()}")
             bar.permissions(p)
             if p.missing:
                 status.set_variant("attention")
+                if not prompted[0]:
+                    prompted[0] = True
+                    perms.request_missing(p)  # system prompts add Yapp's rows for the user
                 # Without the mic or Input Monitoring the user can't even summon the bar,
                 # so bring it up with the Fix link; Accessibility shows inside a session.
                 if ("mic" in p.missing or "input" in p.missing) and not session.running:

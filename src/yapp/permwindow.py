@@ -6,7 +6,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from yapp.permissions import Watcher, open_settings
+from yapp.permissions import Watcher, open_settings, request_accessibility, request_input_monitoring
 
 PERMS = ("mic", "input", "accessibility")
 
@@ -27,8 +27,13 @@ def handle_event(
         return f"settings:{detail['permission']}"
     if name == "action":
         if detail.get("id") in ("permissions", "fix") and detail.get("permission") in PERMS:
-            open_settings_fn(str(detail["permission"]))
-            return f"settings:{detail['permission']}"
+            which = str(detail["permission"])
+            if which == "input":
+                request_input_monitoring()
+            elif which == "accessibility":
+                request_accessibility()
+            open_settings_fn(which)
+            return f"settings:{which}"
         if detail.get("id") in ("log", "show_log"):
             show_log()
             return "show_log"
