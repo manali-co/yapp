@@ -92,3 +92,24 @@ def snapshot(
     ax: Callable[[], Grant] = probe_accessibility,
 ) -> Permissions:
     return Permissions(mic=mic(), input=input_(), accessibility=ax())
+
+
+class Watcher:
+    """Re-probe on demand (the app calls poll() every couple of seconds) and report changes."""
+
+    def __init__(
+        self,
+        *,
+        probe: Callable[[], Permissions] = snapshot,
+        on_change: Callable[[Permissions], None],
+    ) -> None:
+        self._probe = probe
+        self._on_change = on_change
+        self.current: Permissions | None = None
+
+    def poll(self) -> Permissions:
+        p = self._probe()
+        if p != self.current:
+            self.current = p
+            self._on_change(p)
+        return p
