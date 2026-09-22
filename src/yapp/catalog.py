@@ -15,8 +15,15 @@ from yapp.types import App
 ShellRunner = Callable[[list[str]], str]
 
 
+class ShellError(RuntimeError):
+    """A shell command exited non-zero; the message is its stderr."""
+
+
 def run_capture(argv: list[str]) -> str:
-    return subprocess.run(argv, capture_output=True, text=True, check=False).stdout
+    r = subprocess.run(argv, capture_output=True, text=True, check=False)
+    if r.returncode != 0:
+        raise ShellError(r.stderr.strip() or f"{argv[0]} exited {r.returncode}")
+    return r.stdout
 
 
 def slug(name: str) -> str:
@@ -27,7 +34,10 @@ APP_ROOTS = ("/Applications/", "/System/Applications/", str(Path.home() / "Appli
 
 
 def installed_apps(run: ShellRunner = run_capture) -> list[App]:
-    out = run(["mdfind", "kMDItemKind == 'Application'"])
+    try:
+        out = run(["mdfind", "kMDItemKind == 'Application'"])
+    except ShellError:
+        out = ""
     seen: dict[str, App] = {}
     for line in out.splitlines():
         p = Path(line.strip())
@@ -59,10 +69,16 @@ def narrow(apps: list[App], text: str, limit: int) -> list[App]:
 
 def search_files(query: str, run: ShellRunner = run_capture, limit: int = 8) -> list[Path]:
     home = str(Path.home())
-    out = run(["mdfind", "-onlyin", home, "-name", query])
+    try:
+        out = run(["mdfind", "-onlyin", home, "-name", query])
+    except ShellError:
+        return []
     paths = [Path(line) for line in out.splitlines() if line.strip()][: limit * 3]
     if not paths:
         return []
-    stats = run(["stat", "-f", "%m", *map(str, paths)]).split()
+    try:
+        stats = run(["stat", "-f", "%m", *map(str, paths)]).split()
+    except ShellError:
+        stats = []
     mtimes = {p: int(m) for p, m in zip(paths, stats, strict=False)}
     return sorted(paths, key=lambda p: -mtimes.get(p, 0))[:limit]

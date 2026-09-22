@@ -31,6 +31,9 @@ DEFAULT_PATH = Path("tests/eval/transcripts.jsonl")
 
 
 def run_eval(cfg: Config, display: Display, path: Path = DEFAULT_PATH) -> int:
+    if not path.exists():
+        display.show_error(f"eval transcripts not found: {path} (run from the repo root)")
+        return 2
     jev = Jev(model=cfg.model)
     ctx = Context(apps=EVAL_APPS, frontmost_app="Finder", already_done=[], dictating=False)
     rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]

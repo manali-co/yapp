@@ -137,3 +137,11 @@ def test_verdict_outcomes_reported() -> None:
     r, _ = make(canned)
     outs = [v.outcome for v in r.tick(["open"])]
     assert outs == [Outcome.WAIT]
+
+
+def test_failed_open_is_not_remembered_for_undo() -> None:
+    ex = FakeExec()
+    ex.open_app = lambda app: Result(False, "no such app")  # type: ignore[method-assign]
+    r = Runner(Config(), None, ex, APPS, classify=lambda tail, ctx: canned(tail, ctx.dictating))
+    feed(r, "open notes")
+    assert r.last is None

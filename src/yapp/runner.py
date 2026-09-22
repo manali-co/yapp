@@ -137,7 +137,8 @@ class Runner:
         match d.intent:
             case Intent.OPEN_APP if d.app is not None:
                 r = self.executor.open_app(d.app)
-                self.last = Executed(d, r)
+                if r.ok:
+                    self.last = Executed(d, r)
             case Intent.TYPE_TEXT:
                 self.stream.consume(d.consumed_words)
                 self.stream.enter_dictation()
@@ -152,7 +153,8 @@ class Runner:
                     self.last = Executed(d, r)
             case Intent.PRESS_KEY if d.key_combo:
                 r = self.executor.press_key(d.key_combo)
-                self.last = Executed(d, r)
+                if r.ok:
+                    self.last = Executed(d, r)
             case Intent.UNDO if self.last is not None:
                 r = self.executor.undo(self.last)
                 if self.learning:
