@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -39,6 +40,15 @@ def grants_for_page(p: Permissions) -> dict[str, bool | None]:
         "input": to_bool[p.input],
         "accessibility": to_bool[p.accessibility],
     }
+
+
+_PILL_RE = re.compile(r"--yapp-pill-(w|h):\s*(\d+)px")
+
+
+def pill_size(tokens_css: str, default: tuple[int, int] = (400, 96)) -> tuple[int, int]:
+    """Read the pill geometry from tokens.css so the window can never drift from the design."""
+    found = {k: int(v) for k, v in _PILL_RE.findall(tokens_css)}
+    return found.get("w", default[0]), found.get("h", default[1])
 
 
 class Events:

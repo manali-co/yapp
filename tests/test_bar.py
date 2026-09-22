@@ -1,4 +1,4 @@
-from yapp.bar import BRIDGE_JS, Bar, Events, grants_for_page
+from yapp.bar import BRIDGE_JS, Bar, Events, grants_for_page, pill_size
 from yapp.permissions import Grant, Permissions
 
 
@@ -85,3 +85,8 @@ def test_bridge_js_subscribes_every_event() -> None:
     for name in ["action", "escape", "open-settings", "later", "permissions-complete"]:
         assert f'"{name}"' in BRIDGE_JS
     assert "pywebview.api.event" in BRIDGE_JS
+
+
+def test_pill_size_from_tokens() -> None:
+    assert pill_size(":root{--yapp-pill-w: 400px;--yapp-pill-h: 96px;}") == (400, 96)
+    assert pill_size("nothing here") == (400, 96)
