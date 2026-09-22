@@ -123,6 +123,11 @@ class Session:
                 self.sleep(cfg.tick_seconds)
             self.runner.finish()
             self.rec.disarm()
+            if self.runner.display:
+                self.runner.display.status(
+                    f"session end: words={words} stop={self.stop_requested} "
+                    f"elapsed={self.clock() - start:.1f}s"
+                )
             acted = self.bardisplay.acted
             self.bardisplay.end(acted)
             self.sleep(cfg.hide_after_seconds)

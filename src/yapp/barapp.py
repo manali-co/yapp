@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import time
 from importlib import resources
 from pathlib import Path
 
 import webview
 from pynput import keyboard
+from rich.console import Console
 
 from yapp.audio import Recorder
 from yapp.bar import Bar
@@ -97,12 +99,20 @@ def run_app(cfg: Config, log: bool = False) -> int:
         raise RuntimeError("pywebview could not create the window")
     bar = Bar(window)
     bardisplay = BarDisplay(bar)
+    # Always keep a developer log on disk: the bundle has no stdout.
+    log_path = Path.home() / ".yapp" / "app.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    file_console = Console(file=log_path.open("a"), width=120, force_terminal=False)
+    file_log = Terminal(file_console)
+    file_log.status(f"--- yapp app started {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
     terminal = Terminal() if log else None
-    display: Display = Tee(bardisplay, terminal) if terminal else bardisplay
+    displays: list[Display] = [bardisplay, file_log]
+    if terminal is not None:
+        displays.append(terminal)
+    display: Display = Tee(*displays)
 
     def session_main() -> None:
-        if terminal:
-            terminal.status(f"loading whisper {cfg.whisper_model} …")
+        display.status(f"loading whisper {cfg.whisper_model} …")
         stt = StreamingTranscriber(cfg.whisper_model)
         runner = build_runner(cfg, display)
         rec = Recorder(cfg.sample_rate, cfg.max_hold_seconds)
@@ -131,8 +141,7 @@ def run_app(cfg: Config, log: bool = False) -> int:
             on_quit=quit_app,
             icon_path=str(resources.files("yapp.ui").joinpath("icon-1024.png")),
         )
-        if terminal:
-            terminal.status(f"ready · press {cfg.hotkey_combo} to talk")
+        display.status(f"ready · press {cfg.hotkey_combo} to talk")
         session.run_forever()
         rec.stop()
 
