@@ -453,6 +453,8 @@ class Screen:
         self.history = []
         acted = 0
         unchanged = 0
+        last_action: tuple[str, str, str] | None = None
+        last_changed = False
         for step in range(1, self.max_steps + 1):
             app = self.frontmost()
             before = self.summary(app)
@@ -481,10 +483,17 @@ class Screen:
                 return Result(
                     acted > 0, f"done after {acted} step(s)" if acted else "I don't see that here"
                 )
+            action = (d.target.key, d.operation, d.text)
+            if action == last_action and last_changed and d.status_confidence < self.threshold:
+                # Repeating the exact action that just visibly worked needs a confident
+                # "continue" ("make it much bigger"); an unsure one would flip toggles back.
+                self.log(f"screen step {step}: unsure repeat of the last action → done")
+                return Result(True, f"done after {acted} step(s)")
             r = self._act(d)
             if not r.ok:
                 return Result(acted > 0, r.message)
             acted += 1
+            last_action = action
             self.settle(0.35)
             app_after = self.frontmost()
             after = self.summary(app_after)
@@ -498,7 +507,8 @@ class Screen:
                 change = "no visible change"
             self.history.append(f"{r.message} → {change}")
             self.log(f"screen step {step}: {self.history[-1]}")
-            unchanged = unchanged + 1 if (after == before and not delta) else 0
+            last_changed = after != before or bool(delta)
+            unchanged = 0 if last_changed else unchanged + 1
             if unchanged >= 2:
                 return Result(True, f"done after {acted} step(s)")
         return Result(acted > 0, f"stopped after {acted} step(s)")

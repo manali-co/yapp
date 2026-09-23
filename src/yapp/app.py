@@ -34,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("eval", help="accuracy per confidence bucket on tests/eval")
     sub.add_parser("keys", help="print what the hotkey listener sees")
     sub.add_parser("install-app", help="write ~/Applications/Yapp.app")
+    sub.add_parser("toggle", help="show/hide the bar of the running Yapp.app")
+    sub.add_parser("escape", help="dismiss the bar of the running Yapp.app")
     ax = sub.add_parser("ax", help="spike: read an app's UI via Accessibility and let Jev pick")
     ax.add_argument("--app", default=None, help="running app name; default frontmost")
     ax.add_argument("--phrases", default="new tab|find on page|zoom in|search for fable five")
@@ -64,7 +66,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "ax":
             from yapp.ax import run_ax
 
-            return run_ax(args.app, args.phrases.split("|"), cfg.model, args.out)
+            phrases = args.phrases.replace("+", " ").split("|")
+            return run_ax(args.app, phrases, cfg.model, args.out)
+        if args.command in ("toggle", "escape"):
+            from yapp.native import post_control
+
+            post_control(args.command)
+            return 0
         if args.command == "install-app":
             from yapp.bundle import install_app
 

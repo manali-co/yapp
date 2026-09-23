@@ -68,16 +68,52 @@ INJECT_CSS_JS = (
 )
 
 
+def accessory_app_now() -> None:
+    """Make the process an Accessory app (no Dock icon) BEFORE any window exists.
+
+    A window created while the app is Regular never joins full-screen Spaces, even if the app
+    turns Accessory later: it stays on the desktop Space and the pill is invisible over a
+    full-screen Chrome. pywebview forces the Regular policy when its Cocoa backend is imported,
+    so import that first, then override, then let pywebview create the window.
+    """
+    import webview.platforms.cocoa  # noqa: F401 - its import sets the Regular policy
+    from AppKit import NSApp, NSApplicationActivationPolicyAccessory
+
+    NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+
+
 def accessory_app() -> None:
-    """No Dock icon, and showing our windows never activates the app (no Space switching)."""
+    """Same as accessory_app_now, scheduled on the main thread (call from other threads)."""
     from PyObjCTools import AppHelper
 
-    def apply() -> None:
-        from AppKit import NSApp, NSApplicationActivationPolicyAccessory
+    AppHelper.callAfter(accessory_app_now)
 
-        NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+
+def warm_text_services(timeout: float = 5.0) -> bool:
+    """Touch the keyboard-layout API on the main thread once, before any background thread.
+
+    pynput's listener thread reads the keyboard layout through Text Services (TIS). Since
+    macOS 26 that library asserts it was first used on the main queue; a Regular app gets
+    that for free when it activates, an Accessory app never activates, so the first call from
+    the listener thread aborted the whole process (dispatch_assert_queue in HIToolbox).
+    """
+    import threading
+
+    from PyObjCTools import AppHelper
+
+    done = threading.Event()
+
+    def apply() -> None:
+        try:
+            from pynput._util.darwin import keycode_context
+
+            with keycode_context():
+                pass
+        finally:
+            done.set()
 
     AppHelper.callAfter(apply)
+    return done.wait(timeout)
 
 
 def apply_overlay(ns: Any) -> None:
@@ -125,10 +161,19 @@ class OverlayWindow:
             if ns is not None:
                 apply_overlay(ns)
                 ns.orderFrontRegardless()
+                AppHelper.callLater(0.6, report)
+
+        def report() -> None:
+            ns = self._native()
+            if ns is not None:
                 self._log(
-                    f"overlay shown: level={ns.level()} collection={ns.collectionBehavior()} "
+                    f"overlay shown: front={frontmost_full_screen()} "
+                    f"level={ns.level()} collection={ns.collectionBehavior()} "
                     f"style={ns.styleMask()} visible={ns.isVisible()} "
-                    f"active_space={ns.isOnActiveSpace()}"
+                    f"active_space={ns.isOnActiveSpace()} alpha={ns.alphaValue()} "
+                    f"occlusion={ns.occlusionState()} frame={tuple(ns.frame().origin)}+"
+                    f"{tuple(ns.frame().size)} number={ns.windowNumber()} "
+                    f"info={window_info(ns.windowNumber())} stack={window_stack(ns.windowNumber())}"
                 )
 
         AppHelper.callAfter(apply)
@@ -144,6 +189,32 @@ class OverlayWindow:
         AppHelper.callAfter(apply)
 
 
+def _frontmost_window() -> tuple[str, Any]:
+    from AppKit import NSWorkspace
+    from ApplicationServices import AXUIElementCopyAttributeValue, AXUIElementCreateApplication
+
+    app = NSWorkspace.sharedWorkspace().frontmostApplication()
+    if app is None:
+        return "", None
+    el = AXUIElementCreateApplication(app.processIdentifier())
+    err, win = AXUIElementCopyAttributeValue(el, "AXFocusedWindow", None)
+    return str(app.localizedName()), (win if err == 0 else None)
+
+
+def frontmost_full_screen() -> tuple[str, bool | None]:
+    """(app name, whether its focused window is full screen; None when unknown)."""
+    try:
+        from ApplicationServices import AXUIElementCopyAttributeValue
+
+        name, win = _frontmost_window()
+        if win is None:
+            return name, None
+        err, full = AXUIElementCopyAttributeValue(win, "AXFullScreen", None)
+        return name, (bool(full) if err == 0 else None)
+    except Exception:  # noqa: BLE001 - best effort
+        return "", None
+
+
 def leave_full_screen_if_needed() -> bool:
     """If the frontmost window is in full screen, take it out (generic, via AXFullScreen).
 
@@ -151,23 +222,121 @@ def leave_full_screen_if_needed() -> bool:
     leaving full screen first keeps everything on the Space the user is looking at.
     """
     try:
-        from AppKit import NSWorkspace
-        from ApplicationServices import (
-            AXUIElementCopyAttributeValue,
-            AXUIElementCreateApplication,
-            AXUIElementSetAttributeValue,
-        )
+        from ApplicationServices import AXUIElementSetAttributeValue
 
-        app = NSWorkspace.sharedWorkspace().frontmostApplication()
-        if app is None:
+        name, full = frontmost_full_screen()
+        if not full:
             return False
-        el = AXUIElementCreateApplication(app.processIdentifier())
-        err, win = AXUIElementCopyAttributeValue(el, "AXFocusedWindow", None)
-        if err != 0 or win is None:
-            return False
-        err, full = AXUIElementCopyAttributeValue(win, "AXFullScreen", None)
-        if err != 0 or not full:
-            return False
-        return bool(AXUIElementSetAttributeValue(win, "AXFullScreen", False) == 0)
+        _, win = _frontmost_window()
+        return win is not None and AXUIElementSetAttributeValue(win, "AXFullScreen", False) == 0
     except Exception:  # noqa: BLE001 - best effort
         return False
+
+
+def window_stack(our_number: int, limit: int = 6) -> str:
+    """Front-to-back on-screen windows as 'owner@layer', ours marked with '*'.
+
+    Diagnostic for the Spotlight-style overlay: if a full-screen app's window precedes ours,
+    the pill is hidden behind it.
+    """
+    try:
+        import Quartz
+
+        infos = Quartz.CGWindowListCopyWindowInfo(
+            Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID
+        )
+        out: list[str] = []
+        for w in infos or []:
+            if w.get("kCGWindowLayer", 0) < 0 or w.get("kCGWindowOwnerName") == "Window Server":
+                continue
+            mark = "*" if w.get("kCGWindowNumber") == our_number else ""
+            out.append(f"{mark}{w.get('kCGWindowOwnerName', '?')}@{w.get('kCGWindowLayer', 0)}")
+            if len(out) >= limit:
+                break
+        return " > ".join(out)
+    except Exception as e:  # noqa: BLE001 - diagnostics only
+        return f"unavailable ({e!r})"
+
+
+def window_report(ns: Any) -> str:
+    """Every NSWindow property that can affect Space/full-screen membership (diagnostic)."""
+    from AppKit import NSApp
+
+    getters = (
+        "styleMask level collectionBehavior isOpaque alphaValue hasShadow ignoresMouseEvents "
+        "canHide hidesOnDeactivate isExcludedFromWindowsMenu isMovable isReleasedWhenClosed "
+        "animationBehavior sharingType isRestorable tabbingMode isMiniaturized isZoomed "
+        "canBecomeKeyWindow canBecomeMainWindow isOnActiveSpace occlusionState isVisible "
+        "windowNumber"
+    ).split()
+    out = []
+    for g in getters:
+        try:
+            out.append(f"{g}={getattr(ns, g)()}")
+        except Exception as e:  # noqa: BLE001
+            out.append(f"{g}=?{type(e).__name__}")
+    out.append(f"parent={ns.parentWindow()} children={len(ns.childWindows() or [])}")
+    out.append(f"screen={ns.screen().frame() if ns.screen() else None}")
+    out.append(f"delegate={type(ns.delegate()).__name__} class={type(ns).__name__}")
+    out.append(
+        f"app.policy={NSApp.activationPolicy()} app.hidden={NSApp.isHidden()} "
+        f"app.active={NSApp.isActive()}"
+    )
+    return " ".join(out)
+
+
+def window_info(number: int) -> str:
+    """Window-server view of one window (on-screen flag, alpha, layer, bounds)."""
+    try:
+        import Quartz
+
+        infos = Quartz.CGWindowListCopyWindowInfo(
+            Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID
+        )
+        for w in infos or []:
+            if w.get("kCGWindowNumber") == number:
+                b = w.get("kCGWindowBounds", {})
+                return (
+                    f"onscreen={bool(w.get('kCGWindowIsOnscreen', False))} "
+                    f"alpha={w.get('kCGWindowAlpha')} layer={w.get('kCGWindowLayer')} "
+                    f"bounds={b.get('X')},{b.get('Y')} {b.get('Width')}x{b.get('Height')}"
+                )
+        return "not known to the window server"
+    except Exception as e:  # noqa: BLE001 - diagnostics only
+        return f"unavailable ({e!r})"
+
+
+CONTROL_NOTE = "co.manali.yapp.control"
+_observer_cls: Any = None
+
+
+def post_control(command: str) -> None:
+    """Send 'toggle' / 'escape' to the running Yapp.app (`yapp toggle` from any shell)."""
+    from Foundation import NSDistributedNotificationCenter
+
+    NSDistributedNotificationCenter.defaultCenter().postNotificationName_object_userInfo_deliverImmediately_(
+        CONTROL_NOTE, command, None, True
+    )
+
+
+def observe_control(handler: Callable[[str], None]) -> Any:
+    """Register for `post_control` notifications; keep the returned observer alive."""
+    global _observer_cls
+    from Foundation import NSDistributedNotificationCenter, NSObject
+
+    if _observer_cls is None:
+
+        class YappControlObserver(NSObject):  # type: ignore[misc]
+            handler: Callable[[str], None] | None = None
+
+            def control_(self, note: Any) -> None:
+                if self.handler is not None:
+                    self.handler(str(note.object()))
+
+        _observer_cls = YappControlObserver
+    obs = _observer_cls.alloc().init()
+    obs.handler = handler
+    NSDistributedNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+        obs, "control:", CONTROL_NOTE, None
+    )
+    return obs

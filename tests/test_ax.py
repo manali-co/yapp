@@ -298,3 +298,26 @@ def test_merge_equivalents_keeps_menu_over_same_named_button() -> None:
     labels = [(t.kind, t.label) for t in out]
     assert ("control", "New Tab") not in labels and ("menu", "New Tab") in labels
     assert ("control", "Address and search bar") in labels  # text fields are never merged
+
+
+def test_unsure_repeat_of_the_same_action_after_a_change_stops() -> None:
+    """A toggle (Full Screen) flips back if pressed twice; an unsure 'continue' must not."""
+    titles = iter(["windowed", "full", "windowed", "full", "windowed"])
+    log: list[str] = []
+
+    def press(t: Target) -> bool:
+        log.append(t.key)
+        return True
+
+    s = Screen(
+        FakeJev(  # type: ignore[arg-type]
+            *[FakeResp("m3", 0.95, "press", "s0", 0.1, status="continue", status_conf=0.4)] * 6
+        ),
+        Perceiver(lambda a: MENU, lambda a: [], clock=lambda: 0.0, embed=lambda s: None),
+        frontmost=lambda: "Chrome",
+        summary=lambda app: next(titles),
+        press=press,
+        settle=lambda s: None,
+    )
+    r = s.run("enter full screen")
+    assert r.ok and log == ["m3"] and r.message == "done after 1 step(s)"

@@ -19,7 +19,15 @@ from yapp.bardisplay import BarDisplay
 from yapp.config import Config
 from yapp.display import Display, Terminal
 from yapp.menubar import install_status_item
-from yapp.native import INJECT_CSS_JS, MARGIN, OverlayWindow, accessory_app, make_transparent
+from yapp.native import (
+    INJECT_CSS_JS,
+    MARGIN,
+    OverlayWindow,
+    accessory_app_now,
+    make_transparent,
+    observe_control,
+    warm_text_services,
+)
 from yapp.permwindow import handle_event, poll_loop
 from yapp.runner import build_runner
 from yapp.session import Session
@@ -137,7 +145,6 @@ def run_app(cfg: Config, log: bool = False) -> int:
     display: Display = Tee(*displays)
 
     def session_main() -> None:
-        accessory_app()
         display.status(f"loading whisper {cfg.whisper_model} …")
         stt = StreamingTranscriber(cfg.whisper_model)
         runner = build_runner(cfg, display)
@@ -175,7 +182,20 @@ def run_app(cfg: Config, log: bool = False) -> int:
                 hot[0].stop()
                 hot[0] = None
 
+        display.status(f"text services warmed on main thread: {warm_text_services()}")
         start_hotkeys()
+
+        def control(cmd: str) -> None:  # `yapp toggle` / `yapp escape` from a shell
+            display.status(f"control: {cmd}")
+            if cmd == "toggle":
+                toggle()
+            elif cmd == "escape":
+                escape()
+
+        from PyObjCTools import AppHelper
+
+        keep: list[Any] = []
+        AppHelper.callAfter(lambda: keep.append(observe_control(control)))
 
         def show_log() -> None:
             subprocess.run(["open", str(log_path)], check=False)
@@ -267,5 +287,6 @@ def run_app(cfg: Config, log: bool = False) -> int:
             )
         rec.stop()
 
+    accessory_app_now()  # must precede window creation: see native.accessory_app_now
     webview.start(session_main)
     return 0
