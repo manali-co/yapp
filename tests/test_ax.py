@@ -205,6 +205,38 @@ def test_screen_loops_until_done_and_sends_history() -> None:
     assert len(s.history) == 2
 
 
+def test_snapshot_diff_counts_as_change() -> None:
+    seq = [CTRL, CTRL + [Target("c9", "control", "AXButton", "Undo zoom", "Chrome")]]
+    calls = {"n": 0}
+
+    def controls(app: str) -> list[Target]:
+        out = seq[min(calls["n"], 1)]
+        calls["n"] += 1
+        return out
+
+    log: list[str] = []
+
+    def press(t: Target) -> bool:
+        log.append(t.key)
+        return True
+
+    s = Screen(
+        FakeJev(
+            FakeResp("m3", 0.95, "press", "s0", 0.1),
+            FakeResp("none", 0.1, "none", "s0", 0.1, status="done"),
+        ),  # type: ignore[arg-type]
+        Perceiver(lambda a: MENU, controls, clock=lambda: 0.0, embed=lambda s: None),
+        frontmost=lambda: "Chrome",
+        summary=lambda app: "same",
+        press=press,
+        settle=lambda s: None,
+    )
+    r = s.run("zoom in")
+    assert r.ok and s.history == [
+        "pressed menu: View › Zoom In (⌘+) → 1 on-screen controls changed"
+    ]
+
+
 def test_screen_stops_after_two_unchanged_steps_and_on_budget() -> None:
     s, log = make_screen(FakeResp("m3", 0.95, "press", "s0", 0.1), summaries=["same"])
     r = s.run("zoom in")

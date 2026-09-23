@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 # AppKit constants (kept literal so this module imports without PyObjC in tests).
@@ -79,6 +80,19 @@ def accessory_app() -> None:
     AppHelper.callAfter(apply)
 
 
+def apply_overlay(ns: Any) -> None:
+    """Spotlight-style window properties; safe to re-apply on every show."""
+    from AppKit import NSColor
+
+    ns.setLevel_(OVERLAY_LEVEL)
+    ns.setCollectionBehavior_(
+        CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY | STATIONARY | IGNORES_CYCLE
+    )
+    ns.setHidesOnDeactivate_(False)
+    ns.setOpaque_(False)
+    ns.setBackgroundColor_(NSColor.clearColor())
+
+
 class OverlayWindow:
     """WindowLike adapter that shows and hides without activating the app.
 
@@ -87,8 +101,9 @@ class OverlayWindow:
     dictating into. Ordering front "regardless" avoids both.
     """
 
-    def __init__(self, window: Any) -> None:
+    def __init__(self, window: Any, log: Callable[[str], None] = lambda s: None) -> None:
         self._w = window
+        self._log = log
 
     def _native(self) -> Any:
         from webview.platforms import cocoa
@@ -108,7 +123,13 @@ class OverlayWindow:
         def apply() -> None:
             ns = self._native()
             if ns is not None:
+                apply_overlay(ns)
                 ns.orderFrontRegardless()
+                self._log(
+                    f"overlay shown: level={ns.level()} collection={ns.collectionBehavior()} "
+                    f"style={ns.styleMask()} visible={ns.isVisible()} "
+                    f"active_space={ns.isOnActiveSpace()}"
+                )
 
         AppHelper.callAfter(apply)
 
@@ -121,3 +142,32 @@ class OverlayWindow:
                 ns.orderOut_(None)
 
         AppHelper.callAfter(apply)
+
+
+def leave_full_screen_if_needed() -> bool:
+    """If the frontmost window is in full screen, take it out (generic, via AXFullScreen).
+
+    Opening another app from a full-screen Space makes macOS slide to a different Space;
+    leaving full screen first keeps everything on the Space the user is looking at.
+    """
+    try:
+        from AppKit import NSWorkspace
+        from ApplicationServices import (
+            AXUIElementCopyAttributeValue,
+            AXUIElementCreateApplication,
+            AXUIElementSetAttributeValue,
+        )
+
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        if app is None:
+            return False
+        el = AXUIElementCreateApplication(app.processIdentifier())
+        err, win = AXUIElementCopyAttributeValue(el, "AXFocusedWindow", None)
+        if err != 0 or win is None:
+            return False
+        err, full = AXUIElementCopyAttributeValue(win, "AXFullScreen", None)
+        if err != 0 or not full:
+            return False
+        return bool(AXUIElementSetAttributeValue(win, "AXFullScreen", False) == 0)
+    except Exception:  # noqa: BLE001 - best effort
+        return False

@@ -164,6 +164,13 @@ def ax_controls(app_name: str) -> list[Target]:
             continue
         if role in INTERESTING:
             label = normalize_label(_attr(el, "AXTitle") or _attr(el, "AXDescription") or "")
+            value = _attr(el, "AXValue")
+            if isinstance(value, (str, int, float)) and str(value) and len(str(value)) < 80:
+                label = (
+                    f"{label} [{normalize_label(str(value))}]"
+                    if label
+                    else normalize_label(str(value))
+                )
             if label:
                 out.append(Target(f"c{len(out)}", "control", role, label, title, "", el))
         stack.extend(_attr(el, "AXChildren") or [])
@@ -257,6 +264,7 @@ class Perceiver:
         self._clock = clock
         self._ttl = ttl
         self._cache: dict[str, tuple[float, list[Target]]] = {}
+        self.last_controls: list[Target] = []
         if embed is None:
             from yapp.semantic import default_embedder
 
@@ -272,7 +280,13 @@ class Perceiver:
         return items
 
     def targets(self, app: str, words: str, limit: int = 40) -> list[Target]:
-        return narrow(self.menus(app) + self._controls(app), words, limit, self.embeddings)
+        controls = self._controls(app)
+        self.last_controls = controls
+        return narrow(self.menus(app) + controls, words, limit, self.embeddings)
+
+    def snapshot(self, app: str) -> set[str]:
+        """Fingerprint of what is on screen now: control labels, roles and values."""
+        return {f"{t.role}|{t.label}" for t in self._controls(app)}
 
 
 # ---------------------------------------------------------------- decision
@@ -444,6 +458,7 @@ class Screen:
             before = self.summary(app)
             t0 = time.perf_counter()
             targets = self.perceiver.targets(app, words)
+            shot_before = {f"{t.role}|{t.label}" for t in self.perceiver.last_controls}
             ms = (time.perf_counter() - t0) * 1000
             self.log(f"screen step {step}: {before}; {len(targets)} candidates in {ms:.0f} ms")
             if not targets:
@@ -471,11 +486,19 @@ class Screen:
                 return Result(acted > 0, r.message)
             acted += 1
             self.settle(0.35)
-            after = self.summary(self.frontmost())
-            change = "no visible change" if after == before else f"now {after}"
+            app_after = self.frontmost()
+            after = self.summary(app_after)
+            shot_after = self.perceiver.snapshot(app_after)
+            delta = len(shot_before ^ shot_after)
+            if after != before:
+                change = f"now {after}" + (f"; {delta} controls changed" if delta else "")
+            elif delta:
+                change = f"{delta} on-screen controls changed"
+            else:
+                change = "no visible change"
             self.history.append(f"{r.message} → {change}")
             self.log(f"screen step {step}: {self.history[-1]}")
-            unchanged = unchanged + 1 if after == before else 0
+            unchanged = unchanged + 1 if (after == before and not delta) else 0
             if unchanged >= 2:
                 return Result(True, f"done after {acted} step(s)")
         return Result(acted > 0, f"stopped after {acted} step(s)")

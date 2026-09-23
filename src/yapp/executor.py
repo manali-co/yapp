@@ -24,10 +24,14 @@ def applescript_escape(s: str) -> str:
 
 class Executor:
     def __init__(
-        self, run: ShellRunner = run_capture, screen: Callable[[str], Result] | None = None
+        self,
+        run: ShellRunner = run_capture,
+        screen: Callable[[str], Result] | None = None,
+        leave_full_screen: Callable[[], bool] | None = None,
     ) -> None:
         self._run = run
         self.screen_fn = screen
+        self.leave_full_screen = leave_full_screen
 
     def screen(self, words: str) -> Result:
         """A screen action: the app in front is read live and Jev picks a target (see ax.py)."""
@@ -50,6 +54,8 @@ class Executor:
         return Result(True, ok_message)
 
     def open_app(self, app: App) -> Result:
+        if self.leave_full_screen:
+            self.leave_full_screen()
         return self._attempt(["open", "-a", app.name], f"opened {app.name}")
 
     def type_text(self, text: str) -> Result:

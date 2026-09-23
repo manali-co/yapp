@@ -197,7 +197,9 @@ def build_runner(cfg: Config, display: Display | None) -> Runner:
     apps = installed_apps()
     if display:
         display.status(f"{len(apps)} apps in catalog · model {cfg.model}")
-    executor = Executor()
+    from yapp.native import leave_full_screen_if_needed
+
+    executor = Executor(leave_full_screen=leave_full_screen_if_needed)
     screen = Screen(
         jev,
         type_text=executor.type_text,

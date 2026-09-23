@@ -124,13 +124,12 @@ def run_app(cfg: Config, log: bool = False) -> int:
     bar_window.events.loaded += lambda: bar_window.evaluate_js(INJECT_CSS_JS)
     bar_window.events.loaded += lambda: make_transparent(bar_window)
 
-    bar = Bar(OverlayWindow(bar_window), width, height)
-    bardisplay = BarDisplay(bar, silence_total=cfg.silence_seconds)
-
     log_path = Path.home() / ".yapp" / "app.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     file_log = Terminal(Console(file=log_path.open("a"), width=120, force_terminal=False))
     file_log.status(f"--- yapp app started {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
+    bar = Bar(OverlayWindow(bar_window, log=file_log.status), width, height)
+    bardisplay = BarDisplay(bar, silence_total=cfg.silence_seconds)
     terminal = Terminal() if log else None
     displays: list[Display] = [bardisplay, file_log]
     if terminal is not None:

@@ -83,3 +83,16 @@ def test_failed_command_is_reported_not_hidden() -> None:
     r = Executor(failing).open_app(App("nope", "Nope", ""))
     assert r == Result(False, "Unable to find application named 'Nope'")
     assert Executor(failing).frontmost_app() == "unknown"
+
+
+def test_open_app_leaves_full_screen_first() -> None:
+    f = Fake()
+    calls: list[str] = []
+
+    def leave() -> bool:
+        calls.append("leave")
+        return True
+
+    ex = Executor(f, leave_full_screen=leave)
+    ex.open_app(NOTES)
+    assert calls == ["leave"] and f.calls[-1] == ["open", "-a", "Notes"]
