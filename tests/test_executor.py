@@ -94,5 +94,6 @@ def test_open_app_leaves_full_screen_first() -> None:
         return True
 
     ex = Executor(f, leave_full_screen=leave)
-    ex.open_app(NOTES)
+    r = ex.open_app(NOTES)
     assert calls == ["leave"] and f.calls[-1] == ["open", "-a", "Notes"]
+    assert r == Result(True, "left full screen, opened Notes")

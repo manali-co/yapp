@@ -54,9 +54,9 @@ class Executor:
         return Result(True, ok_message)
 
     def open_app(self, app: App) -> Result:
-        if self.leave_full_screen:
-            self.leave_full_screen()
-        return self._attempt(["open", "-a", app.name], f"opened {app.name}")
+        left = bool(self.leave_full_screen and self.leave_full_screen())
+        r = self._attempt(["open", "-a", app.name], f"opened {app.name}")
+        return Result(r.ok, f"left full screen, {r.message}") if left and r.ok else r
 
     def type_text(self, text: str) -> Result:
         if not text:
