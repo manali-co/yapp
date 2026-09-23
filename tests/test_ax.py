@@ -7,10 +7,12 @@ from yapp.ax import (
     Target,
     decide,
     fits,
+    merge_equivalents,
     narrow,
     normalize_label,
     spans,
 )
+from yapp.semantic import EmbeddingCache, rank_fusion
 from yapp.types import Result
 
 MENU = [
@@ -30,11 +32,13 @@ def test_normalize_label() -> None:
     assert normalize_label("  New   Tab ") == "New Tab"
 
 
-def test_criteria_are_structured() -> None:
+def test_criteria_are_structured_and_generic() -> None:
     c = MENU[0].criteria()
     assert c["what"].startswith("Menu command File › New Tab") and "⌘T" in c["what"]
-    assert "new tab" in c["examples"]
-    assert "type here" in CTRL[1].criteria()["what"]
+    assert c["examples"] == ["new tab"]
+    assert "typing goes here" in CTRL[1].criteria()["what"]
+    assert MENU[0].phrasing() == "New Tab (File menu)"
+    assert CTRL[1].phrasing() == "Address and search bar (textfield)"
 
 
 def test_narrow_scores_by_path_and_label_case_insensitively() -> None:
@@ -48,7 +52,7 @@ def test_narrow_scores_by_path_and_label_case_insensitively() -> None:
     top = narrow(MENU + CTRL + [junk], "find on page", 2)
     assert {t.key for t in top} == {"m1", "m2"}
     top = narrow(MENU + CTRL, "new tab", 2)
-    assert {t.key for t in top} == {"m0", "c0"}
+    assert top[0].key == "m0" and "c0" not in {t.key for t in top}  # button merged into menu
 
 
 def test_spans() -> None:
@@ -174,3 +178,31 @@ def test_screen_stays_quiet_below_threshold_or_on_mismatch() -> None:
     assert not s.run("search for fable five").ok and log == []
     s, log = make_screen(FakeResp("m0", 0.9, "type", "s0", 0.1))  # type on a menu item
     assert not s.run("new tab").ok and log == []
+
+
+def test_rank_fusion_prefers_items_good_under_any_signal() -> None:
+    assert rank_fusion([["a", "b", "c"], ["c", "a", "b"]])[0] == "a"
+    assert rank_fusion([["x", "y"], ["y", "x"]]) == ["x", "y"]  # tie broken by key
+    assert rank_fusion([["a"], ["z"]])[:2] == ["a", "z"]
+
+
+def test_narrow_uses_semantic_rank_when_lexical_misses() -> None:
+    import numpy as np
+
+    vecs = {
+        "get rid of this tab": np.array([1.0, 0.0]),
+        MENU[0].phrasing(): np.array([0.0, 1.0]),  # New Tab
+        MENU[3].phrasing(): np.array([0.1, 0.9]),  # Zoom In
+    }
+    close = Target("m7", "menu", "AXMenuItem", "Close Tab", "File › Close Tab", "⌘W")
+    vecs[close.phrasing()] = np.array([0.95, 0.05])
+    emb = EmbeddingCache(lambda s: vecs.get(s, np.array([0.5, 0.5])))
+    top = narrow([MENU[0], MENU[3], close], "get rid of this tab", 1, emb)
+    assert [t.key for t in top] == ["m7"]
+
+
+def test_merge_equivalents_keeps_menu_over_same_named_button() -> None:
+    out = merge_equivalents(MENU + CTRL)
+    labels = [(t.kind, t.label) for t in out]
+    assert ("control", "New Tab") not in labels and ("menu", "New Tab") in labels
+    assert ("control", "Address and search bar") in labels  # text fields are never merged

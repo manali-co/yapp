@@ -17,6 +17,7 @@ from rapidfuzz import fuzz
 from typesafe_sdk import Choice, Noul
 
 from yapp.jev import Jev
+from yapp.semantic import Embedder, EmbeddingCache, cosine, rank_fusion
 from yapp.types import Result
 
 PRESSABLE = {
@@ -63,22 +64,23 @@ class Target:
             return f"menu: {self.path}" + (f" ({self.shortcut})" if self.shortcut else "")
         return f"{self.role[2:]}: {self.label}"
 
+    def phrasing(self) -> str:
+        """What this target is, in plain words, for embedding. Nothing invented."""
+        if self.kind == "menu":
+            return f"{self.label} ({self.path.rsplit(' › ', 1)[0]} menu)"
+        return f"{self.label} ({self.role[2:].lower()})"
+
     def criteria(self) -> dict[str, Any]:
-        """Structured option for Jev: what it is, plus phrasings a person would use."""
-        words = [w.lower() for w in re.findall(r"[A-Za-z0-9]+", self.label)]
-        base = " ".join(words)
-        if self.typeable:
-            what = f"Text field '{self.label}' in this window: type here"
-            examples = [f"type in {base}", "search for something", f"enter text in {base}"]
-        elif self.kind == "menu":
+        """Structured option for Jev: what it is and where it lives. The label is the example."""
+        if self.kind == "menu":
             what = f"Menu command {self.path}" + (
                 f", shortcut {self.shortcut}" if self.shortcut else ""
             )
-            examples = [base, f"{base} please", f"do {base}"]
+        elif self.typeable:
+            what = f"Text field '{self.label}' in this window; typing goes here"
         else:
-            what = f"{self.role[2:]} '{self.label}' in this window: click it"
-            examples = [base, f"click {base}", f"press {base}"]
-        return {"what": what, "examples": [e for e in examples if e.strip()][:4]}
+            what = f"{self.role[2:]} '{self.label}' in this window"
+        return {"what": what, "examples": [self.label.lower()]}
 
 
 # ---------------------------------------------------------------- perception (AX)
@@ -190,9 +192,33 @@ def score(words: str, t: Target) -> float:
     return float(max(by_label, by_path))
 
 
-def narrow(targets: list[Target], words: str, limit: int) -> list[Target]:
-    ranked = sorted(targets, key=lambda t: (-score(words, t), t.key))[:limit]
-    return sorted(ranked, key=lambda t: (t.kind, int(t.key[1:])))
+def merge_equivalents(targets: list[Target]) -> list[Target]:
+    """A toolbar button and a menu item with the same name are one action; keep the menu one
+    (it carries the shortcut) so Jev's vote is not split between two spellings of one thing."""
+    menus = {t.label.lower(): t for t in targets if t.kind == "menu"}
+    out: list[Target] = []
+    for t in targets:
+        if t.kind == "control" and t.role == "AXButton" and t.label.lower() in menus:
+            continue
+        out.append(t)
+    return out
+
+
+def narrow(
+    targets: list[Target], words: str, limit: int, embeddings: EmbeddingCache | None = None
+) -> list[Target]:
+    """Keep the `limit` most plausible targets: lexical rank fused with semantic rank."""
+    targets = merge_equivalents(targets)
+    by_key = {t.key: t for t in targets}
+    lexical = [t.key for t in sorted(targets, key=lambda t: (-score(words, t), t.key))]
+    rankings = [lexical]
+    if embeddings is not None:
+        q = embeddings.get(words)
+        if q is not None:
+            sims = {t.key: cosine(q, embeddings.get(t.phrasing())) for t in targets}
+            rankings.append(sorted(sims, key=lambda key: (-sims[key], key)))
+    keep = [by_key[k] for k in rank_fusion(rankings)[:limit]]
+    return sorted(keep, key=lambda t: (t.kind, int(t.key[1:])))
 
 
 class Perceiver:
@@ -202,12 +228,18 @@ class Perceiver:
         read_controls: Callable[[str], list[Target]] = ax_controls,
         clock: Callable[[], float] = time.monotonic,
         ttl: float = MENU_TTL,
+        embed: Embedder | None = None,
     ) -> None:
         self._menus = read_menus
         self._controls = read_controls
         self._clock = clock
         self._ttl = ttl
         self._cache: dict[str, tuple[float, list[Target]]] = {}
+        if embed is None:
+            from yapp.semantic import default_embedder
+
+            embed = default_embedder()
+        self.embeddings = EmbeddingCache(embed) if embed is not None else None
 
     def menus(self, app: str) -> list[Target]:
         hit = self._cache.get(app)
@@ -217,8 +249,8 @@ class Perceiver:
         self._cache[app] = (self._clock(), items)
         return items
 
-    def targets(self, app: str, words: str, limit: int = 30) -> list[Target]:
-        return narrow(self.menus(app) + self._controls(app), words, limit)
+    def targets(self, app: str, words: str, limit: int = 40) -> list[Target]:
+        return narrow(self.menus(app) + self._controls(app), words, limit, self.embeddings)
 
 
 # ---------------------------------------------------------------- decision
@@ -262,8 +294,7 @@ def fits(operation: str, target: Target | None) -> bool:
 def decide(words: str, targets: list[Target], jev: Jev) -> ScreenDecision:
     criteria: dict[str, Any] = {t.key: t.criteria() for t in targets}
     criteria["none"] = {
-        "what": "Nothing listed fits: the user wants another app, or is not giving a command",
-        "examples": ["open safari", "what time is it", "never mind", "switch to notes"],
+        "what": "None of the listed targets is what the user asked for",
     }
     candidates = spans(words)
     text_criteria = {f"s{i}": s for i, s in enumerate(candidates)}
@@ -401,7 +432,8 @@ def run_ax(app_name: str | None, phrases: list[str], model: str, out_path: str) 
         )
         jev = Jev(model=model)
         for ph in phrases:
-            cands = narrow(menus + controls, ph, 30)
+            cands = narrow(menus + controls, ph, 40, perceiver.embeddings)
+            p(f'\ncandidates for "{ph}": ' + " | ".join(t.label for t in cands))
             d = decide(ph, cands, jev)
             by = {t.key: t.describe() for t in cands}
             p(
