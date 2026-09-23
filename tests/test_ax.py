@@ -96,8 +96,18 @@ class FakeChoice:
 
 
 class FakeResp:
-    def __init__(self, target: str, conf: float, op: str, text: str, submit: float) -> None:
+    def __init__(
+        self,
+        target: str,
+        conf: float,
+        op: str,
+        text: str,
+        submit: float,
+        status: str = "continue",
+        status_conf: float = 0.9,
+    ) -> None:
         self._t, self._c, self._op, self._text, self._s = target, conf, op, text, submit
+        self._status, self._sc = status, status_conf
         self.latency_ms = 200
 
     def choice(self, name: str) -> FakeChoice:
@@ -105,6 +115,8 @@ class FakeResp:
             return FakeChoice(self._t, self._c, {self._t: self._c})
         if name == "operation":
             return FakeChoice(self._op, 0.9, {})
+        if name == "status":
+            return FakeChoice(self._status, self._sc, {})
         return FakeChoice(self._text, 0.9, {})
 
     def noul(self, name: str) -> float:
@@ -112,13 +124,15 @@ class FakeResp:
 
 
 class FakeJev:
-    def __init__(self, resp: FakeResp) -> None:
-        self.resp = resp
+    def __init__(self, *resps: FakeResp) -> None:
+        self.resps = list(resps)
         self.seen: dict[str, Any] = {}
+        self.states: list[Any] = []
 
     def ask(self, state: Any, questions: Any) -> FakeResp:
         self.seen = {"state": state, "questions": questions}
-        return self.resp
+        self.states.append(state)
+        return self.resps.pop(0) if len(self.resps) > 1 else self.resps[0]
 
 
 def test_decide_maps_answers() -> None:
@@ -126,12 +140,13 @@ def test_decide_maps_answers() -> None:
     d = decide("search for fable five", MENU + CTRL, jev)  # type: ignore[arg-type]
     assert d.target is not None and d.target.key == "c1"
     assert d.operation == "type" and d.text == "fable five" and d.submit == 0.9
-    assert set(jev.seen["questions"]) == {"target", "operation", "text", "submit"}
+    assert set(jev.seen["questions"]) == {"status", "target", "operation", "text", "submit"}
     assert "none" in jev.seen["questions"]["target"].criteria
 
 
-def make_screen(resp: FakeResp) -> tuple[Screen, list[str]]:
+def make_screen(*resps: FakeResp, summaries: list[str] | None = None) -> tuple[Screen, list[str]]:
     log: list[str] = []
+    seq = list(summaries or ["app Chrome"])
 
     def press(t: Target) -> bool:
         log.append(f"press:{t.key}")
@@ -149,26 +164,71 @@ def make_screen(resp: FakeResp) -> tuple[Screen, list[str]]:
         log.append(f"key:{k}")
         return Result(True, k)
 
+    def summary(app: str) -> str:
+        return seq.pop(0) if len(seq) > 1 else seq[0]
+
     s = Screen(
-        FakeJev(resp),  # type: ignore[arg-type]
-        Perceiver(lambda a: MENU, lambda a: CTRL, clock=lambda: 0.0),
+        FakeJev(*resps),  # type: ignore[arg-type]
+        Perceiver(lambda a: MENU, lambda a: CTRL, clock=lambda: 0.0, embed=lambda s: None),
         frontmost=lambda: "Chrome",
+        summary=summary,
         press=press,
         focus=focus,
         type_text=type_text,
         press_key=press_key,
+        settle=lambda s: None,
     )
     return s, log
 
 
-def test_screen_presses_menu_item() -> None:
-    s, log = make_screen(FakeResp("m3", 0.95, "press", "s0", 0.1))
+def test_screen_presses_menu_item_then_stops_when_done() -> None:
+    s, log = make_screen(
+        FakeResp("m3", 0.95, "press", "s0", 0.1),
+        FakeResp("none", 0.1, "none", "s0", 0.1, status="done"),
+        summaries=["app Chrome window 'a'", "app Chrome window 'a' zoomed"],
+    )
     r = s.run("zoom in")
-    assert r.ok and log == ["press:m3"]
+    assert r.ok and log == ["press:m3"] and r.message == "done after 1 step(s)"
+    assert s.history == ["pressed menu: View › Zoom In (⌘+) → now app Chrome window 'a' zoomed"]
+
+
+def test_screen_loops_until_done_and_sends_history() -> None:
+    s, log = make_screen(
+        FakeResp("m3", 0.95, "press", "s0", 0.1),
+        FakeResp("m3", 0.95, "press", "s0", 0.1),
+        FakeResp("none", 0.1, "none", "s0", 0.1, status="done"),
+        summaries=["a", "b", "c", "d"],
+    )
+    r = s.run("make it much bigger")
+    assert r.ok and log == ["press:m3", "press:m3"] and "2 step" in r.message
+    assert s.jev.states[2]["steps_done_so_far"] == s.history  # type: ignore[attr-defined]
+    assert len(s.history) == 2
+
+
+def test_screen_stops_after_two_unchanged_steps_and_on_budget() -> None:
+    s, log = make_screen(FakeResp("m3", 0.95, "press", "s0", 0.1), summaries=["same"])
+    r = s.run("zoom in")
+    assert r.ok and log == ["press:m3", "press:m3"]  # second unchanged step ends it
+    s, log = make_screen(
+        FakeResp("m3", 0.95, "press", "s0", 0.1), summaries=[str(i) for i in range(20)]
+    )
+    s.max_steps = 3
+    r = s.run("zoom in")
+    assert log == ["press:m3"] * 3 and "stopped after 3" in r.message
+
+
+def test_screen_blocked_stops_without_acting() -> None:
+    s, log = make_screen(FakeResp("none", 0.1, "none", "s0", 0.1, status="blocked"))
+    r = s.run("fly to the moon")
+    assert not r.ok and log == []
 
 
 def test_screen_types_and_submits() -> None:
-    s, log = make_screen(FakeResp("c1", 0.8, "type", "s0", 0.9))
+    s, log = make_screen(
+        FakeResp("c1", 0.8, "type", "s0", 0.9),
+        FakeResp("none", 0.1, "none", "s0", 0.1, status="done"),
+        summaries=["a", "b"],
+    )
     r = s.run("search for fable five")
     assert r.ok and log == ["focus:c1", "key:cmd+a", "type:fable five", "key:enter"]
 

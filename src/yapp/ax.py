@@ -182,6 +182,28 @@ def ax_focus(t: Target) -> bool:
     return bool(AXUIElementSetAttributeValue(t.ref, "AXFocused", True) == 0)
 
 
+def ax_summary(app_name: str) -> str:
+    """One line describing the front app's state, for the step history."""
+    app, name = app_element(app_name)
+    win = _attr(app, "AXFocusedWindow")
+    title = normalize_label(_attr(win, "AXTitle") or "") if win is not None else ""
+    focused = _attr(app, "AXFocusedUIElement")
+    frole = (_attr(focused, "AXRole") or "")[2:] if focused is not None else ""
+    flabel = (
+        normalize_label(_attr(focused, "AXTitle") or _attr(focused, "AXDescription") or "")
+        if focused is not None
+        else ""
+    )
+    parts = [f"app {name}"]
+    if title:
+        parts.append(f"window '{title}'")
+    if frole:
+        parts.append(
+            f"focus on {frole.lower()} '{flabel}'" if flabel else f"focus on {frole.lower()}"
+        )
+    return ", ".join(parts)
+
+
 # ---------------------------------------------------------------- narrowing
 
 
@@ -279,6 +301,8 @@ class ScreenDecision:
     confidence: float
     probabilities: dict[str, float]
     latency_ms: int
+    status: str = "continue"  # continue | done | blocked
+    status_confidence: float = 0.0
 
 
 def fits(operation: str, target: Target | None) -> bool:
@@ -291,16 +315,40 @@ def fits(operation: str, target: Target | None) -> bool:
     return False
 
 
-def decide(words: str, targets: list[Target], jev: Jev) -> ScreenDecision:
+def decide(
+    words: str,
+    targets: list[Target],
+    jev: Jev,
+    history: list[str] | None = None,
+    screen: str = "",
+) -> ScreenDecision:
+    """One step: given the goal, the screen, and what was done so far, what next (or done)?"""
     criteria: dict[str, Any] = {t.key: t.criteria() for t in targets}
     criteria["none"] = {
-        "what": "None of the listed targets is what the user asked for",
+        "what": "None of the listed targets is the right next step",
     }
     candidates = spans(words)
     text_criteria = {f"s{i}": s for i, s in enumerate(candidates)}
+    state = {
+        "goal": words,
+        "screen_now": screen,
+        "steps_done_so_far": history or [],
+        "available_targets": [t.describe() for t in targets],
+    }
     resp = jev.ask(
-        {"instruction": words, "app_targets": [t.describe() for t in targets]},
+        state,
         {
+            "status": Choice(
+                instructions=(
+                    "Looking at steps_done_so_far and screen_now, is the goal already achieved, "
+                    "still in progress, or impossible from here?"
+                ),
+                criteria={
+                    "continue": "More steps are needed; a next step is available",
+                    "done": "The goal is already achieved; nothing more should be done",
+                    "blocked": "The goal cannot be achieved from this screen",
+                },
+            ),
             "target": Choice(
                 instructions="Which menu command or on-screen control does the user mean?",
                 criteria=criteria,
@@ -335,6 +383,7 @@ def decide(words: str, targets: list[Target], jev: Jev) -> ScreenDecision:
     tgt = resp.choice("target")
     op = resp.choice("operation").key
     text_key = resp.choice("text").key
+    status = resp.choice("status")
     by = {t.key: t for t in targets}
     return ScreenDecision(
         target=by.get(tgt.key),
@@ -344,6 +393,8 @@ def decide(words: str, targets: list[Target], jev: Jev) -> ScreenDecision:
         confidence=tgt.confidence,
         probabilities=tgt.probabilities,
         latency_ms=resp.latency_ms,
+        status=status.key,
+        status_confidence=status.confidence,
     )
 
 
@@ -351,7 +402,7 @@ def decide(words: str, targets: list[Target], jev: Jev) -> ScreenDecision:
 
 
 class Screen:
-    """perceive -> decide -> act for one spoken instruction against the frontmost app."""
+    """Goal in; a loop of typed steps until Jev says done (or blocked, or the budget runs out)."""
 
     def __init__(
         self,
@@ -359,43 +410,78 @@ class Screen:
         perceiver: Perceiver | None = None,
         *,
         frontmost: Callable[[], str] = frontmost_app_name,
+        summary: Callable[[str], str] = ax_summary,
         press: Callable[[Target], bool] = ax_press,
         focus: Callable[[Target], bool] = ax_focus,
         type_text: Callable[[str], Result] | None = None,
         press_key: Callable[[str], Result] | None = None,
         threshold: float = 0.60,
+        max_steps: int = 6,
+        settle: Callable[[float], None] = time.sleep,
         log: Callable[[str], None] = lambda s: None,
     ) -> None:
         self.jev = jev
         self.perceiver = perceiver or Perceiver()
         self.frontmost = frontmost
+        self.summary = summary
         self.press = press
         self.focus = focus
         self.type_text = type_text
         self.press_key = press_key
         self.threshold = threshold
+        self.max_steps = max_steps
+        self.settle = settle
         self.log = log
         self.last: ScreenDecision | None = None
+        self.history: list[str] = []
 
     def run(self, words: str) -> Result:
-        app = self.frontmost()
-        t0 = time.perf_counter()
-        targets = self.perceiver.targets(app, words)
-        ms = (time.perf_counter() - t0) * 1000
-        self.log(f"screen: {app}: {len(targets)} candidates in {ms:.0f} ms")
-        if not targets:
-            return Result(False, "I don't see anything to act on here")
-        d = decide(words, targets, self.jev)
-        self.last = d
-        top = sorted(d.probabilities.items(), key=lambda kv: -kv[1])[:3]
-        by = {t.key: t.describe() for t in targets}
-        self.log(
-            f"screen: jev {d.latency_ms} ms → {d.operation} "
-            f"{d.target.describe() if d.target else 'none'} conf {d.confidence:.2f}; "
-            + ", ".join(f"{by.get(k, k)} {p:.2f}" for k, p in top)
-        )
-        if d.target is None or d.confidence < self.threshold or not fits(d.operation, d.target):
-            return Result(False, "I don't see that here")
+        self.history = []
+        acted = 0
+        unchanged = 0
+        for step in range(1, self.max_steps + 1):
+            app = self.frontmost()
+            before = self.summary(app)
+            t0 = time.perf_counter()
+            targets = self.perceiver.targets(app, words)
+            ms = (time.perf_counter() - t0) * 1000
+            self.log(f"screen step {step}: {before}; {len(targets)} candidates in {ms:.0f} ms")
+            if not targets:
+                return Result(False, "I don't see anything to act on here")
+            d = decide(words, targets, self.jev, self.history, before)
+            self.last = d
+            top = sorted(d.probabilities.items(), key=lambda kv: -kv[1])[:3]
+            by = {t.key: t.describe() for t in targets}
+            self.log(
+                f"screen step {step}: jev {d.latency_ms} ms → status {d.status} "
+                f"({d.status_confidence:.2f}); {d.operation} "
+                f"{d.target.describe() if d.target else 'none'} conf {d.confidence:.2f}; "
+                + ", ".join(f"{by.get(k, k)} {p:.2f}" for k, p in top)
+            )
+            if d.status == "done" and d.status_confidence >= self.threshold:
+                return Result(True, f"done after {acted} step(s)" if acted else "already done")
+            if d.status == "blocked" and d.status_confidence >= self.threshold:
+                return Result(False, "I can't do that from here")
+            if d.target is None or d.confidence < self.threshold or not fits(d.operation, d.target):
+                return Result(
+                    acted > 0, f"done after {acted} step(s)" if acted else "I don't see that here"
+                )
+            r = self._act(d)
+            if not r.ok:
+                return Result(acted > 0, r.message)
+            acted += 1
+            self.settle(0.35)
+            after = self.summary(self.frontmost())
+            change = "no visible change" if after == before else f"now {after}"
+            self.history.append(f"{r.message} → {change}")
+            self.log(f"screen step {step}: {self.history[-1]}")
+            unchanged = unchanged + 1 if after == before else 0
+            if unchanged >= 2:
+                return Result(True, f"done after {acted} step(s)")
+        return Result(acted > 0, f"stopped after {acted} step(s)")
+
+    def _act(self, d: ScreenDecision) -> Result:
+        assert d.target is not None
         if d.operation == "press":
             ok = self.press(d.target)
             return Result(ok, f"pressed {d.target.describe()}" if ok else "couldn't press that")
