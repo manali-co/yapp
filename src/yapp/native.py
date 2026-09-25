@@ -396,7 +396,19 @@ def app_is_running(app_name: str) -> bool:
     return _running_app(app_name) is not None
 
 
-def quit_app(app_name: str) -> bool:
-    """Ask the app to quit the polite way (it may show a Save sheet, which the guard sees)."""
+def quit_app(app_name: str, timeout: float = 4.0) -> bool:
+    """Ask the app to quit the polite way and wait for it to go. A Save sheet keeps it alive,
+    which is the right outcome: pressing Don't Save is the guard's decision, not ours."""
+    import time
+
     app = _running_app(app_name)
-    return bool(app is not None and app.terminate())
+    if app is None:
+        return True
+    if not app.terminate():
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if app.isTerminated():
+            return True
+        time.sleep(0.1)
+    return bool(app.isTerminated())

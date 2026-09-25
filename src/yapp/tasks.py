@@ -25,6 +25,7 @@ from yapp.config import Config
 from yapp.display import Terminal
 from yapp.guard import Mode
 from yapp.jev import Jev, JevLike, JevResponse
+from yapp.native import quit_app
 from yapp.runner import build_runner
 
 DEFAULT_DIR = Path("tasks")
@@ -42,6 +43,9 @@ class Task:
     settle_seconds: float = 2.0
     per_tick: int = 2
     placement: str | None = None  # force "parallel" / "hand_over" instead of asking Jev
+    quit_before: list[str] = field(default_factory=list)  # apps quit politely before the run
+    quit_after: list[str] = field(default_factory=list)  # ... and after (never pkill: it makes
+    # macOS show a "quit unexpectedly" alert on the next launch, which breaks the next task)
 
 
 @dataclass
@@ -97,6 +101,8 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 settle_seconds=float(data.get("settle_seconds", 2.0)),
                 per_tick=int(data.get("per_tick", 2)),
                 placement=data.get("placement"),
+                quit_before=[str(a) for a in data.get("quit_before") or []],
+                quit_after=[str(a) for a in data.get("quit_after") or []],
             )
         )
     return out
@@ -240,6 +246,8 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     counting = CountingJev(Jev(model=cfg.model))
     checks: list[tuple[str, bool, str]] = []
     try:
+        for app_name in task.quit_before:
+            quit_app(app_name)
         for cmd in task.setup:
             _shell(cmd)
         before = {"trash": trash_count()}
@@ -259,6 +267,8 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     finally:
         for cmd in task.teardown:
             _shell(cmd)
+        for app_name in task.quit_after:
+            quit_app(app_name)
     seconds = time.perf_counter() - started
     ok = all(c[1] for c in checks)
     out = Outcome(

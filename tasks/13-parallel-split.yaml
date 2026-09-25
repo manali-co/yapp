@@ -12,5 +12,4 @@ check:
   - screen_contains: parallel hello
     app: TextEdit
 settle_seconds: 3
-teardown:
-  - pkill -x TextEdit
+quit_after: [TextEdit]
