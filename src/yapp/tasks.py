@@ -201,7 +201,7 @@ def delete_reminders(named: str) -> str:
     return _osascript(
         'tell application "Reminders"\n'
         f'set rs to (every reminder whose name is "{text}")\n'
-        "set n to count of rs\ndelete rs\n"
+        "set n to count of rs\nif n > 0 then delete rs\n"
         f'return "deleted " & n & " reminder(s) named {text}"\nend tell'
     )
 

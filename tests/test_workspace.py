@@ -313,11 +313,11 @@ def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> N
 
     ws.focused = focused
     ws.decide("open notes", "Notes")
-    ws.before_open("Notes")  # Notes was already running: nothing of Yapp's in the ledger
+    ws.before_open("Notes")  # Notes was already running: its window is the user's
     ws.after_open("Notes")
-    assert shown == ["notes-1"]
+    assert shown == []  # never marked, even though Yapp acts in it
     ws.reset()
-    assert shown[-1] == "done"  # the user's own app: the glow fades at session end
+    assert shown[-1] == "done"  # nothing of Yapp's: whatever glowed fades at session end
     ws.decide("open text edit", "TextEdit")
     ws.before_open("TextEdit")  # launched by Yapp: stays marked until clean-up
     w.running.add("TextEdit")
@@ -384,5 +384,9 @@ def test_glow_never_marks_the_users_own_window_in_parallel_mode() -> None:
     ws.decide("open notes", "Notes")  # parallel; the user is in Slack (slack-1)
     ws.glow("Slack")
     assert shown == []
-    ws.glow("Notes")
-    assert shown == ["notes-1"]
+    ws.glow("Notes")  # Notes was already running: not Yapp's window either
+    assert shown == []
+    before = ws.snapshot_windows("Notes")
+    w.wins["Notes"].append("notes-2")
+    ws.note_new_windows("Notes", before)  # a window Yapp created: marked
+    assert shown == ["notes-2"]

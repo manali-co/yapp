@@ -138,7 +138,9 @@ class Workspace:
 
     # ---- the glow ----------------------------------------------------------------------
     def glow(self, app: str, window: Any = None) -> None:
-        """Show the acting glow around the window Yapp works in (both modes)."""
+        """Show the acting glow, but only on a window Yapp itself opened (an app it launched,
+        or a window it created). A window that was already the user's is never marked, even
+        while Yapp acts in it: the glow answers "which windows are Yapp's?", nothing else."""
         if self.highlight is None:
             return
         win = window if window is not None else self.focused(app)
@@ -147,9 +149,10 @@ class Workspace:
             win = wins[0] if wins else None
         if win is None:
             return
-        if self.parallel and self.user_window is not None and win == self.user_window:
-            self.log(f"glow: skipped, that is the user's own {app} window")
-            return  # Yapp works on the side; the user's own window is never marked
+        launched = app in self.ledger.launched_apps
+        created = any(w.ref == win for w in self.ledger.windows)
+        if not (launched or created):
+            return
         if not self.highlight.show(win):
             self.log(f"glow: no frame for the {app} window")
 
