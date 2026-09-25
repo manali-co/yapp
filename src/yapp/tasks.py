@@ -330,6 +330,16 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     return out
 
 
+def user_touched_during(seconds: float) -> bool:
+    """Did the person at the Mac press a key or click while the task ran?"""
+    try:
+        from yapp.placement import seconds_since_input
+
+        return seconds_since_input() < seconds
+    except Exception:  # noqa: BLE001 - if we cannot tell, assume not
+        return False
+
+
 def screen_locked() -> bool:
     """A locked screen makes every check see loginwindow; refuse rather than record junk."""
     try:
