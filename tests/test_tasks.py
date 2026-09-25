@@ -53,7 +53,7 @@ def test_expect_ask_tasks_never_get_a_yes(monkeypatch: object) -> None:
             return []
 
     def fake_build_runner(
-        cfg: object, display: object, *, ask: Callable[[str], bool], mode: object, jev: object
+        cfg: object, display: object, *, ask: Callable[[str], bool], **kw: object
     ) -> FakeRunner:
         seen.append(ask("open Terminal"))
         return FakeRunner()

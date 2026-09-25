@@ -381,3 +381,22 @@ def bring_to_front(app_name: str, timeout: float = 4.0) -> bool:
         time.sleep(0.15)
     front = ws.frontmostApplication()
     return front is not None and (front.localizedName() or "").lower() == app_name.lower()
+
+
+def _running_app(app_name: str) -> Any:
+    from AppKit import NSWorkspace
+
+    for app in NSWorkspace.sharedWorkspace().runningApplications():
+        if (app.localizedName() or "").lower() == app_name.lower():
+            return app
+    return None
+
+
+def app_is_running(app_name: str) -> bool:
+    return _running_app(app_name) is not None
+
+
+def quit_app(app_name: str) -> bool:
+    """Ask the app to quit the polite way (it may show a Save sheet, which the guard sees)."""
+    app = _running_app(app_name)
+    return bool(app is not None and app.terminate())

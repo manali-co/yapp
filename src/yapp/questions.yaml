@@ -27,6 +27,10 @@ intent:
       what: Reverse or cancel what Yapp just did
       not_for: The undo shortcut inside an app while dictating a document
       examples: ["undo", "no", "not that", "undo that", "wrong app"]
+    cleanup:
+      what: Close what Yapp opened during this session and put the user's windows back
+      not_for: Closing something the user opened themselves (that is screen_action)
+      examples: ["clean up", "close everything", "we're done", "close what you opened", "put it back", "you can close all that", "tidy up"]
     none:
       what: Not an instruction to the computer, or too unclear to act on
       examples: ["um", "what was I", "hmm let me think", "okay so"]
@@ -52,7 +56,7 @@ is_complete:
   criteria:
     "true":
       what: A verb and its target are both present (or the verb needs no target)
-      examples: ["open notes", "open notes and", "open notes and then", "switch to safari and", "type hello", "save", "undo", "copy that", "new tab", "new document and then", "new reminder and then type buy stamps", "new note", "zoom in", "find on page", "search for cats", "bold this", "close this tab", "next tab and", "show downloads", "clear history"]
+      examples: ["open notes", "open notes and", "open notes and then", "switch to safari and", "type hello", "save", "undo", "copy that", "new tab", "new document and then", "new reminder and then type buy stamps", "new note", "zoom in", "find on page", "search for cats", "bold this", "close this tab", "next tab and", "show downloads", "clear history", "clean up", "we're done", "close everything"]
     "false":
       what: The verb has no target yet, or only filler so far
       examples: ["open", "switch to", "go to the", "um open", "type", "and", "open the", "search for", "find", "new", "zoom"]

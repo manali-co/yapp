@@ -14,6 +14,7 @@ class Thresholds:
     open_file: float = 0.60
     press_key: float = 0.70
     undo: float = 0.60
+    cleanup: float = 0.60
     screen: float = 0.60
     addressed: float = 0.35  # ignore only when Jev is fairly sure it was not for us
     reply: float = 0.60

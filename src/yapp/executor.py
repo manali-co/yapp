@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 
 from yapp.catalog import ShellError, ShellRunner, run_capture
 from yapp.types import App, Executed, Intent, Result
@@ -18,6 +19,10 @@ MODIFIERS = {
 SE = 'tell application "System Events" to '
 
 
+class ScreenFn(Protocol):
+    def __call__(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result: ...
+
+
 def applescript_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
@@ -26,7 +31,7 @@ class Executor:
     def __init__(
         self,
         run: ShellRunner = run_capture,
-        screen: Callable[[str], Result] | None = None,
+        screen: ScreenFn | None = None,
         leave_full_screen: Callable[[], bool] | None = None,
         raise_app: Callable[[str], bool] | None = None,
     ) -> None:
@@ -35,11 +40,12 @@ class Executor:
         self.leave_full_screen = leave_full_screen
         self.raise_app = raise_app
 
-    def screen(self, words: str) -> Result:
-        """A screen action: the app in front is read live and Jev picks a target (see ax.py)."""
+    def screen(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result:
+        """A screen action: the app (in front, or the one Yapp works in) is read live and Jev
+        picks a target per step (see ax.py)."""
         if self.screen_fn is None:
             return Result(False, "screen actions are not available")
-        return self.screen_fn(words)
+        return self.screen_fn(words, app=app, parallel=parallel)
 
     def _osa(self, script: str) -> str:
         return self._run(["osascript", "-e", script])
@@ -55,7 +61,11 @@ class Executor:
             return Result(False, str(err))
         return Result(True, ok_message)
 
-    def open_app(self, app: App) -> Result:
+    def open_app(self, app: App, *, activate: bool = True) -> Result:
+        """Launch or switch to the app. `activate=False` (parallel mode) leaves the user's
+        window and keyboard alone: `open -g` and no raise."""
+        if not activate:
+            return self._attempt(["open", "-g", "-a", app.name], f"opened {app.name} on the side")
         left = bool(self.leave_full_screen and self.leave_full_screen())
         r = self._attempt(["open", "-a", app.name], f"opened {app.name}")
         if r.ok and self.raise_app is not None and not self.raise_app(app.name):

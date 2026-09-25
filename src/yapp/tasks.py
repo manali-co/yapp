@@ -41,6 +41,7 @@ class Task:
     expect_ask: bool = False
     settle_seconds: float = 2.0
     per_tick: int = 2
+    placement: str | None = None  # force "parallel" / "hand_over" instead of asking Jev
 
 
 @dataclass
@@ -95,6 +96,7 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 expect_ask=bool(data.get("expect_ask", False)),
                 settle_seconds=float(data.get("settle_seconds", 2.0)),
                 per_tick=int(data.get("per_tick", 2)),
+                placement=data.get("placement"),
             )
         )
     return out
@@ -162,6 +164,21 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
     if kind == "frontmost":
         got = frontmost()
         return got.lower() == str(arg).lower(), f"frontmost={got}"
+    if kind in ("window_in_left_half", "window_in_right_half"):
+        from yapp import windows as win
+
+        w = win.focused_window(str(arg))
+        frame = win.window_frame(w) if w is not None else None
+        if frame is None:
+            return False, f"no window for {arg}"
+        home = win.display_of(frame, win.displays()).frame
+        half = home.left_half() if kind == "window_in_left_half" else home.right_half()
+        return half.contains_centre(frame) and frame.w <= half.w + 2, f"{arg} at {frame}"
+    if kind == "app_not_running":
+        from yapp.native import app_is_running
+
+        running = app_is_running(str(arg))
+        return not running, f"{arg} running={running}"
     if kind == "not_frontmost":
         got = frontmost()
         return got.lower() != str(arg).lower(), f"frontmost={got}"
@@ -226,7 +243,9 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
         for cmd in task.setup:
             _shell(cmd)
         before = {"trash": trash_count()}
-        runner = build_runner(cfg, display, ask=ask, mode=mode, jev=counting)
+        runner = build_runner(
+            cfg, display, ask=ask, mode=mode, jev=counting, force_placement=task.placement
+        )
         words = task.instruction.split()
         for i in range(task.per_tick, len(words) + task.per_tick, task.per_tick):
             verdicts = runner.tick(words[:i], words[i : i + 1])

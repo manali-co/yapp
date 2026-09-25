@@ -45,12 +45,13 @@ def run_once(
     *,
     mode: Mode = Mode.ASK,
     approve: bool = False,
+    placement: str | None = None,
 ) -> int:
     def ask(action: str) -> bool:
         display.status(f"ASK: may I {action}? → {'yes (--approve)' if approve else 'no'}")
         return approve
 
-    runner = build_runner(cfg, display, ask=ask, mode=mode)
+    runner = build_runner(cfg, display, ask=ask, mode=mode, force_placement=placement)
     words = text.replace("+", " ").split()
     for i in range(per_tick, len(words) + per_tick, per_tick):
         runner.tick(words[:i], words[i : i + 1])
@@ -65,6 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--per-tick", type=int, default=2, help="words per tick in --once mode")
     p.add_argument("--mode", choices=["ask", "auto"], default="ask", help="permission mode")
     p.add_argument("--approve", action="store_true", help="answer yes to every ask (--once)")
+    p.add_argument("--placement", choices=["parallel", "hand_over"], default=None)
     sub = p.add_subparsers(dest="command")
     app = sub.add_parser("app", help="menu-bar app with the ⌥ Space bar (default)")
     app.add_argument("--log", action="store_true", help="also print the developer view")
@@ -102,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
                 per_tick=args.per_tick,
                 mode=Mode(args.mode),
                 approve=args.approve,
+                placement=args.placement,
             )
         if args.command == "enroll":
             return run_enroll(cfg, display)

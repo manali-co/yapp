@@ -39,6 +39,8 @@ def decide(
             return _gate(c, t.undo, "undo")
         case Intent.SCREEN:
             return _gate(c, t.screen, f"screen '{d.tail}'")
+        case Intent.CLEANUP:
+            return _gate(c, t.cleanup, "cleanup")
     return Verdict(Outcome.IGNORE, "unhandled intent")
 
 

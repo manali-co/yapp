@@ -52,6 +52,8 @@ def canned(tail: str, dictating: bool) -> Decision:
         return mk(tail, Intent.TYPE_TEXT, 0.9, 0.9, ends, consumed=1)
     if words[:1] == ["undo"]:
         return mk(tail, Intent.UNDO, 0.9, 0.9, ends, consumed=1)
+    if words[:2] == ["clean", "up"]:
+        return mk(tail, Intent.CLEANUP, 0.9, 0.9, ends, consumed=len(tail.split()))
     if words[:2] == ["zoom", "in"]:
         return mk(tail, Intent.SCREEN, 0.9, 0.9, ends, consumed=len(tail.split()))
     intent = Intent.OPEN_APP if words[:1] == ["open"] else Intent.NONE
@@ -62,8 +64,8 @@ class FakeExec:
     def __init__(self) -> None:
         self.log: list[str] = []
 
-    def open_app(self, app: App) -> Result:
-        self.log.append(f"open:{app.name}")
+    def open_app(self, app: App, *, activate: bool = True) -> Result:
+        self.log.append(f"open:{app.name}" + ("" if activate else ":side"))
         return Result(True, "ok")
 
     def type_text(self, text: str) -> Result:
@@ -85,8 +87,10 @@ class FakeExec:
         self.log.append("undo")
         return Result(True, "ok")
 
-    def screen(self, words: str) -> Result:
-        self.log.append(f"screen:{words}")
+    def screen(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result:
+        self.log.append(
+            f"screen:{words}" + (f"@{app}" if app else "") + (":parallel" if parallel else "")
+        )
         return Result(True, f"pressed menu: View › {words}")
 
 
@@ -200,8 +204,11 @@ def test_runner_calls_thinking_before_decision() -> None:
 
 
 def test_failed_open_is_not_remembered_for_undo() -> None:
-    ex = FakeExec()
-    ex.open_app = lambda app: Result(False, "no such app")  # type: ignore[method-assign]
+    class Failing(FakeExec):
+        def open_app(self, app: App, *, activate: bool = True) -> Result:
+            return Result(False, "no such app")
+
+    ex = Failing()
     r = Runner(Config(), None, ex, APPS, classify=lambda tail, ctx: canned(tail, ctx.dictating))
     feed(r, "open notes")
     assert r.last is None
@@ -243,3 +250,48 @@ def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:
     feed(r, "type hello there")
     assert seen == ["dictate into Finder @ Finder"]
     assert ex.log == ["type:hello there "]
+
+
+def test_parallel_workspace_opens_on_the_side_and_targets_the_work_app() -> None:
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)  # Jev says parallel; Slack is in front
+    ex = FakeExec()
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws,
+    )
+    feed(r, "open notes and zoom in")
+    assert ex.log == ["open:Notes:side", "screen:and zoom in@Notes:parallel"]
+    assert world.front == "Slack" and ws.ledger.launched_apps == []  # Notes was already running
+    r.finish()
+    assert ws.mode is None  # decided again next session
+
+
+def test_cleanup_intent_unwinds_the_ledger_through_the_guard() -> None:
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)
+    seen: list[str] = []
+
+    def harm(action: str, context: str) -> tuple[float, int]:
+        seen.append(action)
+        return 0.1, 1
+
+    r, ex = make(canned, Guard(harm, lambda a: False))
+    r.workspace = ws
+    feed(r, "open safari")  # Safari is not running in the World: it gets launched
+    assert ws.ledger.launched_apps == ["Safari"] and ex.log == ["open:Safari:side"]
+    feed(r, "clean up")
+    assert seen[-1] == "close the windows and apps Yapp opened"
+    assert world.quit == ["Safari"] and ws.ledger.empty
+    feed(r, "clean up")  # nothing left: no ask, no error
+    assert len(seen) == 2  # an empty ledger never reaches the guard

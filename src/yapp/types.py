@@ -14,6 +14,7 @@ class Intent(StrEnum):
     PRESS_KEY = "press_key"
     SCREEN = "screen_action"
     UNDO = "undo"
+    CLEANUP = "cleanup"
     NONE = "none"
 
 
