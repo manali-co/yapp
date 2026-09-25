@@ -55,8 +55,6 @@ class Workspace:
         purpose: PurposeDecider | None = None,
     ) -> None:
         self._purpose = purpose  # None: everything Yapp opens is a hand-off (kept)
-        self._purposes: dict[str, str] = {}  # per instruction text
-        self.instruction = ""
         self.typing_now = typing_now  # a hard rule above Jev: never raise while keys are down
         self.now = now
         self.may = may  # the guard: (action) -> allowed?
@@ -95,7 +93,6 @@ class Workspace:
 
     def decide(self, instruction: str, target_app: str = "") -> str:
         """Decided once per session, at the first action; reused after that."""
-        self.instruction = instruction or self.instruction  # for the purpose decision
         if self.mode is not None:
             return self.mode
         self.user_app = self.frontmost()
@@ -113,12 +110,12 @@ class Workspace:
             self.windows.begin_parallel(self.user_app)
         return self.mode
 
-    def reset(self) -> None:
-        """Session over: forget the placement; the ledger survives until clean-up. Windows
-        Yapp opened keep their glow until clean-up (they are still Yapp's); a glow on a
-        window that was already the user's fades now."""
+    def reset(self, utterance: str = "") -> None:
+        """Session over: forget the placement; the ledger survives until clean-up. What
+        was opened for the user is released to them; Yapp's tool windows keep their glow
+        until clean-up; a glow on a window that was already the user's fades now."""
         self.mode = None
-        self._purposes = {}
+        self.settle_purposes(utterance)
         handed = self.ledger.release_hand_offs()
         if handed:
             self.log("handed over to the user: " + ", ".join(handed))
@@ -128,23 +125,21 @@ class Workspace:
             self.highlight.show(self.ledger.windows[-1].ref)  # a tool window stays marked
 
     # ---- opening apps ----------------------------------------------------------------
-    def purpose_for(self, instruction: str, app: str) -> str:
-        """Hand-off or tool, decided once per instruction. Unsure, or no decider: hand-off."""
-        self.instruction = instruction
-        if instruction in self._purposes:
-            return self._purposes[instruction]
+    def settle_purposes(self, utterance: str) -> str:
+        """Session over: one decision, from everything the user said, tags all of this
+        session's windows and launches hand-off or tool. Unsure, or no decider: hand-off."""
         kind = HAND_OFF
-        if self._purpose is not None and instruction:
-            p = self._purpose(instruction, app)
+        if self._purpose is not None and utterance.strip():
+            p = self._purpose(utterance, self.work_app)
             kind = p.kind
-            self.log(f"purpose: {kind} ({p.confidence:.2f}, {p.latency_ms} ms) for '{instruction}'")
-        self._purposes[instruction] = kind
+            self.log(f"purpose: {kind} ({p.confidence:.2f}, {p.latency_ms} ms) for '{utterance}'")
+        self.ledger.settle_purposes(kind)
         return kind
 
     def before_open(self, app: str) -> bool:
         """Returns whether the app should be activated (hand over) or left behind (parallel).
         Even in hand-over mode a window is never raised while the user is typing."""
-        self.ledger.note_launch(app, self.is_running(app), self.purpose_for(self.instruction, app))
+        self.ledger.note_launch(app, self.is_running(app))
         if not self.parallel and self.typing_now():
             self.log(f"windows: not raising {app}; the user is typing")
             return False
@@ -282,13 +277,7 @@ class Workspace:
         if not app:
             return
         already = len(self.ledger.windows)
-        n = self.ledger.note_windows(
-            app,
-            before,
-            self.windows_of(app),
-            self.window_title,
-            self.purpose_for(self.instruction, app),
-        )
+        n = self.ledger.note_windows(app, before, self.windows_of(app), self.window_title)
         if n:
             self.log(f"ledger: {n} new {app} window(s)")
             if self.parallel:

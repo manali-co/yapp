@@ -326,7 +326,7 @@ def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> N
     w.running.add("TextEdit")
     w.wins["TextEdit"] = ["te-1"]
     ws.after_open("TextEdit")
-    ws.reset()
+    ws.reset("open text edit and add a line")  # the fake decider says: tool
     assert shown[-1] == "te-1"
     ws.cleanup()
     assert shown[-1] == "hide" and w.quit == ["TextEdit"]
@@ -486,13 +486,12 @@ def test_hand_off_windows_become_the_users_at_session_end() -> None:
 
     ws.highlight = FakeHighlight()
     ws.decide("open text edit for my notes", "TextEdit")
-    ws.purpose_for("open text edit for my notes", "TextEdit")
     ws.before_open("TextEdit")
     w.running.add("TextEdit")
     w.wins["TextEdit"] = ["te-1"]
     ws.after_open("TextEdit")
     assert ws.ledger.launched_apps == ["TextEdit"] and shown == ["te-1"]
-    ws.reset()
+    ws.reset("open text edit for my notes")
     assert ws.ledger.empty and shown[-1] == "done"  # theirs now: un-glowed, never closed
     assert any("handed over" in line for line in w.log)
     done = ws.cleanup()
@@ -503,11 +502,10 @@ def test_tool_windows_stay_yapps_until_clean_up() -> None:
     w = World()
     ws = make(w, purpose="tool")
     ws.decide("add buy stamps to reminders", "Reminders")
-    ws.purpose_for("add buy stamps to reminders", "Reminders")
     ws.before_open("Reminders")
     w.running.add("Reminders")
     ws.after_open("Reminders")
-    ws.reset()
+    ws.reset("add buy stamps to reminders")
     assert ws.ledger.launched_apps == ["Reminders"]
     assert "quit Reminders" in ws.cleanup()
 
@@ -516,4 +514,26 @@ def test_no_decider_means_everything_is_handed_off() -> None:
     w = World()
     ws = make(w)
     ws._purpose = None
-    assert ws.purpose_for("open text edit", "TextEdit") == "hand_off"
+    assert ws.settle_purposes("open text edit") == "hand_off"
+
+
+def test_the_purpose_is_decided_once_from_the_whole_utterance() -> None:
+    from yapp.ledger import PENDING
+
+    w = World()
+    seen: list[str] = []
+
+    def decider(instruction: str, app: str) -> Purpose:
+        seen.append(instruction)
+        return Purpose("tool", 0.9, 1)
+
+    ws = make(w)
+    ws._purpose = decider
+    ws.decide("open reminders", "Reminders")
+    ws.before_open("Reminders")
+    w.running.add("Reminders")
+    ws.after_open("Reminders")
+    assert ws.ledger.app_purpose["Reminders"] == PENDING  # nothing decided mid-session
+    ws.reset("open reminders and then new reminder and then type buy stamps")
+    assert seen == ["open reminders and then new reminder and then type buy stamps"]
+    assert ws.ledger.app_purpose["Reminders"] == "tool" and ws.ledger.launched_apps == ["Reminders"]

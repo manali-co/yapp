@@ -108,8 +108,9 @@ PURPOSE_CRITERIA: dict[str, Any] = {
         ),
         "examples": [
             "open chrome and search for flights to lisbon",
+            "open chrome and then new tab and then search for weather in toronto",
             "show me the downloads folder",
-            "open text edit and start a new document for my notes",
+            "open text edit and then new document for my notes",
             "go to the settings page for bluetooth",
             "open the budget spreadsheet",
         ],
@@ -121,6 +122,8 @@ PURPOSE_CRITERIA: dict[str, Any] = {
         ),
         "examples": [
             "add buy stamps to my reminders",
+            "open reminders and then new reminder and then type buy stamps",
+            "open notes and then new note and then type groceries milk and eggs",
             "make a note that says call the dentist",
             "check whether the store is open and tell me",
             "set a timer for ten minutes",
@@ -141,9 +144,10 @@ def decide_purpose(jev: JevLike, instruction: str, app: str) -> Purpose:
     """Hand-off (the window is for the user) or tool (Yapp's own scratch). Unsure keeps it."""
     q = Choice(
         instructions=(
-            "Yapp opened a window in `app` to carry out `instruction`. Once it is done, is "
-            "that window something the user wants to keep using (hand-off), or was it only "
-            "Yapp's tool for the job (tool)?"
+            "Yapp opened windows (in `app`, among others) to carry out `instruction`, the "
+            "whole of what the user said. Now that it is done, are those windows something "
+            "the user wants to keep using (hand-off), or were they only Yapp's tools for the "
+            "job (tool)?"
         ),
         criteria=PURPOSE_CRITERIA,
     )
