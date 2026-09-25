@@ -4,4 +4,4 @@ check:
   - frontmost: TextEdit
   - screen_contains: hello from yapp
 settle_seconds: 3
-quit_after: [TextEdit]
+discard_after: [TextEdit]

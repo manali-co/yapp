@@ -12,4 +12,4 @@ check:
   - screen_contains: parallel hello
     app: TextEdit
 settle_seconds: 3
-quit_after: [TextEdit]
+discard_after: [TextEdit]

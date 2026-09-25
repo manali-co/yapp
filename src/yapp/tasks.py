@@ -46,6 +46,7 @@ class Task:
     quit_before: list[str] = field(default_factory=list)  # apps quit politely before the run
     quit_after: list[str] = field(default_factory=list)  # ... and after (never pkill: it makes
     # macOS show a "quit unexpectedly" alert on the next launch, which breaks the next task)
+    discard_after: list[str] = field(default_factory=list)  # close windows, drop unsaved changes
 
 
 @dataclass
@@ -103,6 +104,7 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 placement=data.get("placement"),
                 quit_before=[str(a) for a in data.get("quit_before") or []],
                 quit_after=[str(a) for a in data.get("quit_after") or []],
+                discard_after=[str(a) for a in data.get("discard_after") or []],
             )
         )
     return out
@@ -154,6 +156,18 @@ def screen_text(app: str = "", max_nodes: int = 6000, max_seconds: float = 1.5) 
         children = _attr(node, "AXChildren") or []
         stack.extend(reversed(list(children)))
     return "\n".join(parts)
+
+
+def discard_app(app_name: str) -> list[str]:
+    """Harness only: close every window of the app, discarding unsaved changes, then quit."""
+    from yapp import windows as win
+    from yapp.native import app_is_running
+
+    if not app_is_running(app_name):
+        return []
+    notes = [win.close_and_discard(w) for w in win.app_windows(app_name)]
+    quit_app(app_name)
+    return notes
 
 
 def trash_count() -> int:
@@ -267,6 +281,8 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     finally:
         for cmd in task.teardown:
             _shell(cmd)
+        for app_name in task.discard_after:
+            discard_app(app_name)
         for app_name in task.quit_after:
             quit_app(app_name)
     seconds = time.perf_counter() - started

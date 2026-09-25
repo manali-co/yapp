@@ -75,6 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("keys", help="print what the hotkey listener sees")
     sub.add_parser("install-app", help="write ~/Applications/Yapp.app")
     sub.add_parser("enroll", help="record 10 s of your voice for spoken approvals")
+    disc = sub.add_parser("discard", help="test helper: close an app's windows, dropping changes")
+    disc.add_argument("app")
     tasks = sub.add_parser("tasks", help="run the task suite in tasks/ on this Mac")
     tasks.add_argument("--only", default="", help="substring of task names to run")
     tasks.add_argument("--dir", default="tasks", help="folder of task YAML files")
@@ -108,6 +110,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.command == "enroll":
             return run_enroll(cfg, display)
+        if args.command == "discard":
+            from yapp.tasks import discard_app
+
+            for note in discard_app(args.app):
+                display.status(note)
+            return 0
         if args.command == "tasks":
             from yapp.tasks import run_tasks
 

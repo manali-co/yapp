@@ -43,15 +43,18 @@ class Ledger:
         close: Callable[[Any], bool],
         quit_app: Callable[[str], bool],
         restore: Callable[[], bool],
+        discard: Callable[[OpenedWindow], str | None] = lambda w: None,
         log: Callable[[str], None] = lambda s: None,
     ) -> list[str]:
-        """Unwind in reverse: windows, then apps, then the user's window frame."""
+        """Unwind in reverse: windows (a save sheet goes through `discard`, which asks the
+        guard), then apps, then the user's window frame."""
         done: list[str] = []
         for w in reversed(self.windows):
-            if w.app in self.launched_apps:
-                continue  # quitting the app closes it
             if close(w.ref):
                 done.append(f"closed {w.app} window '{w.title}'")
+                note = discard(w)
+                if note:
+                    done.append(note)
             else:
                 log(f"cleanup: could not close {w.app} window '{w.title}'")
         for app in reversed(self.launched_apps):

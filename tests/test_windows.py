@@ -87,3 +87,11 @@ def test_manager_on_two_displays_moves_nothing_of_the_users() -> None:
     assert ax.frames["Notes"] == WIN and wm.place("TextEdit")
     assert ax.frames["TextEdit"] == SIDE.frame and not wm.restore()
     assert not WindowManager(displays_fn=lambda: [MAIN]).place("TextEdit")  # no layout yet
+
+
+def test_discard_button_recognises_the_throw_away_choices() -> None:
+    from yapp.windows import discard_button
+
+    assert discard_button([("Cancel", 1), ("Don’t Save", 2)]) == ("Don’t Save", 2)
+    assert discard_button([("Cancel", 1), ("Delete", 2), ("Save", 3)]) == ("Delete", 2)
+    assert discard_button([("Cancel", 1), ("Save", 3)]) is None

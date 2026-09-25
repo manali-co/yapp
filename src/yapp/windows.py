@@ -172,6 +172,50 @@ def close_window(win: Any) -> bool:
     return bool(AXUIElementPerformAction(button, "AXPress") == 0)
 
 
+def sheet_buttons(win: Any) -> list[tuple[str, Any]]:
+    """Buttons of the sheet attached to a window (the 'Do you want to save?' kind)."""
+    out: list[tuple[str, Any]] = []
+    for sheet in list(_attr(win, "AXSheets") or []):
+        stack = list(_attr(sheet, "AXChildren") or [])
+        while stack:
+            el = stack.pop()
+            if _attr(el, "AXRole") == "AXButton":
+                out.append((str(_attr(el, "AXTitle") or _attr(el, "AXDescription") or ""), el))
+            stack.extend(list(_attr(el, "AXChildren") or []))
+    return out
+
+
+def press(el: Any) -> bool:
+    from ApplicationServices import AXUIElementPerformAction
+
+    return bool(AXUIElementPerformAction(el, "AXPress") == 0)
+
+
+DISCARD_TITLES = ("don't save", "don’t save", "delete", "discard", "discard changes")
+
+
+def discard_button(buttons: list[tuple[str, Any]]) -> tuple[str, Any] | None:
+    for title, el in buttons:
+        if title.strip().lower() in DISCARD_TITLES:
+            return title, el
+    return None
+
+
+def close_and_discard(win: Any, settle: float = 0.5) -> str:
+    """Harness helper: close a window and throw away unsaved changes. Never used on the user's
+    own documents by the product; the product asks the guard first (see workspace.py)."""
+    import time
+
+    if not close_window(win):
+        return "could not close"
+    time.sleep(settle)
+    found = discard_button(sheet_buttons(win))
+    if found is None:
+        return "closed"
+    title, el = found
+    return f"closed, pressed {title}" if press(el) else f"closed, could not press {title}"
+
+
 class WindowManager:
     """Applies a Layout to real windows and remembers what it moved so clean-up can undo it."""
 

@@ -293,6 +293,7 @@ def build_workspace(
     force_placement: str | None = None,
     attention: Callable[[str], None] = lambda s: None,
     attention_done: Callable[[], None] = lambda: None,
+    may: Callable[[str], bool] = lambda action: False,
 ) -> Workspace:
     from yapp import windows as win
     from yapp.ax import frontmost_app_name
@@ -323,6 +324,9 @@ def build_workspace(
         attention_done=attention_done,
         force=force_placement,
         log=log,
+        may=may,
+        sheet_buttons=win.sheet_buttons,
+        press=win.press,
     )
 
 
@@ -355,6 +359,7 @@ def build_runner(
         force_placement=force_placement,
         attention=attention,
         attention_done=attention_done,
+        may=lambda action: guard.check(action, "").allowed,
     )
     screen = Screen(
         jev,

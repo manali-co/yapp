@@ -131,7 +131,37 @@ def test_cleanup_closes_windows_quits_launched_apps_and_restores() -> None:
     assert ws.ledger.empty and ws.mode is None
 
 
-def test_ledger_skips_windows_of_apps_it_will_quit() -> None:
+def test_cleanup_discards_a_save_sheet_only_with_the_guards_yes() -> None:
+    w = World()
+    asked: list[str] = []
+    pressed: list[str] = []
+    ws = make(w)
+
+    def may(action: str) -> bool:
+        asked.append(action)
+        return action.endswith("created")
+
+    def press(el: Any) -> bool:
+        pressed.append(str(el))
+        return True
+
+    ws.may = may
+    ws.sheet_buttons = lambda win: [("Cancel", "c"), ("Delete", "d")] if str(win) == "te-1" else []
+    ws.press = press
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = []
+    before = ws.snapshot_windows("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+    ws.note_new_windows("TextEdit", before)
+    done = ws.cleanup()
+    assert w.closed == ["te-1"] and pressed == ["d"] and "pressed Delete in TextEdit" in done
+    assert asked == ["press Delete in TextEdit for the untitled document Yapp created"]
+    assert w.quit == ["TextEdit"]
+
+
+def test_ledger_closes_windows_then_quits_launched_apps() -> None:
     led = Ledger(launched_apps=["TextEdit"], windows=[OpenedWindow("TextEdit", "Untitled", "w1")])
     closed: list[Any] = []
 
@@ -140,4 +170,5 @@ def test_ledger_skips_windows_of_apps_it_will_quit() -> None:
         return True
 
     done = led.cleanup(close=close, quit_app=lambda a: True, restore=lambda: False)
-    assert closed == [] and done == ["quit TextEdit"] and led.empty
+    assert closed == ["w1"] and done == ["closed TextEdit window 'Untitled'", "quit TextEdit"]
+    assert led.empty

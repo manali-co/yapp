@@ -35,7 +35,13 @@ class Workspace:
         force: str | None = None,
         log: Callable[[str], None] = lambda s: None,
         sleep: Callable[[float], None] = time.sleep,
+        may: Callable[[str], bool] = lambda action: False,
+        sheet_buttons: Callable[[Any], list[tuple[str, Any]]] = lambda win: [],
+        press: Callable[[Any], bool] = lambda el: False,
     ) -> None:
+        self.may = may  # the guard: (action) -> allowed?
+        self.sheet_buttons = sheet_buttons
+        self.press = press
         self._decide = decide
         self.windows = windows
         self.frontmost = frontmost
@@ -134,11 +140,25 @@ class Workspace:
             return None
         return self.borrow_focus(self.work_app, keystrokes)
 
+    def _discard(self, w: Any) -> str | None:
+        """A closed window may ask 'save?'. Discarding is the guard's call, never ours."""
+        from yapp.windows import discard_button
+
+        self.sleep(0.5)
+        found = discard_button(self.sheet_buttons(w.ref))
+        if found is None:
+            return None
+        title, el = found
+        if not self.may(f"press {title} in {w.app} for the untitled document Yapp created"):
+            return f"left {w.app} asking about '{w.title}'"
+        return f"pressed {title} in {w.app}" if self.press(el) else None
+
     def cleanup(self) -> list[str]:
         done = self.ledger.cleanup(
             close=self.close_window,
             quit_app=self.quit_app,
             restore=self.windows.restore,
+            discard=self._discard,
             log=self.log,
         )
         self.mode = None
