@@ -213,6 +213,14 @@ def ax_type(t: Target, text: str, *, append: bool) -> bool:
     return str(_attr(t.ref, "AXValue") or "") == wanted
 
 
+def target_centre(t: Target) -> tuple[float, float] | None:
+    """Middle of the element on screen (top-left coordinates), for pointer fallbacks."""
+    from yapp.windows import window_frame
+
+    frame = window_frame(t.ref)  # AXPosition/AXSize work on any element, not just windows
+    return (frame.x + frame.w / 2, frame.y + frame.h / 2) if frame else None
+
+
 def ax_confirm(t: Target) -> bool:
     """Submit a field without the keyboard (AXConfirm); not every app offers it."""
     from ApplicationServices import AXUIElementPerformAction
@@ -498,11 +506,18 @@ class Screen:
         guard: Callable[[str, str], bool] | None = None,
         ax_type: Callable[[Target, str], bool] | None = None,
         borrow: Callable[[str, Callable[[], Result]], Result] | None = None,
+        click_pid: Callable[[Target, tuple[float, float]], bool] | None = None,
+        click_real: Callable[[Target, tuple[float, float]], bool] | None = None,
+        centre: Callable[[Target], tuple[float, float] | None] = target_centre,
     ) -> None:
         self.jev = jev
         self.guard = guard  # (action, screen) -> may act? see guard.py
         self.ax_type = ax_type  # parallel mode: typing without the keyboard
         self.borrow = borrow  # parallel mode: (app, keystrokes) -> run with focus borrowed
+        self.click_pid = click_pid  # tier 2: a click delivered to the app, cursor untouched
+        self.click_real = click_real  # tier 3: the real cursor, borrowed for a moment
+        self.centre = centre
+        self._pid_clicked: set[str] = set()
         self.perceiver = perceiver or Perceiver()
         self.frontmost = frontmost
         self.summary = summary
@@ -518,11 +533,13 @@ class Screen:
         self.history: list[str] = []
         self.parallel = False
         self.perceiver_app = ""
+        self._retry_real = False
 
     def run(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result:
         """`app` pins the target (parallel mode works on an app that is not in front)."""
         self.history = []
         self.parallel = parallel
+        self._pid_clicked = set()
         pinned = app
         acted = 0
         unchanged = 0
@@ -558,6 +575,9 @@ class Screen:
                     acted > 0, f"done after {acted} step(s)" if acted else "I don't see that here"
                 )
             action = (d.target.key, d.operation, d.text)
+            # A press that reached the app as a virtual click but changed nothing earns one
+            # try with the real pointer (tier 3) before the loop gives up on it.
+            self._retry_real = action == last_action and not last_changed
             if action == last_action and last_changed and d.status_confidence < self.threshold:
                 # Repeating the exact action that just visibly worked needs a confident
                 # "continue" ("make it much bigger"); an unsure one would flip toggles back.
@@ -589,6 +609,23 @@ class Screen:
                 return Result(True, f"done after {acted} step(s)")
         return Result(acted > 0, f"stopped after {acted} step(s)")
 
+    def _press(self, t: Target) -> Result:
+        """Tier 1 AXPress; tier 2 a click posted to the app; tier 3 the borrowed cursor."""
+        if self.press(t):
+            return Result(True, f"pressed {t.describe()}")
+        point = self.centre(t)
+        if point is None:
+            return Result(False, "couldn't press that")
+        use_real = getattr(self, "_retry_real", False) and t.key in self._pid_clicked
+        if use_real and self.click_real is not None:
+            if self.click_real(t, point):
+                return Result(True, f"clicked {t.describe()} with the pointer")
+            return Result(False, "the pointer is busy; try again in a moment")
+        if self.click_pid is not None and self.click_pid(t, point):
+            self._pid_clicked.add(t.key)
+            return Result(True, f"clicked {t.describe()} (virtual pointer)")
+        return Result(False, "couldn't press that")
+
     @staticmethod
     def _describe(d: ScreenDecision, app: str) -> str:
         """The action as the guard should judge it: operation, target, text, app."""
@@ -602,8 +639,7 @@ class Screen:
     def _act(self, d: ScreenDecision) -> Result:
         assert d.target is not None
         if d.operation == "press":
-            ok = self.press(d.target)
-            return Result(ok, f"pressed {d.target.describe()}" if ok else "couldn't press that")
+            return self._press(d.target)
         if self.type_text is None:
             return Result(False, "typing is not available")
         target = d.target

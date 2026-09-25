@@ -5,6 +5,7 @@ instruction: open text edit and then new document and then type parallel hello
 placement: parallel
 activate_before: [Notes]
 check:
+  - highlight_around: TextEdit
   - frontmost: Notes
   - window_in_left_half: Notes
   - window_in_right_half: TextEdit

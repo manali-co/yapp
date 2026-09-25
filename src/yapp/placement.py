@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -57,6 +58,14 @@ def seconds_since_input() -> float:
             Quartz.kCGEventSourceStateHIDSystemState, Quartz.kCGAnyInputEventType
         )
     )
+
+
+TYPING_WINDOW = 1.5  # s since the last key or click that still counts as "typing now"
+
+
+def typing_now(idle: Callable[[], float] = seconds_since_input) -> bool:
+    """Is the user in the middle of typing or clicking? Then no window may be raised."""
+    return idle() < TYPING_WINDOW
 
 
 def decide_placement(

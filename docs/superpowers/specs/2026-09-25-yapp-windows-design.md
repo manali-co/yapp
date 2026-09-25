@@ -46,3 +46,12 @@ Unit tests for the layout math, placement decoding, ledger, executor parallel pa
 with an explicit target app and AX-typing fallback. Two tasks: `13-parallel-split` (placement
 forced to parallel, Notes in front as the user's app: TextEdit lands on the right half, Notes
 stays in front on the left) and `14-cleanup` (open TextEdit, then clean up: TextEdit is gone).
+
+
+## Addendum (2026-09-26): the working glow and the pointer tiers
+`highlight.py` draws the acting-hue frame around the window Yapp works in (both modes),
+pulses it in the attention state, fades it on done, hides it on clean-up; colour and timings
+come from the design bundle. `pointer.py` gives Yapp three tiers: Accessibility (no pointer),
+a click posted to the target process with its own coordinates (the user's cursor never moves;
+Yapp's drawn cursor marks the spot), and, only when that changed nothing, the real cursor
+borrowed for a moment under the attention state and never while a button is held.
