@@ -69,11 +69,18 @@ def test_state_machine_follows_the_window_and_the_avatar() -> None:
     assert h.state == "hidden"
 
 
-def test_lost_window_hides_on_track() -> None:
+def test_lost_window_hides_on_track_after_a_few_misses() -> None:
     frames = {"w1": Rect(0, 0, 10, 10)}
     d = FakeDrawer()
     h = Highlight(d, lambda w: frames.get(str(w)))
     h.show("w1")
     frames.clear()
     h.track()
+    assert h.state == "acting"  # one blink of the Accessibility API is not a closed window
+    frames["w1"] = Rect(0, 0, 10, 10)
+    h.track()
+    assert h.misses == 0
+    frames.clear()
+    for _ in range(4):
+        h.track()
     assert h.state == "hidden" and d.calls[-1] == ("hide", None)

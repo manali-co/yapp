@@ -142,6 +142,9 @@ class Workspace:
         if self.highlight is None:
             return
         win = window if window is not None else self.focused(app)
+        if win is None:  # a background app may report no focused window: take its first
+            wins = self.windows_of(app)
+            win = wins[0] if wins else None
         if win is None:
             return
         if self.parallel and self.user_window is not None and win == self.user_window:

@@ -73,6 +73,8 @@ class Highlight:
     settle_ms: int = 1400
     state: str = "hidden"
     window: Any = None
+    misses: int = 0  # consecutive frame reads that failed (AX can blink)
+    MISSES_TO_HIDE = 4
 
     def show(self, window: Any) -> bool:
         """Glow around `window` (an AX window) while Yapp acts in it."""
@@ -80,6 +82,7 @@ class Highlight:
         if frame is None:
             return False
         self.window = window
+        self.misses = 0
         self.drawer.place(frame)
         if self.state != "attention":
             self.state = "acting"
@@ -90,8 +93,11 @@ class Highlight:
         if self.state in ("acting", "attention") and self.window is not None:
             frame = self.frame_of(self.window)
             if frame is None:
-                self.hide()
+                self.misses += 1
+                if self.misses >= self.MISSES_TO_HIDE:  # the window is really gone
+                    self.hide()
             else:
+                self.misses = 0
                 self.drawer.place(frame)
 
     def attention(self, on: bool) -> None:
@@ -339,3 +345,43 @@ def build_highlight(ui_dir: Any, frame_of: Callable[[Any], Rect | None]) -> High
     if set_tracker is not None:
         set_tracker(highlight.track)
     return highlight
+
+
+def glow_diagnostic(app_name: str, seconds: float = 3.0) -> str:
+    """Dev check: show the glow on the app's focused window, pump the run loop, report."""
+    import os
+    import time
+    from importlib import resources
+
+    import Quartz
+
+    from yapp import windows as win
+    from yapp.ax import refresh_workspace
+
+    lines = []
+    h = build_highlight(resources.files("yapp.ui"), win.window_frame)
+    w = win.focused_window(app_name)
+    if w is None:
+        wins = win.app_windows(app_name)
+        w = wins[0] if wins else None
+    lines.append(f"window={w is not None} frame={win.window_frame(w) if w is not None else None}")
+    lines.append(f"show={h.show(w)} state={h.state}")
+    mine = os.getpid()
+    for i in range(int(seconds / 0.25)):
+        refresh_workspace()
+        time.sleep(0.25)
+        ours = [
+            (info.get("kCGWindowBounds"), info.get("kCGWindowAlpha"), info.get("kCGWindowLayer"))
+            for info in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, 0) or []
+            if info.get("kCGWindowOwnerPID") == mine
+        ]
+        onscreen = [
+            info.get("kCGWindowBounds")
+            for info in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, 0)
+            or []
+            if info.get("kCGWindowOwnerPID") == mine
+        ]
+        lines.append(f"t={i * 0.25:.2f} state={h.state} ours={ours} onscreen={onscreen}")
+    h.hide()
+    refresh_workspace()
+    return "\n".join(lines)
