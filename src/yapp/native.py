@@ -90,30 +90,41 @@ def accessory_app() -> None:
 
 
 def warm_text_services(timeout: float = 5.0) -> bool:
-    """Touch the keyboard-layout API on the main thread once, before any background thread.
+    """Read the keyboard layout on the main thread once and hand pynput's listener a copy.
 
-    pynput's listener thread reads the keyboard layout through Text Services (TIS). Since
-    macOS 26 that library asserts it was first used on the main queue; a Regular app gets
-    that for free when it activates, an Accessory app never activates, so the first call from
-    the listener thread aborted the whole process (dispatch_assert_queue in HIToolbox).
+    pynput's listener thread reads the layout through Text Services (TIS) when it starts.
+    Since macOS 26 that library asserts it is on the main queue and aborts the whole process
+    otherwise (dispatch_assert_queue in HIToolbox); a Regular app happened to get away with it,
+    an Accessory app does not. So compute the context here and make the listener reuse it.
     """
+    import contextlib
     import threading
+    from collections.abc import Iterator
 
+    from pynput._util import darwin as pynput_darwin
+    from pynput.keyboard import _darwin as pynput_keyboard
     from PyObjCTools import AppHelper
 
     done = threading.Event()
+    holder: dict[str, Any] = {}
 
     def apply() -> None:
         try:
-            from pynput._util.darwin import keycode_context
-
-            with keycode_context():
-                pass
+            with pynput_darwin.keycode_context() as ctx:
+                holder["ctx"] = ctx
         finally:
             done.set()
 
     AppHelper.callAfter(apply)
-    return done.wait(timeout)
+    if not (done.wait(timeout) and "ctx" in holder):
+        return False
+
+    @contextlib.contextmanager
+    def cached() -> Iterator[Any]:
+        yield holder["ctx"]
+
+    pynput_keyboard.keycode_context = cached  # the listener thread never touches TIS now
+    return True
 
 
 def apply_overlay(ns: Any) -> None:
