@@ -445,3 +445,12 @@ def test_press_without_a_frame_just_fails() -> None:
     s.click_pid = lambda t, p: True
     r = s.run("zoom in")
     assert not r.ok and r.message == "couldn't press that"
+
+
+def test_typing_the_command_itself_is_refused() -> None:
+    from yapp.ax import decide
+
+    field = Target("c1", "control", "AXTextField", "Title", "Reminders")
+    resp = FakeResp("c1", 0.9, "type", "nothing", 0.1)
+    d = decide("new reminder", [field], FakeJev(resp))  # type: ignore[arg-type]
+    assert d.operation == "none"

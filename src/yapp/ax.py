@@ -389,7 +389,10 @@ def decide(
         "what": "None of the listed targets is the right next step",
     }
     candidates = spans(words)
-    text_criteria = {f"s{i}": s for i, s in enumerate(candidates)}
+    text_criteria: dict[str, Any] = {f"s{i}": s for i, s in enumerate(candidates)}
+    text_criteria["nothing"] = (
+        "None of these: the words are a command (open, new, close, go to…), not content to type"
+    )
     state = {
         "goal": words,
         "screen_now": screen,
@@ -456,6 +459,8 @@ def decide(
     tgt = resp.choice("target")
     op = resp.choice("operation").key
     text_key = resp.choice("text").key
+    if op == "type" and text_key == "nothing":
+        op = "none"  # a "new reminder" is a command; typing it into the field is the misfire
     status = resp.choice("status")
     by = {t.key: t for t in targets}
     target = by.get(tgt.key)

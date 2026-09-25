@@ -210,7 +210,14 @@ def delete_new_content(snap: dict[str, set[str]]) -> list[str]:
     for app, what in (("Notes", "note"), ("Reminders", "reminder")):
         if app not in snap:
             continue
+        if not snap[app]:
+            notes.append(f"{app}: no snapshot before the task; deleting nothing")
+            continue  # never wipe a library because the first read failed
+        time.sleep(1.0)  # a just-created item can take a moment to show up to AppleScript
         new = _ids(app, what) - snap[app]
+        if len(new) > 5:
+            notes.append(f"{app}: {len(new)} new items looks wrong; deleting nothing")
+            continue
         for i in new:
             _osascript(f'tell application "{app}" to delete {what} id "{i}"')
         notes.append(f"deleted {len(new)} new {what}(s)")
