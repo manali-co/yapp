@@ -70,6 +70,7 @@ class Runner:
         self.stream = Stream(cfg.dictation_lookahead_words)
         self.last: Executed | None = None
         self.done: list[str] = []
+        self._actions = 0  # dictation action counter
         if classify is not None:
             self._classify: Classifier = classify
         elif jev is not None:
@@ -172,7 +173,8 @@ class Runner:
                     return
                 self.stream.enter_dictation()
                 r = Result(True, "dictating")
-                self.last = Executed(d, r, typed_chars=0)
+                self._actions += 1
+                self.last = Executed(d, r, typed_chars=0, action=self._actions)
                 self._report(r)
                 return
             case Intent.OPEN_FILE if d.file_query:
@@ -205,8 +207,8 @@ class Runner:
             case Intent.UNDO if self.last is not None:
                 last = self.last
                 ws = self.workspace
-                if ws is not None and last.decision.intent == Intent.TYPE_TEXT and last.app:
-                    ws.drop_held(last.app)  # never typed: nothing to erase for those words
+                if ws is not None and last.decision.intent == Intent.TYPE_TEXT:
+                    ws.drop_held(last.action)  # never typed: nothing to erase for those words
                 if last.app and ws is not None:
                     # The keystrokes of undo must reach the app that was acted on, not the
                     # app the user is working in.
@@ -266,9 +268,10 @@ class Runner:
         ws = self.workspace
         app = ""
         delivered = len(text)
+        action = self.last.action if self.last is not None else 0
         if ws is not None and ws.parallel and ws.work_app:
             app = ws.work_app
-            if ws.type_on_side(text, self.executor.type_ax):
+            if ws.type_on_side(text, self.executor.type_ax, action):
                 r = Result(True, f"typed {len(text)} chars on the side")
             else:
                 r = Result(True, f"holding {len(ws.held_text)} chars for one borrow")
@@ -283,19 +286,21 @@ class Runner:
         if last is not None and last.decision.intent == Intent.TYPE_TEXT:
             delivered = chars if r.ok else 0  # undo erases only what actually landed
             self.last = Executed(
-                last.decision, r, typed_chars=last.typed_chars + delivered, app=app
+                last.decision,
+                r,
+                typed_chars=last.typed_chars + delivered,
+                app=app,
+                action=last.action,
             )
 
     def _flush_held(self) -> None:
         ws = self.workspace
         if ws is None or not ws.held_text:
             return
-        before = {a: len(t) for a, t in ws.held}
-        out = ws.flush_held(self.executor.type_text)
-        after = {a for a, _ in ws.held}
-        for app, n in before.items():
-            if app not in after and self.last is not None and self.last.app == app:
-                self._count_typed(Result(True, "flushed"), n, app)
+        flushed, out = ws.flush_held(self.executor.type_text)
+        for entry in flushed:  # count exactly what landed, for the action undo reverses
+            if self.last is not None and self.last.action == entry.action:
+                self._count_typed(Result(True, "flushed"), len(entry.text), entry.app)
         if isinstance(out, Result):
             self._report(out)
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from yapp.ledger import Ledger
@@ -15,6 +16,13 @@ from yapp.placement import HAND_OVER, PARALLEL, Placement
 from yapp.windows import WindowManager
 
 Decider = Callable[[str, str, str], Placement]  # (instruction, front app, target app)
+
+
+@dataclass(frozen=True)
+class Held:
+    app: str
+    text: str
+    action: int  # the dictation action these words belong to (for undo)
 
 
 class Workspace:
@@ -60,9 +68,8 @@ class Workspace:
         self.mode: str | None = None
         self.user_app: str = ""
         self.work_app: str = ""
-        # Dictation a field refused, per app in order: typed with one borrow per app at the
-        # end (or before the workspace moves to another app). Words never mix across apps.
-        self.held: list[tuple[str, str]] = []
+        # Dictation a field refused, in order, tagged with its app and dictation action.
+        self.held: list[Held] = []
 
     # ---- placement -------------------------------------------------------------------
     @property
@@ -127,7 +134,6 @@ class Workspace:
             self.attention_done()
             self.log(f"borrowed focus for {(time.perf_counter() - started) * 1000:.0f} ms")
 
-    # ---- clean-up --------------------------------------------------------------------
     def snapshot_windows(self, app: str) -> list[Any]:
         return self.windows_of(app) if app else []
 
@@ -145,55 +151,53 @@ class Workspace:
                 if self.user_app and self.user_app != app:
                     self.raise_app(self.user_app)
 
-    def type_on_side(self, text: str, type_ax: Callable[[str, str], bool]) -> bool:
+    def type_on_side(self, text: str, type_ax: Callable[[str, str], bool], action: int = 0) -> bool:
         """Dictation in parallel mode: append through Accessibility. When the field refuses,
-        hold the words; `flush_held` types them with a single borrow at the end of the
-        session instead of taking the keyboard on every tick."""
+        the words are held (per dictation action, in order) and typed later with one borrow
+        per app. Once anything is held for an app, later words for that app queue behind it
+        so nothing arrives out of order."""
         app = self.work_app
-        holding_here = bool(self.held) and self.held[-1][0] == app
-        if not holding_here and app and type_ax(app, text):
+        if not app:
+            return False
+        if not any(h.app == app for h in self.held) and type_ax(app, text):
             return True
-        if holding_here:
-            self.held[-1] = (app, self.held[-1][1] + text)
+        if self.held and self.held[-1].app == app and self.held[-1].action == action:
+            self.held[-1] = Held(app, self.held[-1].text + text, action)
         else:
-            self.held.append((app, text))
+            self.held.append(Held(app, text, action))
         return False
 
     @property
     def held_text(self) -> str:
-        return "".join(t for _, t in self.held)
+        return "".join(h.text for h in self.held)
 
-    @property
-    def held_app(self) -> str:
-        return self.held[-1][0] if self.held else ""
-
-    def flush_held(self, keystrokes: Callable[[str], Any]) -> Any:
-        """Type each app's held words into that app, one borrow per app, oldest first. A
-        buffer is dropped only when its keystrokes report success; a failed borrow keeps
-        it and stops (later buffers wait for the next flush)."""
+    def flush_held(self, keystrokes: Callable[[str], Any]) -> tuple[list[Held], Any]:
+        """Type held words oldest first, one borrow per entry. Returns what landed and the
+        last result; a failed borrow keeps its entry (and everything after it) held."""
         from yapp.types import Result
 
+        flushed: list[Held] = []
         last: Any = None
         while self.held:
-            app, text = self.held[0]
+            entry = self.held[0]
 
-            def type_it(text: str = text) -> Any:
+            def type_it(text: str = entry.text) -> Any:
                 return keystrokes(text)
 
-            out = self.borrow_focus(app, type_it)
+            out = self.borrow_focus(entry.app, type_it)
             if isinstance(out, Result) and not out.ok:
-                return out  # still held, in order
-            self.held.pop(0)
+                return flushed, out
+            flushed.append(self.held.pop(0))
             last = out
-        return last
+        return flushed, last
 
-    def drop_held(self, app: str = "") -> int:
-        """Forget held words (all, or one app's) — undo of a dictation that never landed."""
-        keep = [(a, t) for a, t in self.held if app and a != app]
-        n = sum(len(t) for a, t in self.held if not app or a == app)
-        self.held = keep
+    def drop_held(self, action: int) -> int:
+        """Forget one dictation action's held words — its undo, before they ever landed."""
+        n = sum(len(h.text) for h in self.held if h.action == action)
+        self.held = [h for h in self.held if h.action != action]
         return n
 
+    # ---- clean-up --------------------------------------------------------------------
     def _discard(self, w: Any) -> str | None:
         """A closed window may ask 'save?'. Discarding is the guard's call, never ours."""
         from yapp.windows import discard_button

@@ -394,3 +394,33 @@ def test_failed_typing_is_not_counted_for_undo() -> None:
     r = Runner(Config(), None, ex, APPS, classify=lambda tail, ctx: canned(tail, ctx.dictating))
     feed(r, "type hello there")
     assert r.last is not None and r.last.typed_chars == 0
+
+
+def test_undo_drops_only_its_own_held_words() -> None:
+    """Per-action attribution is covered in test_workspace; here: undo of a held dictation
+    forgets those words instead of sending backspaces for text that never landed."""
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)
+    ex = FakeExec()
+    ex.ax_ok = False  # type: ignore[attr-defined]
+    ws.raise_app = lambda app: False  # every borrow fails: words stay held
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws,
+    )
+    words = "open notes and type one two three four".split()
+    for i in range(1, len(words) + 1):
+        r.tick(words[:i])
+    assert [h.text for h in ws.held] == ["one two "] and r.last is not None
+    action = r.last.action
+    r.finish()  # the end-of-session borrow fails too: everything stays held
+    assert [h.text for h in ws.held] == ["one two three four "]
+    feed(r, "undo")
+    assert ws.held == [] and ws.drop_held(action) == 0 and r.last is None

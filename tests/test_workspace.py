@@ -182,12 +182,13 @@ def test_refused_dictation_is_held_and_typed_with_one_borrow() -> None:
     w.running.add("TextEdit")
     ws.after_open("TextEdit")
     typed: list[str] = []
-    assert not ws.type_on_side("hello ", lambda app, text: False)
-    assert not ws.type_on_side("there ", lambda app, text: True)  # once held, stay held (order)
+    assert not ws.type_on_side("hello ", lambda app, text: False, 1)
+    assert not ws.type_on_side("there ", lambda app, text: True, 1)  # once held, stay held
     assert ws.held_text == "hello there " and w.raised.count("TextEdit") == 0
-    ws.flush_held(typed.append)
+    flushed, _ = ws.flush_held(typed.append)
     assert typed == ["hello there "] and w.raised[-2:] == ["TextEdit", "Slack"]
-    assert ws.held_text == "" and ws.flush_held(typed.append) is None
+    assert [h.text for h in flushed] == ["hello there "]
+    assert ws.held_text == "" and ws.flush_held(typed.append) == ([], None)
 
 
 def test_held_words_follow_their_app_and_survive_a_failed_borrow() -> None:
@@ -199,11 +200,12 @@ def test_held_words_follow_their_app_and_survive_a_failed_borrow() -> None:
     ws.before_open("TextEdit")
     w.running.add("TextEdit")
     ws.after_open("TextEdit")
-    assert not ws.type_on_side("draft ", lambda app, text: False)
+    assert not ws.type_on_side("draft ", lambda app, text: False, 1)
     ws.work_app = "Safari"  # a later command moved on
     ws.raise_app = lambda app: False
-    out = ws.flush_held(lambda text: Result(True, "ok"))
-    assert out is not None and not out.ok and ws.held_text == "draft " and ws.held_app == "TextEdit"
+    _, out = ws.flush_held(lambda text: Result(True, "ok"))
+    assert out is not None and not out.ok and ws.held_text == "draft "
+    assert ws.held[0].app == "TextEdit"
     ws.raise_app = w.raise_app
     typed: list[str] = []
 
@@ -213,7 +215,7 @@ def test_held_words_follow_their_app_and_survive_a_failed_borrow() -> None:
 
     ws.flush_held(keystrokes)
     assert typed == ["draft "] and w.raised[-2:] == ["TextEdit", "Slack"] and ws.held_text == ""
-    assert ws.drop_held() == 0
+    assert ws.drop_held(1) == 0
 
 
 def test_borrow_refuses_to_type_when_the_app_will_not_come_forward() -> None:
@@ -253,17 +255,26 @@ def test_held_words_stay_separate_per_app_and_flush_in_order() -> None:
     ws = make(w)
     ws.decide("open text edit", "TextEdit")
     ws.work_app = "TextEdit"
-    assert not ws.type_on_side("one ", lambda app, text: False)
+    assert not ws.type_on_side("one ", lambda app, text: False, 1)
     ws.work_app = "Safari"
-    assert not ws.type_on_side("two ", lambda app, text: False)
-    assert ws.held == [("TextEdit", "one "), ("Safari", "two ")]
+    assert not ws.type_on_side("two ", lambda app, text: False, 2)
+    ws.work_app = "TextEdit"
+    # AX would accept, but older TextEdit words are still held: queue behind them
+    assert not ws.type_on_side("three ", lambda app, text: True, 3)
+    assert [(h.app, h.text, h.action) for h in ws.held] == [
+        ("TextEdit", "one ", 1),
+        ("Safari", "two ", 2),
+        ("TextEdit", "three ", 3),
+    ]
     typed: list[tuple[str, str]] = []
 
     def keystrokes(text: str) -> Result:
         typed.append((w.front, text))
         return Result(True, "ok")
 
-    ws.flush_held(keystrokes)
-    assert typed == [("TextEdit", "one "), ("Safari", "two ")] and ws.held == []
-    ws.type_on_side("x", lambda app, text: False)
-    assert ws.drop_held("Nope") == 0 and ws.drop_held("Safari") == 1 and ws.held == []
+    flushed, _ = ws.flush_held(keystrokes)
+    assert typed == [("TextEdit", "one "), ("Safari", "two "), ("TextEdit", "three ")]
+    assert [h.action for h in flushed] == [1, 2, 3] and ws.held == []
+    ws.type_on_side("x", lambda app, text: False, 4)
+    ws.type_on_side("y", lambda app, text: False, 5)
+    assert ws.drop_held(9) == 0 and ws.drop_held(4) == 1 and [h.action for h in ws.held] == [5]
