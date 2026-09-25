@@ -5,3 +5,4 @@ check:
   - frontmost: Notes
   - screen_contains: milk
 settle_seconds: 3
+delete_notes_containing: [groceries milk]

@@ -50,6 +50,8 @@ class Task:
     discard_after: list[str] = field(default_factory=list)  # close windows, drop unsaved changes
     close_tab_after: list[str] = field(default_factory=list)  # press File › Close Tab in the app
     cleanup: bool = True  # unwind the runner's ledger (windows/apps Yapp opened) after checks
+    delete_notes_containing: list[str] = field(default_factory=list)  # test notes go away
+    delete_reminders_named: list[str] = field(default_factory=list)  # test reminders too
 
 
 @dataclass
@@ -111,6 +113,8 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 discard_after=[str(a) for a in data.get("discard_after") or []],
                 close_tab_after=[str(a) for a in data.get("close_tab_after") or []],
                 cleanup=bool(data.get("cleanup", True)),
+                delete_notes_containing=[str(a) for a in data.get("delete_notes_containing") or []],
+                delete_reminders_named=[str(a) for a in data.get("delete_reminders_named") or []],
             )
         )
     return out
@@ -173,6 +177,33 @@ def screen_text(app: str = "", max_nodes: int = 6000, max_seconds: float = 1.5) 
         children = _attr(node, "AXChildren") or []
         stack.extend(reversed(list(children)))
     return "\n".join(parts)
+
+
+def _osascript(script: str) -> str:
+    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
+    return (r.stdout or r.stderr).strip()
+
+
+def delete_notes(containing: str) -> str:
+    """Harness only: delete the notes a task created. Needs Automation access to Notes
+    (macOS asks once for Yapp); the product never deletes the user's content this way."""
+    text = containing.replace("\\", "\\\\").replace('"', '\\"')
+    return _osascript(
+        'tell application "Notes"\n'
+        f'set ids to id of (every note whose name contains "{text}")\n'
+        "set n to 0\nrepeat with i in ids\ndelete note id i\nset n to n + 1\nend repeat\n"
+        f'return "deleted " & n & " note(s) containing {text}"\nend tell'
+    )
+
+
+def delete_reminders(named: str) -> str:
+    text = named.replace("\\", "\\\\").replace('"', '\\"')
+    return _osascript(
+        'tell application "Reminders"\n'
+        f'set rs to (every reminder whose name is "{text}")\n'
+        "set n to count of rs\ndelete rs\n"
+        f'return "deleted " & n & " reminder(s) named {text}"\nend tell'
+    )
 
 
 def close_tab(app_name: str) -> bool:
@@ -358,6 +389,10 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
                 display.status("   cleanup: " + ", ".join(done))
         for app_name in task.close_tab_after:
             close_tab(app_name)
+        for text in task.delete_notes_containing:
+            display.status(f"   {delete_notes(text)}")
+        for name in task.delete_reminders_named:
+            display.status(f"   {delete_reminders(name)}")
         for cmd in task.teardown:
             _shell(cmd)
         for app_name in task.discard_after:

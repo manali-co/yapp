@@ -68,3 +68,12 @@ def test_hotkey_matcher_return_approves() -> None:
     assert m.press(K(vk=36)) == "approve"
     m.press(K(name="alt_r"))
     assert m.press(K(vk=36)) is None  # option-return is not an answer
+
+
+def test_swallow_rules() -> None:
+    from yapp.audio import swallow
+
+    assert swallow("toggle", False) and swallow("toggle", True)
+    assert not swallow("escape", False) and swallow("escape", True)
+    assert not swallow("approve", False) and swallow("approve", True)
+    assert not swallow(None, True)
