@@ -96,7 +96,7 @@ def request_input_monitoring() -> None:
         pass
 
 
-def request_accessibility() -> None:
+def request_accessibility(log: Callable[[str], None] = lambda s: None) -> None:
     """Ask macOS for Accessibility: shows the system prompt and adds the app's row."""
     try:
         from ApplicationServices import (
@@ -107,8 +107,8 @@ def request_accessibility() -> None:
         AXIsProcessTrustedWithOptions(
             NSDictionary.dictionaryWithObject_forKey_(True, "AXTrustedCheckOptionPrompt")
         )
-    except Exception:  # noqa: BLE001 - prompting is best effort
-        pass
+    except Exception as e:  # noqa: BLE001 - prompting is best effort
+        log(f"accessibility prompt unavailable: {e!r}")
 
 
 def request_missing(p: Permissions) -> None:

@@ -26,13 +26,13 @@ def local_embedder(model: str = "BAAI/bge-small-en-v1.5") -> Embedder:
     return embed
 
 
-def default_embedder() -> Embedder | None:
+def default_embedder(log: Callable[[str], None] = lambda s: None) -> Embedder | None:
     """Best available: the local model, else Apple's built-in, else none (lexical only)."""
     for factory in (local_embedder, apple_embedder):
         try:
             return factory()
-        except Exception:  # noqa: BLE001 - a missing model or framework just drops a tier
-            continue
+        except Exception as e:  # noqa: BLE001 - a missing model or framework just drops a tier
+            log(f"embedder {factory.__name__} unavailable: {type(e).__name__}")
     return None
 
 
