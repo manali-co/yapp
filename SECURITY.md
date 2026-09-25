@@ -34,7 +34,9 @@ push protection, private vulnerability reporting, CodeRabbit on every PR, `pip-a
 `yapp install-app` today signs ad hoc, which is fine on the machine that built it and nothing
 else. A distributed build must: sign with a Developer ID Application certificate, enable the
 hardened runtime with only the entitlements Yapp needs (microphone; no JIT, no unsigned
-memory), notarize and staple, ship a lockfile-pinned environment or a frozen build rather than
-the developer's working tree, and publish a SBOM and checksums with each release. The launcher
-must keep Yapp as the responsible process for TCC (see `launcher.c`) so permissions attach to
-Yapp, not to Python.
+memory) and the usage strings macOS requires (`NSMicrophoneUsageDescription`,
+`NSAppleEventsUsageDescription`), notarize and staple, ship a lockfile-pinned environment or a frozen build rather than
+the developer's working tree, and publish a SBOM and checksums with each release. The bundle's compiled launcher (lands with
+the bar PR, `src/yapp/launcher.c` and `bundle.py`) is what keeps Yapp the responsible process
+for TCC, so permission grants attach to Yapp rather than to the Python interpreter; a
+certificate-backed designated requirement is still to do (tracked in the issues).
