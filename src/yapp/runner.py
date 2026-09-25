@@ -231,13 +231,18 @@ class Runner:
             self.learning.executed(d, time.time())
         self._report(r)
 
+    def _said_so_far(self) -> str:
+        """The whole utterance so far: 'open reminders and then new reminder and then type
+        buy stamps' says far more about the window's purpose than 'open reminders'."""
+        return " ".join(self.stream.committed)
+
     def _open(self, tail: str, app: App) -> Result:
         ws = self.workspace
         if ws is None:
             return self.executor.open_app(app)
         self._flush_held()  # words meant for the previous app go there first
         ws.decide(tail, app.name)
-        ws.purpose_for(tail, app.name)
+        ws.purpose_for(self._said_so_far(), app.name)
         activate = ws.before_open(app.name)
         r = self.executor.open_app(app, activate=activate)
         if r.ok:
@@ -250,7 +255,7 @@ class Runner:
             return self.executor.screen(words)
         ws.decide(words)
         app = ws.work_app if ws.parallel else ws.frontmost()
-        ws.purpose_for(words, app)
+        ws.purpose_for(self._said_so_far(), app)
         before = ws.snapshot_windows(app)
         ws.glow(app)  # the glow says which windows are Yapp's
         r = self.executor.screen(words, app=app if ws.parallel else None, parallel=ws.parallel)
