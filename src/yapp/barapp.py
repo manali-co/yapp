@@ -158,7 +158,12 @@ def run_app(cfg: Config, log: bool = False) -> int:
         state = AppState(Path.home() / ".yapp" / "state.json")
         asker: list[Callable[[str], bool]] = [lambda action: False]
         runner = build_runner(
-            cfg, display, ask=lambda action: asker[0](action), mode=Mode(state.mode)
+            cfg,
+            display,
+            ask=lambda action: asker[0](action),
+            mode=Mode(state.mode),
+            attention=bardisplay.attention,
+            attention_done=bardisplay.attention_done,
         )
         rec = Recorder(cfg.sample_rate, cfg.max_hold_seconds)
         rec.start()

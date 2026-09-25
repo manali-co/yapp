@@ -25,6 +25,7 @@ from yapp.config import Config
 from yapp.display import Terminal
 from yapp.guard import Mode
 from yapp.jev import Jev, JevLike, JevResponse
+from yapp.native import bring_to_front, quit_app
 from yapp.runner import build_runner
 
 DEFAULT_DIR = Path("tasks")
@@ -41,6 +42,12 @@ class Task:
     expect_ask: bool = False
     settle_seconds: float = 2.0
     per_tick: int = 2
+    placement: str | None = None  # force "parallel" / "hand_over" instead of asking Jev
+    activate_before: list[str] = field(default_factory=list)  # the "user's app", raised via AX
+    quit_before: list[str] = field(default_factory=list)  # apps quit politely before the run
+    quit_after: list[str] = field(default_factory=list)  # ... and after (never pkill: it makes
+    # macOS show a "quit unexpectedly" alert on the next launch, which breaks the next task)
+    discard_after: list[str] = field(default_factory=list)  # close windows, drop unsaved changes
 
 
 @dataclass
@@ -95,6 +102,11 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 expect_ask=bool(data.get("expect_ask", False)),
                 settle_seconds=float(data.get("settle_seconds", 2.0)),
                 per_tick=int(data.get("per_tick", 2)),
+                placement=data.get("placement"),
+                quit_before=[str(a) for a in data.get("quit_before") or []],
+                activate_before=[str(a) for a in data.get("activate_before") or []],
+                quit_after=[str(a) for a in data.get("quit_after") or []],
+                discard_after=[str(a) for a in data.get("discard_after") or []],
             )
         )
     return out
@@ -148,6 +160,20 @@ def screen_text(app: str = "", max_nodes: int = 6000, max_seconds: float = 1.5) 
     return "\n".join(parts)
 
 
+def discard_app(app_name: str) -> list[str]:
+    """Harness only: close every window of the app, discarding unsaved changes, then quit."""
+    from yapp import windows as win
+    from yapp.native import app_is_running
+
+    if not app_is_running(app_name):
+        return []
+    notes = ["dismissed alert" for w in win.app_windows(app_name) if win.dismiss_alert(w)]
+    time.sleep(0.4)
+    notes += [win.close_and_discard(w) for w in win.app_windows(app_name)]
+    notes.append("quit" if quit_app(app_name) else "still running (a sheet is open?)")
+    return notes
+
+
 def trash_count() -> int:
     try:
         return len(os.listdir(Path.home() / ".Trash"))
@@ -162,6 +188,21 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
     if kind == "frontmost":
         got = frontmost()
         return got.lower() == str(arg).lower(), f"frontmost={got}"
+    if kind in ("window_in_left_half", "window_in_right_half"):
+        from yapp import windows as win
+
+        w = win.focused_window(str(arg))
+        frame = win.window_frame(w) if w is not None else None
+        if frame is None:
+            return False, f"no window for {arg}"
+        home = win.display_of(frame, win.displays()).frame
+        half = home.left_half() if kind == "window_in_left_half" else home.right_half()
+        return half.contains_centre(frame) and frame.w <= half.w + 2, f"{arg} at {frame}"
+    if kind == "app_not_running":
+        from yapp.native import app_is_running
+
+        running = app_is_running(str(arg))
+        return not running, f"{arg} running={running}"
     if kind == "not_frontmost":
         got = frontmost()
         return got.lower() != str(arg).lower(), f"frontmost={got}"
@@ -223,10 +264,17 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     counting = CountingJev(Jev(model=cfg.model))
     checks: list[tuple[str, bool, str]] = []
     try:
+        for app_name in task.quit_before:
+            quit_app(app_name)
         for cmd in task.setup:
             _shell(cmd)
+        for app_name in task.activate_before:
+            _shell(f"open -a '{app_name}'")
+            bring_to_front(app_name)
         before = {"trash": trash_count()}
-        runner = build_runner(cfg, display, ask=ask, mode=mode, jev=counting)
+        runner = build_runner(
+            cfg, display, ask=ask, mode=mode, jev=counting, force_placement=task.placement
+        )
         words = task.instruction.split()
         for i in range(task.per_tick, len(words) + task.per_tick, task.per_tick):
             verdicts = runner.tick(words[:i], words[i : i + 1])
@@ -240,6 +288,10 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     finally:
         for cmd in task.teardown:
             _shell(cmd)
+        for app_name in task.discard_after:
+            discard_app(app_name)
+        for app_name in task.quit_after:
+            quit_app(app_name)
     seconds = time.perf_counter() - started
     ok = all(c[1] for c in checks)
     out = Outcome(
@@ -256,6 +308,17 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     return out
 
 
+def screen_locked() -> bool:
+    """A locked screen makes every check see loginwindow; refuse rather than record junk."""
+    try:
+        from Quartz import CGSessionCopyCurrentDictionary
+
+        session = CGSessionCopyCurrentDictionary() or {}
+        return bool(session.get("CGSSessionScreenIsLocked"))
+    except Exception:  # noqa: BLE001 - if we cannot tell, run
+        return False
+
+
 def run_tasks(
     cfg: Config,
     display: Terminal,
@@ -266,19 +329,34 @@ def run_tasks(
     approve: bool = False,
     results: Path = RESULTS,
 ) -> int:
+    if screen_locked():
+        display.show_error("the screen is locked: unlock it and run the tasks again")
+        return 3
     tasks = load_tasks(directory, only)
     if not tasks:
         display.show_error(f"no tasks in {directory}")
         return 2
     outcomes: list[Outcome] = []
     for t in tasks:
+        if screen_locked():
+            display.show_error(
+                f"the screen locked before {t.name}: stopping, nothing recorded for it"
+            )
+            break
         display.status(f"── task {t.name}: “{t.instruction}”")
-        outcomes.append(run_task(t, cfg, display, mode, approve))
-        o = outcomes[-1]
+        o = run_task(t, cfg, display, mode, approve)
+        if screen_locked():
+            display.show_error(
+                f"the screen locked during {t.name}: its result is discarded; stopping"
+            )
+            break
+        outcomes.append(o)
         display.status(
             f"   {'PASS' if o.passed else 'FAIL'} in {o.seconds:.1f}s · jev {o.jev_calls} calls "
             f"{o.jev_ms} ms · asked {o.asked or '-'}"
         )
+    if not outcomes:
+        return 3
     results.parent.mkdir(parents=True, exist_ok=True)
     with results.open("a") as f:
         for o in outcomes:

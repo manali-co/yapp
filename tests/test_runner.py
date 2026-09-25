@@ -49,9 +49,11 @@ def canned(tail: str, dictating: bool) -> Decision:
     if words[:2] == ["switch", "to"] and len(words) >= 3:
         return mk(tail, Intent.OPEN_APP, 0.9, 0.95, ends, SAFARI, len(tail.split()))
     if words[:1] == ["type"]:
-        return mk(tail, Intent.TYPE_TEXT, 0.9, 0.9, ends, consumed=1)
+        return mk(tail, Intent.TYPE_TEXT, 0.9, 0.9, ends, consumed=tail.split().index("type") + 1)
     if words[:1] == ["undo"]:
         return mk(tail, Intent.UNDO, 0.9, 0.9, ends, consumed=1)
+    if words[:2] == ["clean", "up"]:
+        return mk(tail, Intent.CLEANUP, 0.9, 0.9, ends, consumed=len(tail.split()))
     if words[:2] == ["zoom", "in"]:
         return mk(tail, Intent.SCREEN, 0.9, 0.9, ends, consumed=len(tail.split()))
     intent = Intent.OPEN_APP if words[:1] == ["open"] else Intent.NONE
@@ -62,13 +64,17 @@ class FakeExec:
     def __init__(self) -> None:
         self.log: list[str] = []
 
-    def open_app(self, app: App) -> Result:
-        self.log.append(f"open:{app.name}")
+    def open_app(self, app: App, *, activate: bool = True) -> Result:
+        self.log.append(f"open:{app.name}" + ("" if activate else ":side"))
         return Result(True, "ok")
 
     def type_text(self, text: str) -> Result:
         self.log.append(f"type:{text}")
         return Result(True, "ok")
+
+    def type_ax(self, app: str, text: str) -> bool:
+        self.log.append(f"ax:{app}:{text}")
+        return getattr(self, "ax_ok", True)
 
     def press_key(self, combo: str) -> Result:
         self.log.append(f"key:{combo}")
@@ -85,8 +91,10 @@ class FakeExec:
         self.log.append("undo")
         return Result(True, "ok")
 
-    def screen(self, words: str) -> Result:
-        self.log.append(f"screen:{words}")
+    def screen(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result:
+        self.log.append(
+            f"screen:{words}" + (f"@{app}" if app else "") + (":parallel" if parallel else "")
+        )
         return Result(True, f"pressed menu: View › {words}")
 
 
@@ -200,8 +208,11 @@ def test_runner_calls_thinking_before_decision() -> None:
 
 
 def test_failed_open_is_not_remembered_for_undo() -> None:
-    ex = FakeExec()
-    ex.open_app = lambda app: Result(False, "no such app")  # type: ignore[method-assign]
+    class Failing(FakeExec):
+        def open_app(self, app: App, *, activate: bool = True) -> Result:
+            return Result(False, "no such app")
+
+    ex = Failing()
     r = Runner(Config(), None, ex, APPS, classify=lambda tail, ctx: canned(tail, ctx.dictating))
     feed(r, "open notes")
     assert r.last is None
@@ -243,3 +254,189 @@ def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:
     feed(r, "type hello there")
     assert seen == ["dictate into Finder @ Finder"]
     assert ex.log == ["type:hello there "]
+
+
+def test_parallel_workspace_opens_on_the_side_and_targets_the_work_app() -> None:
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)  # Jev says parallel; Slack is in front
+    ex = FakeExec()
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws,
+    )
+    feed(r, "open notes and zoom in")
+    assert ex.log == ["open:Notes:side", "screen:and zoom in@Notes:parallel"]
+    assert world.front == "Slack" and ws.ledger.launched_apps == []  # Notes was already running
+    r.finish()
+    assert ws.mode is None  # decided again next session
+
+
+def test_cleanup_intent_unwinds_the_ledger_through_the_guard() -> None:
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)
+    seen: list[str] = []
+
+    def harm(action: str, context: str) -> tuple[float, int]:
+        seen.append(action)
+        return 0.1, 1
+
+    r, ex = make(canned, Guard(harm, lambda a: False))
+    r.workspace = ws
+    feed(r, "open safari")  # Safari is not running in the World: it gets launched
+    assert ws.ledger.launched_apps == ["Safari"] and ex.log == ["open:Safari:side"]
+    feed(r, "clean up")
+    assert seen[-1] == "close the windows and apps Yapp opened"
+    assert world.quit == ["Safari"] and ws.ledger.empty
+    feed(r, "clean up")  # nothing left: no ask, no error
+    assert len(seen) == 2  # an empty ledger never reaches the guard
+
+
+def test_parallel_dictation_goes_through_accessibility_then_borrows_focus() -> None:
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)
+    ex = FakeExec()
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws,
+    )
+    feed(r, "open notes and type hello there")
+    assert ex.log == ["open:Notes:side", "ax:Notes:hello there "] and world.front == "Slack"
+    ex2 = FakeExec()
+    ex2.ax_ok = False  # type: ignore[attr-defined]
+    world2 = World()
+    ws2 = make_ws(world2)
+    r2 = Runner(
+        Config(),
+        None,
+        ex2,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws2,
+    )
+    feed(r2, "open notes and type hello there")
+    assert ex2.log == ["open:Notes:side", "ax:Notes:hello there ", "type:hello there "]
+    assert world2.raised[-2:] == ["Notes", "Slack"] and any(
+        "attention" in line for line in world2.log
+    )
+
+
+def test_undo_after_parallel_dictation_borrows_focus_to_the_work_app() -> None:
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)
+    ex = FakeExec()
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws,
+    )
+    feed(r, "open notes and type hello there")
+    assert r.last is not None and r.last.app == "Notes"
+    world.raised.clear()
+    feed(r, "undo")
+    assert ex.log[-1] == "undo" and world.raised == ["Notes", "Slack"]
+
+
+def test_held_dictation_does_not_count_for_undo_until_delivered() -> None:
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)
+    ex = FakeExec()
+    ex.ax_ok = False  # type: ignore[attr-defined]
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws,
+    )
+    words = "open notes and type hello there my friend".split()
+    for i in range(1, len(words) + 1):
+        r.tick(words[:i])
+    # two words of lookahead are still held back; "hello there" was refused by AX and held
+    assert r.last is not None and r.last.typed_chars == 0 and ws.held_text == "hello there "
+    r.finish()  # the one borrow, then the count reflects what was typed
+    assert ex.log[-1] == "type:hello there my friend " and r.last is not None
+    assert r.last.typed_chars == len("hello there my friend ")
+
+
+def test_failed_typing_is_not_counted_for_undo() -> None:
+    class Refusing(FakeExec):
+        def type_text(self, text: str) -> Result:
+            return Result(False, "no field")
+
+    ex = Refusing()
+    r = Runner(Config(), None, ex, APPS, classify=lambda tail, ctx: canned(tail, ctx.dictating))
+    feed(r, "type hello there")
+    assert r.last is not None and r.last.typed_chars == 0
+
+
+def test_undo_drops_only_its_own_held_words() -> None:
+    """Per-action attribution is covered in test_workspace; here: undo of a held dictation
+    forgets those words instead of sending backspaces for text that never landed."""
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)
+    ex = FakeExec()
+    ex.ax_ok = False  # type: ignore[attr-defined]
+    ws.raise_app = lambda app: False  # every borrow fails: words stay held
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws,
+    )
+    words = "open notes and type one two three four".split()
+    for i in range(1, len(words) + 1):
+        r.tick(words[:i])
+    assert [h.text for h in ws.held] == ["one two "] and r.last is not None
+    action = r.last.action
+    r.finish()  # the end-of-session borrow fails too: everything stays held
+    assert [h.text for h in ws.held] == ["one two three four "]
+    feed(r, "undo")
+    assert ws.held == [] and ws.drop_held(action) == 0 and r.last is None
+
+
+def test_failed_undo_keeps_last_for_a_retry() -> None:
+    class Stubborn(FakeExec):
+        def undo(self, last: Executed) -> Result:
+            self.log.append("undo")
+            return Result(False, "app busy")
+
+    ex = Stubborn()
+    r = Runner(Config(), None, ex, APPS, classify=lambda tail, ctx: canned(tail, ctx.dictating))
+    feed(r, "open notes")
+    feed(r, "undo")
+    assert r.last is not None and ex.log[-1] == "undo"
+    ex.undo = lambda last: Result(True, "ok")  # type: ignore[method-assign]
+    feed(r, "undo")
+    assert r.last is None

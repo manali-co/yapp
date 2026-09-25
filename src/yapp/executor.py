@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 
 from yapp.catalog import ShellError, ShellRunner, run_capture
 from yapp.types import App, Executed, Intent, Result
@@ -18,6 +19,10 @@ MODIFIERS = {
 SE = 'tell application "System Events" to '
 
 
+class ScreenFn(Protocol):
+    def __call__(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result: ...
+
+
 def applescript_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
@@ -26,7 +31,7 @@ class Executor:
     def __init__(
         self,
         run: ShellRunner = run_capture,
-        screen: Callable[[str], Result] | None = None,
+        screen: ScreenFn | None = None,
         leave_full_screen: Callable[[], bool] | None = None,
         raise_app: Callable[[str], bool] | None = None,
     ) -> None:
@@ -35,11 +40,12 @@ class Executor:
         self.leave_full_screen = leave_full_screen
         self.raise_app = raise_app
 
-    def screen(self, words: str) -> Result:
-        """A screen action: the app in front is read live and Jev picks a target (see ax.py)."""
+    def screen(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result:
+        """A screen action: the app (in front, or the one Yapp works in) is read live and Jev
+        picks a target per step (see ax.py)."""
         if self.screen_fn is None:
             return Result(False, "screen actions are not available")
-        return self.screen_fn(words)
+        return self.screen_fn(words, app=app, parallel=parallel)
 
     def _osa(self, script: str) -> str:
         return self._run(["osascript", "-e", script])
@@ -55,12 +61,35 @@ class Executor:
             return Result(False, str(err))
         return Result(True, ok_message)
 
-    def open_app(self, app: App) -> Result:
+    def open_app(self, app: App, *, activate: bool = True) -> Result:
+        """Launch or switch to the app. `activate=False` (parallel mode) leaves the user's
+        window and keyboard alone: `open -g` and no raise."""
+        if not activate:
+            return self._attempt(["open", "-g", "-a", app.name], f"opened {app.name} on the side")
         left = bool(self.leave_full_screen and self.leave_full_screen())
         r = self._attempt(["open", "-a", app.name], f"opened {app.name}")
         if r.ok and self.raise_app is not None and not self.raise_app(app.name):
             r = Result(True, f"opened {app.name} (could not bring it to the front)")
         return Result(r.ok, f"left full screen, {r.message}") if left and r.ok else r
+
+    def type_ax(self, app: str, text: str) -> bool:
+        """Append text to the app's focused element without the keyboard (parallel mode)."""
+        try:
+            from ApplicationServices import AXUIElementSetAttributeValue
+
+            from yapp.ax import _attr, app_element
+
+            el, _ = app_element(app)
+            focused = _attr(el, "AXFocusedUIElement")
+            if focused is None:
+                return False
+            current = str(_attr(focused, "AXValue") or "")
+            wanted = current + text
+            if AXUIElementSetAttributeValue(focused, "AXValue", wanted) != 0:
+                return False
+            return str(_attr(focused, "AXValue") or "") == wanted
+        except Exception:  # noqa: BLE001 - any refusal means: borrow focus instead
+            return False
 
     def type_text(self, text: str) -> Result:
         if not text:

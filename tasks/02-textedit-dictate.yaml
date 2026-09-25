@@ -4,5 +4,4 @@ check:
   - frontmost: TextEdit
   - screen_contains: hello from yapp
 settle_seconds: 3
-teardown:
-  - pkill -x TextEdit
+discard_after: [TextEdit]

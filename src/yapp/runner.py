@@ -17,21 +17,24 @@ from yapp.guard import Guard, Mode, jev_harm
 from yapp.intent import QUESTIONS, Context
 from yapp.jev import Jev, JevError, JevLike
 from yapp.learning import Learning
+from yapp.placement import Placement
 from yapp.policy import decide
 from yapp.stream import Stream
 from yapp.types import App, Decision, Executed, Intent, Outcome, Result, Verdict
+from yapp.workspace import Workspace
 
 Classifier = Callable[[str, Context], Decision]
 
 
 class ExecutorLike(Protocol):
-    def open_app(self, app: App) -> Result: ...
+    def open_app(self, app: App, *, activate: bool = True) -> Result: ...
+    def type_ax(self, app: str, text: str) -> bool: ...
     def type_text(self, text: str) -> Result: ...
     def press_key(self, combo: str) -> Result: ...
     def open_file(self, path: Path) -> Result: ...
     def frontmost_app(self) -> str: ...
     def undo(self, last: Executed) -> Result: ...
-    def screen(self, words: str) -> Result: ...
+    def screen(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result: ...
 
 
 class LearningLike(Protocol):
@@ -54,10 +57,12 @@ class Runner:
         display: Display | None = None,
         classify: Classifier | None = None,
         guard: Guard | None = None,
+        workspace: Workspace | None = None,
     ) -> None:
         self.cfg = cfg
         self.jev = jev
         self.guard = guard
+        self.workspace = workspace
         self.executor = executor
         self.apps = apps
         self.learning = learning
@@ -65,6 +70,7 @@ class Runner:
         self.stream = Stream(cfg.dictation_lookahead_words)
         self.last: Executed | None = None
         self.done: list[str] = []
+        self._actions = 0  # dictation action counter
         if classify is not None:
             self._classify: Classifier = classify
         elif jev is not None:
@@ -111,7 +117,10 @@ class Runner:
         if self.stream.dictating:
             self._type(self.stream.dictation_words(flush=True))
             self.stream.exit_dictation()
+        self._flush_held()  # words a field refused: one borrow, at the very end
         self.stream.reset()
+        if self.workspace is not None:
+            self.workspace.reset()  # after the last words are typed where they belong
         return out
 
     def _step(self, tail: str) -> Verdict:
@@ -148,17 +157,24 @@ class Runner:
         denied = Result(False, "not approved")
         match d.intent:
             case Intent.OPEN_APP if d.app is not None:
-                r = self.executor.open_app(d.app) if self._may(f"open {d.app.name}") else denied
+                r = self._open(d.tail, d.app) if self._may(f"open {d.app.name}") else denied
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.TYPE_TEXT:
                 self.stream.consume(d.consumed_words)
-                if not self._may(f"dictate into {self.executor.frontmost_app()}"):
+                ws = self.workspace
+                where = (
+                    ws.work_app
+                    if ws and ws.parallel and ws.work_app
+                    else self.executor.frontmost_app()
+                )
+                if not self._may(f"dictate into {where}"):
                     self._report(denied)
                     return
                 self.stream.enter_dictation()
                 r = Result(True, "dictating")
-                self.last = Executed(d, r, typed_chars=0)
+                self._actions += 1
+                self.last = Executed(d, r, typed_chars=0, action=self._actions)
                 self._report(r)
                 return
             case Intent.OPEN_FILE if d.file_query:
@@ -181,14 +197,32 @@ class Runner:
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.SCREEN:
-                r = self.executor.screen(" ".join(d.tail.split()[: d.consumed_words]))
+                r = self._screen(" ".join(d.tail.split()[: d.consumed_words]))
                 if r.ok:
-                    self.last = Executed(d, r)
+                    ws = self.workspace
+                    side = ws.work_app if ws is not None and ws.parallel else ""
+                    self.last = Executed(d, r, app=side)
+            case Intent.CLEANUP:
+                r = self._cleanup()
             case Intent.UNDO if self.last is not None:
-                r = self.executor.undo(self.last)
-                if self.learning:
-                    self.learning.undone(time.time())
-                self.last = None
+                last = self.last
+                ws = self.workspace
+                dictation = last.decision.intent == Intent.TYPE_TEXT
+                if ws is not None and dictation:
+                    ws.drop_held(last.action)  # never typed: nothing to erase for those words
+                if dictation and last.typed_chars == 0:
+                    r = Result(True, "forgot the words that were never typed")
+                elif last.app and ws is not None:
+                    # The keystrokes of undo must reach the app that was acted on, not the
+                    # app the user is working in.
+                    out = ws.borrow_focus(last.app, lambda: self.executor.undo(last))
+                    r = out if isinstance(out, Result) else Result(False, "undo failed")
+                else:
+                    r = self.executor.undo(last)
+                if r.ok:
+                    if self.learning:
+                        self.learning.undone(time.time())
+                    self.last = None  # a failed undo keeps `last` so the user can retry
             case _:
                 r = Result(False, "nothing to execute")
         self.stream.consume(d.consumed_words)
@@ -197,15 +231,82 @@ class Runner:
             self.learning.executed(d, time.time())
         self._report(r)
 
+    def _open(self, tail: str, app: App) -> Result:
+        ws = self.workspace
+        if ws is None:
+            return self.executor.open_app(app)
+        self._flush_held()  # words meant for the previous app go there first
+        ws.decide(tail, app.name)
+        activate = ws.before_open(app.name)
+        r = self.executor.open_app(app, activate=activate)
+        if r.ok:
+            ws.after_open(app.name)
+        return r
+
+    def _screen(self, words: str) -> Result:
+        ws = self.workspace
+        if ws is None:
+            return self.executor.screen(words)
+        ws.decide(words)
+        app = ws.work_app if ws.parallel else ws.frontmost()
+        before = ws.snapshot_windows(app)
+        r = self.executor.screen(words, app=app if ws.parallel else None, parallel=ws.parallel)
+        ws.note_new_windows(app, before)
+        return r
+
+    def _cleanup(self) -> Result:
+        ws = self.workspace
+        if ws is None:
+            return Result(False, "nothing to clean up")
+        if ws.ledger.empty:
+            return Result(True, "nothing to clean up")
+        if not self._may("close the windows and apps Yapp opened"):
+            return Result(False, "not approved")
+        done = ws.cleanup()
+        return Result(True, "cleaned up: " + ", ".join(done) if done else "nothing to clean up")
+
     def _type(self, words: list[str]) -> None:
         if not words:
             return
         text = " ".join(words) + " "
-        r = self.executor.type_text(text)
+        ws = self.workspace
+        app = ""
+        delivered = len(text)
+        action = self.last.action if self.last is not None else 0
+        if ws is not None and ws.parallel and ws.work_app:
+            app = ws.work_app
+            if ws.type_on_side(text, self.executor.type_ax, action):
+                r = Result(True, f"typed {len(text)} chars on the side")
+            else:
+                r = Result(True, f"holding {len(ws.held_text)} chars for one borrow")
+                delivered = 0  # undo must not erase what never reached the app
+        else:
+            r = self.executor.type_text(text)
+        self._count_typed(r, delivered, app)
+        self._report(r)
+
+    def _count_typed(self, r: Result, chars: int, app: str) -> None:
         last = self.last
         if last is not None and last.decision.intent == Intent.TYPE_TEXT:
-            self.last = Executed(last.decision, r, typed_chars=last.typed_chars + len(text))
-        self._report(r)
+            delivered = chars if r.ok else 0  # undo erases only what actually landed
+            self.last = Executed(
+                last.decision,
+                r,
+                typed_chars=last.typed_chars + delivered,
+                app=app,
+                action=last.action,
+            )
+
+    def _flush_held(self) -> None:
+        ws = self.workspace
+        if ws is None or not ws.held_text:
+            return
+        flushed, out = ws.flush_held(self.executor.type_text)
+        for entry in flushed:  # count exactly what landed, for the action undo reverses
+            if self.last is not None and self.last.action == entry.action:
+                self._count_typed(Result(True, "flushed"), len(entry.text), entry.app)
+        if isinstance(out, Result):
+            self._report(out)
 
     def _report(self, r: Result) -> None:
         if self.display:
@@ -227,6 +328,50 @@ def build_guard(
     return Guard(jev_harm(jev, q["criteria"], q["instructions"]), ask, mode=mode, log=log)
 
 
+def build_workspace(
+    jev: JevLike,
+    log: Callable[[str], None],
+    *,
+    force_placement: str | None = None,
+    attention: Callable[[str], None] = lambda s: None,
+    attention_done: Callable[[], None] = lambda: None,
+    may: Callable[[str], bool] = lambda action: False,
+) -> Workspace:
+    from yapp import windows as win
+    from yapp.ax import frontmost_app_name
+    from yapp.native import app_is_running, bring_to_front, quit_app
+    from yapp.placement import decide_placement, seconds_since_input
+
+    def decide(instruction: str, front: str, target: str) -> Placement:
+        return decide_placement(
+            jev,
+            instruction,
+            front_app=front,
+            target_app=target,
+            idle_seconds=seconds_since_input(),
+            display_count=len(win.displays()),
+        )
+
+    return Workspace(
+        decide,
+        win.WindowManager(log=log),
+        frontmost=frontmost_app_name,
+        raise_app=bring_to_front,
+        is_running=app_is_running,
+        quit_app=quit_app,
+        close_window=win.close_window,
+        windows_of=win.app_windows,
+        window_title=win.window_title,
+        attention=attention,
+        attention_done=attention_done,
+        force=force_placement,
+        log=log,
+        may=may,
+        sheet_buttons=win.sheet_buttons,
+        press=win.press,
+    )
+
+
 def build_runner(
     cfg: Config,
     display: Display | None,
@@ -234,9 +379,12 @@ def build_runner(
     ask: Callable[[str], bool] = lambda action: False,
     mode: Mode = Mode.ASK,
     jev: JevLike | None = None,
+    force_placement: str | None = None,
+    attention: Callable[[str], None] = lambda s: None,
+    attention_done: Callable[[], None] = lambda: None,
 ) -> Runner:
     """The live pipeline. `ask` is how a harmful action gets its yes (voice in the bar)."""
-    from yapp.ax import Screen
+    from yapp.ax import Screen, ax_type
 
     jev = jev or Jev(model=cfg.model)
     apps = installed_apps()
@@ -247,6 +395,14 @@ def build_runner(
 
     executor = Executor(leave_full_screen=leave_full_screen_if_needed, raise_app=bring_to_front)
     guard = build_guard(jev, ask, mode, log)
+    workspace = build_workspace(
+        jev,
+        log,
+        force_placement=force_placement,
+        attention=attention,
+        attention_done=attention_done,
+        may=lambda action: guard.check(action, "").allowed,
+    )
     screen = Screen(
         jev,
         type_text=executor.type_text,
@@ -254,6 +410,17 @@ def build_runner(
         threshold=cfg.thresholds.screen,
         log=log,
         guard=lambda action, ctx: guard.check(action, ctx).allowed,
+        ax_type=lambda t, text: ax_type(t, text, append=t.role == "AXTextArea"),
+        borrow=workspace.borrow_focus,
     )
     executor.screen_fn = screen.run
-    return Runner(cfg, jev, executor, apps, learning=Learning(cfg), display=display, guard=guard)
+    return Runner(
+        cfg,
+        jev,
+        executor,
+        apps,
+        learning=Learning(cfg),
+        display=display,
+        guard=guard,
+        workspace=workspace,
+    )

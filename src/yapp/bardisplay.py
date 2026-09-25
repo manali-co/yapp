@@ -137,6 +137,18 @@ class BarDisplay:
         if not approved:
             self._set("unsure")
 
+    def attention(self, text: str) -> None:
+        """Yapp needs the user for a moment while it works on the side (interim mapping:
+        acting spring + copy; a dedicated avatar state is briefed to Claude Design)."""
+        self._state = "attention"
+        self.bar.set_state("acting", direction=-1.2)
+        self.bar.decision(text)
+
+    def attention_done(self) -> None:
+        self.bar.decision("Back to you", muted=True)
+        self._state = ""
+        self._resting()
+
     def show_error(self, msg: str) -> None:
         self._set(error_kind(msg))
         self.bar.decision(msg, muted=True)

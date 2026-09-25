@@ -1,0 +1,14 @@
+name: 13-parallel-split
+# The user is "working" in Notes. Yapp must open TextEdit on the right half, keep Notes in
+# front on the left, and type without taking the keyboard.
+instruction: open text edit and then new document and then type parallel hello
+placement: parallel
+activate_before: [Notes]
+check:
+  - frontmost: Notes
+  - window_in_left_half: Notes
+  - window_in_right_half: TextEdit
+  - screen_contains: parallel hello
+    app: TextEdit
+settle_seconds: 3
+discard_after: [TextEdit]
