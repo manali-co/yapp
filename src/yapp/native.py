@@ -410,9 +410,13 @@ def quit_app(app_name: str, timeout: float = 6.0) -> bool:
         return True
     if not app.terminate():
         return False
+    from yapp.ax import refresh_workspace
+
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        refresh_workspace()  # isTerminated only updates when the main run loop spins
         if app.isTerminated():
             return True
         time.sleep(0.1)
+    refresh_workspace()
     return bool(app.isTerminated())

@@ -172,3 +172,49 @@ def test_ledger_closes_windows_then_quits_launched_apps() -> None:
     done = led.cleanup(close=close, quit_app=lambda a: True, restore=lambda: False)
     assert closed == ["w1"] and done == ["closed TextEdit window 'Untitled'", "quit TextEdit"]
     assert led.empty
+
+
+def test_refused_dictation_is_held_and_typed_with_one_borrow() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    ws.after_open("TextEdit")
+    typed: list[str] = []
+    assert not ws.type_on_side("hello ", lambda app, text: False)
+    assert not ws.type_on_side("there ", lambda app, text: True)  # once held, stay held (order)
+    assert ws.held_text == "hello there " and w.raised.count("TextEdit") == 0
+    ws.flush_held(typed.append)
+    assert typed == ["hello there "] and w.raised[-2:] == ["TextEdit", "Slack"]
+    assert ws.held_text == "" and ws.flush_held(typed.append) is None
+
+
+def test_borrow_refuses_to_type_when_the_app_will_not_come_forward() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("x", "TextEdit")
+    ws.raise_app = lambda app: False
+    ran: list[str] = []
+    out = ws.borrow_focus("TextEdit", lambda: ran.append("typed"))
+    assert ran == [] and not out.ok and "front" in out.message
+
+
+def test_already_running_app_keeps_its_own_window_where_it_was() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open notes", "Notes")
+    ws.before_open("Notes")  # Notes was running: the user's document must not move
+    w.frames["notes-1"] = Rect(50, 50, 400, 400)
+    ws.after_open("Notes")
+    assert w.frames["notes-1"] == Rect(50, 50, 400, 400)
+
+
+def test_second_parallel_session_keeps_the_first_frame_for_restore() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("one", "TextEdit")
+    ws.reset()
+    ws.decide("two", "TextEdit")  # Slack is already at the left half now
+    assert ws.windows.user_frame == Rect(100, 100, 900, 700)
+    assert ws.windows.restore() and w.frames["slack-1"] == Rect(100, 100, 900, 700)

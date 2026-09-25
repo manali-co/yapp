@@ -335,3 +335,25 @@ def test_parallel_dictation_goes_through_accessibility_then_borrows_focus() -> N
     assert world2.raised[-2:] == ["Notes", "Slack"] and any(
         "attention" in line for line in world2.log
     )
+
+
+def test_undo_after_parallel_dictation_borrows_focus_to_the_work_app() -> None:
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)
+    ex = FakeExec()
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws,
+    )
+    feed(r, "open notes and type hello there")
+    assert r.last is not None and r.last.app == "Notes"
+    world.raised.clear()
+    feed(r, "undo")
+    assert ex.log[-1] == "undo" and world.raised == ["Notes", "Slack"]

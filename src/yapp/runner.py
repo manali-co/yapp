@@ -116,6 +116,7 @@ class Runner:
         if self.stream.dictating:
             self._type(self.stream.dictation_words(flush=True))
             self.stream.exit_dictation()
+        self._flush_held()  # words a field refused: one borrow, at the very end
         self.stream.reset()
         if self.workspace is not None:
             self.workspace.reset()  # after the last words are typed where they belong
@@ -196,11 +197,21 @@ class Runner:
             case Intent.SCREEN:
                 r = self._screen(" ".join(d.tail.split()[: d.consumed_words]))
                 if r.ok:
-                    self.last = Executed(d, r)
+                    ws = self.workspace
+                    side = ws.work_app if ws is not None and ws.parallel else ""
+                    self.last = Executed(d, r, app=side)
             case Intent.CLEANUP:
                 r = self._cleanup()
             case Intent.UNDO if self.last is not None:
-                r = self.executor.undo(self.last)
+                last = self.last
+                ws = self.workspace
+                if last.app and ws is not None:
+                    # The keystrokes of undo must reach the app that was acted on, not the
+                    # app the user is working in.
+                    out = ws.borrow_focus(last.app, lambda: self.executor.undo(last))
+                    r = out if isinstance(out, Result) else Result(False, "undo failed")
+                else:
+                    r = self.executor.undo(last)
                 if self.learning:
                     self.learning.undone(time.time())
                 self.last = None
@@ -250,21 +261,29 @@ class Runner:
             return
         text = " ".join(words) + " "
         ws = self.workspace
+        app = ""
         if ws is not None and ws.parallel and ws.work_app:
-            out = ws.type_on_side(
-                text, self.executor.type_ax, lambda: self.executor.type_text(text)
-            )
-            r = (
-                out
-                if isinstance(out, Result)
-                else Result(True, f"typed {len(text)} chars on the side")
-            )
+            app = ws.work_app
+            if ws.type_on_side(text, self.executor.type_ax):
+                r = Result(True, f"typed {len(text)} chars on the side")
+            else:
+                r = Result(True, f"holding {len(ws.held_text)} chars for one borrow")
         else:
             r = self.executor.type_text(text)
         last = self.last
         if last is not None and last.decision.intent == Intent.TYPE_TEXT:
-            self.last = Executed(last.decision, r, typed_chars=last.typed_chars + len(text))
+            self.last = Executed(
+                last.decision, r, typed_chars=last.typed_chars + len(text), app=app
+            )
         self._report(r)
+
+    def _flush_held(self) -> None:
+        ws = self.workspace
+        if ws is None or not ws.held_text:
+            return
+        out = ws.flush_held(self.executor.type_text)
+        if isinstance(out, Result):
+            self._report(out)
 
     def _report(self, r: Result) -> None:
         if self.display:

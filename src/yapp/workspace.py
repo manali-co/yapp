@@ -60,6 +60,7 @@ class Workspace:
         self.mode: str | None = None
         self.user_app: str = ""
         self.work_app: str = ""
+        self.held_text: str = ""  # dictation a field refused; typed with one borrow at the end
 
     # ---- placement -------------------------------------------------------------------
     @property
@@ -95,18 +96,28 @@ class Workspace:
         self.work_app = app
         if self.parallel:
             self.sleep(0.6)  # let the window appear before placing it
-            if self.windows.place(app):
-                self.log(f"windows: {app} placed in the work area")
+            if app in self.ledger.launched_apps:
+                # A fresh launch: its first window is Yapp's. An app that was already running
+                # shows the user's own document; only windows Yapp creates get placed (see
+                # note_new_windows), so nothing of the user's is moved without a record.
+                if self.windows.place(app):
+                    self.log(f"windows: {app} placed in the work area")
             if self.user_app and self.user_app != app:
                 self.raise_app(self.user_app)  # the user keeps the keyboard
 
     # ---- typing while the user works -----------------------------------------------
     def borrow_focus(self, app: str, act: Callable[[], Any]) -> Any:
-        """Run `act` (keystrokes) with `app` in front, then give the user's app back."""
+        """Run `act` (keystrokes) with `app` in front, then give the user's app back.
+        If the app cannot be brought to the front, nothing is typed: keystrokes would land
+        in whatever the user is looking at."""
+        from yapp.types import Result
+
         self.attention("Borrowing your keyboard for a moment")
         started = time.perf_counter()
         try:
-            self.raise_app(app)
+            if not self.raise_app(app):
+                self.log(f"borrow: could not bring {app} to the front; nothing typed")
+                return Result(False, f"couldn't bring {app} to the front")
             return act()
         finally:
             if self.user_app and self.user_app != app:
@@ -132,13 +143,20 @@ class Workspace:
                 if self.user_app and self.user_app != app:
                     self.raise_app(self.user_app)
 
-    def type_on_side(
-        self, text: str, type_ax: Callable[[str, str], bool], keystrokes: Callable[[], Any]
-    ) -> Any:
-        """Dictation in parallel mode: append through Accessibility, else borrow focus once."""
-        if self.work_app and type_ax(self.work_app, text):
+    def type_on_side(self, text: str, type_ax: Callable[[str, str], bool]) -> bool:
+        """Dictation in parallel mode: append through Accessibility. When the field refuses,
+        hold the words; `flush_held` types them with a single borrow at the end of the
+        session instead of taking the keyboard on every tick."""
+        if not self.held_text and self.work_app and type_ax(self.work_app, text):
+            return True
+        self.held_text += text
+        return False
+
+    def flush_held(self, keystrokes: Callable[[str], Any]) -> Any:
+        if not self.held_text or not self.work_app:
             return None
-        return self.borrow_focus(self.work_app, keystrokes)
+        text, self.held_text = self.held_text, ""
+        return self.borrow_focus(self.work_app, lambda: keystrokes(text))
 
     def _discard(self, w: Any) -> str | None:
         """A closed window may ask 'save?'. Discarding is the guard's call, never ours."""

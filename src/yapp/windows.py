@@ -279,8 +279,7 @@ class WindowManager:
         self._windows_of = windows_of
         self.log = log
         self.layout: Layout | None = None
-        self.user_window: Any = None
-        self.user_frame: Rect | None = None
+        self.moved: list[tuple[Any, Rect]] = []  # user windows Yapp moved, original frames
         self.placed = 0
 
     def begin_parallel(self, user_app: str) -> Layout:
@@ -290,7 +289,8 @@ class WindowManager:
         layout = plan_layout(frame, self._displays())
         self.layout = layout
         if layout.user is not None and win is not None and frame is not None:
-            self.user_window, self.user_frame = win, frame
+            if not any(w == win for w, _ in self.moved):
+                self.moved.append((win, frame))  # the first frame is the one to restore
             if self._set_frame(win, layout.user):
                 self.log(f"windows: {user_app} moved to the left half; Yapp works on the right")
             else:
@@ -323,11 +323,15 @@ class WindowManager:
             self.placed += 1
         return ok
 
+    @property
+    def user_frame(self) -> Rect | None:
+        return self.moved[0][1] if self.moved else None
+
     def restore(self) -> bool:
-        if self.user_window is None or self.user_frame is None:
+        if not self.moved:
             return False
-        ok = self._set_frame(self.user_window, self.user_frame)
-        self.user_window = self.user_frame = None
+        ok = all(self._set_frame(win, frame) for win, frame in reversed(self.moved))
+        self.moved = []
         self.layout = None
         self.placed = 0
         return ok

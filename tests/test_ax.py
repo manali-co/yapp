@@ -380,3 +380,17 @@ def test_type_into_a_menu_falls_back_to_the_best_field() -> None:
     resp.probs = {"m7": 0.9, "c1": 0.05, "none": 0.05}  # type: ignore[attr-defined]
     d = decide("search for cats", [hist, field], FakeJev(resp))  # type: ignore[arg-type]
     assert d.target is hist  # a 0.05 field is not promoted; the loop will refuse to type
+
+
+def test_hand_over_loop_follows_the_front_app_each_step() -> None:
+    fronts = iter(["Chrome", "Chrome", "Notes", "Notes", "Notes"])
+    seen: list[str] = []
+    s, log = make_screen(
+        FakeResp("m3", 0.95, "press", "s0", 0.1),
+        FakeResp("m3", 0.95, "press", "s0", 0.1, status="continue", status_conf=0.9),
+        FakeResp("none", 0.1, "none", "s0", 0.1, status="done"),
+        summaries=["a", "b", "c", "d", "e", "f"],
+    )
+    s.frontmost = lambda: seen.append(next(fronts)) or seen[-1]  # type: ignore[func-returns-value]
+    s.run("zoom in")
+    assert seen[0] == "Chrome" and "Notes" in seen[2:]  # step 2 re-read the front app

@@ -69,3 +69,4 @@ class Executed:
     decision: Decision
     result: Result
     typed_chars: int = 0  # for dictation undo
+    app: str = ""  # the app acted on when it was not the one in front (parallel mode)

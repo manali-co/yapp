@@ -523,12 +523,13 @@ class Screen:
         """`app` pins the target (parallel mode works on an app that is not in front)."""
         self.history = []
         self.parallel = parallel
+        pinned = app
         acted = 0
         unchanged = 0
         last_action: tuple[str, str, str] | None = None
         last_changed = False
         for step in range(1, self.max_steps + 1):
-            app = app or self.frontmost()
+            app = pinned or self.frontmost()  # hand-over mode follows the front app each step
             self.perceiver_app = app
             before = self.summary(app)
             t0 = time.perf_counter()
