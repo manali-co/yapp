@@ -1,0 +1,6 @@
+name: 06-reminders-new
+instruction: open reminders and then new reminder and then type buy stamps
+check:
+  - frontmost: Reminders
+  - screen_contains: buy stamps
+settle_seconds: 3

@@ -15,6 +15,10 @@ dependencies = [
   "rich>=15.0.0",
   "pyyaml>=6.0",
   "numpy>=2.5.3",
+  "pywebview>=6.2",
+  "pyobjc-framework-AVFoundation>=10",
+  "pyobjc-framework-NaturalLanguage>=10",
+  "fastembed>=0.3",
 ]
 
 [project.scripts]

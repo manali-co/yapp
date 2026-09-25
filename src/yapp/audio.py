@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -129,3 +130,80 @@ def debug_keys(display: Any, seconds: int) -> int:
         )
         return 1
     return 0
+
+
+VK_SPACE = 49
+VK_ESCAPE = 53
+VK_RETURN = 36
+
+
+def _vk(key: Any) -> int | None:
+    """Virtual key code of a pynput key, whether it is a Key enum or a KeyCode."""
+    value = getattr(key, "value", key)  # Key.space.value is a KeyCode
+    return getattr(value, "vk", None)
+
+
+def _is_option(key: Any) -> bool:
+    name = getattr(key, "name", "")
+    return name in ("alt", "alt_l", "alt_r", "alt_gr")
+
+
+class HotkeyMatcher:
+    """Pure key-event logic: ⌥ Space -> "toggle", Escape -> "escape", else None.
+
+    Matches on virtual key codes because macOS reports Option+Space as a non-breaking-space
+    character, which never equals the plain space key pynput's hotkey parser expects.
+    """
+
+    def __init__(self) -> None:
+        self.option_down = False
+
+    def press(self, key: Any) -> str | None:
+        if _is_option(key):
+            self.option_down = True
+            return None
+        vk = _vk(key)
+        if vk == VK_ESCAPE:
+            return "escape"
+        if vk == VK_RETURN and not self.option_down:
+            return "approve"  # only means something while the bar is asking
+        if vk == VK_SPACE and self.option_down:
+            return "toggle"
+        return None
+
+    def release(self, key: Any) -> None:
+        if _is_option(key):
+            self.option_down = False
+
+
+class Hotkeys:
+    """Global ⌥ Space / Escape listener built on pynput's raw listener."""
+
+    def __init__(
+        self,
+        on_toggle: Callable[[], None],
+        on_escape: Callable[[], None],
+        on_approve: Callable[[], None] = lambda: None,
+    ) -> None:
+        from pynput import keyboard
+
+        self._matcher = HotkeyMatcher()
+        self._on = {"toggle": on_toggle, "escape": on_escape, "approve": on_approve}
+        self._listener = keyboard.Listener(on_press=self._press, on_release=self._release)
+
+    def _press(self, key: Any) -> None:
+        action = self._matcher.press(key)
+        if action:
+            self._on[action]()
+
+    def _release(self, key: Any) -> None:
+        self._matcher.release(key)
+
+    def start(self) -> None:
+        self._listener.start()
+
+    def stop(self) -> None:
+        self._listener.stop()
+
+    def is_alive(self) -> bool:
+        return bool(self._listener.is_alive())

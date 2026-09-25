@@ -1,0 +1,6 @@
+name: 04-notes-new-note
+instruction: open notes and then new note and then type groceries milk and eggs
+check:
+  - frontmost: Notes
+  - screen_contains: milk
+settle_seconds: 3

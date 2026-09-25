@@ -51,3 +51,22 @@ def test_committed_never_shrinks_on_revision() -> None:
 def test_short_audio_is_skipped() -> None:
     st = StreamingTranscriber("x", decode=lambda samples: "should not run")
     assert st.update(np.zeros(100, dtype=np.float32)) == Transcript([], [])
+
+
+def test_silence_and_hallucination_filters() -> None:
+    import numpy as np
+
+    from yapp.stt import cut_repeats, keep_segment, silent
+
+    assert silent(np.zeros(16_000, dtype=np.float32))
+    assert not silent(np.full(16_000, 0.05, dtype=np.float32))
+    assert keep_segment({"no_speech_prob": 0.1, "compression_ratio": 1.2})
+    assert not keep_segment({"no_speech_prob": 0.8, "compression_ratio": 1.2})
+    assert not keep_segment({"no_speech_prob": 0.1, "compression_ratio": 3.0})
+    loop = "i'm going to be going to be going to be going to be".split()
+    assert cut_repeats(loop) == ["i'm", "going", "to", "be"]
+    assert cut_repeats("no no no".split()) == ["no"]
+    assert (
+        cut_repeats("open notes and then zoom in".split()) == "open notes and then zoom in".split()
+    )
+    assert cut_repeats("no no".split()) == ["no", "no"]  # twice is still speech

@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Protocol
 
 from yapp import intent as intent_mod
+from yapp.approval import Reply, classify_reply
 from yapp.catalog import installed_apps, search_files
 from yapp.config import Config
 from yapp.display import Display
 from yapp.executor import Executor
-from yapp.intent import Context
-from yapp.jev import Jev, JevError
+from yapp.guard import Guard, Mode, jev_harm
+from yapp.intent import QUESTIONS, Context
+from yapp.jev import Jev, JevError, JevLike
 from yapp.learning import Learning
 from yapp.policy import decide
 from yapp.stream import Stream
@@ -29,6 +31,7 @@ class ExecutorLike(Protocol):
     def open_file(self, path: Path) -> Result: ...
     def frontmost_app(self) -> str: ...
     def undo(self, last: Executed) -> Result: ...
+    def screen(self, words: str) -> Result: ...
 
 
 class LearningLike(Protocol):
@@ -43,15 +46,18 @@ class Runner:
     def __init__(
         self,
         cfg: Config,
-        jev: Jev | None,
+        jev: JevLike | None,
         executor: ExecutorLike,
         apps: list[App],
         *,
         learning: LearningLike | None = None,
         display: Display | None = None,
         classify: Classifier | None = None,
+        guard: Guard | None = None,
     ) -> None:
         self.cfg = cfg
+        self.jev = jev
+        self.guard = guard
         self.executor = executor
         self.apps = apps
         self.learning = learning
@@ -109,6 +115,8 @@ class Runner:
         return out
 
     def _step(self, tail: str) -> Verdict:
+        if self.display:
+            self.display.thinking()
         try:
             d = self._classify(tail, self._ctx())
         except JevError as e:
@@ -128,19 +136,26 @@ class Runner:
             self._execute(d)
         return v
 
+    def _may(self, action: str) -> bool:
+        return self.guard is None or self.guard.check(action, self.executor.frontmost_app()).allowed
+
     def _execute(self, d: Decision) -> None:
         if self.stream.dictating:
             # The tail is the new instruction; held-back words belong to it, not the document.
             self.stream.exit_dictation()
         self.stream.mark_fired(d.consumed_words)
         r: Result
+        denied = Result(False, "not approved")
         match d.intent:
             case Intent.OPEN_APP if d.app is not None:
-                r = self.executor.open_app(d.app)
+                r = self.executor.open_app(d.app) if self._may(f"open {d.app.name}") else denied
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.TYPE_TEXT:
                 self.stream.consume(d.consumed_words)
+                if not self._may(f"dictate into {self.executor.frontmost_app()}"):
+                    self._report(denied)
+                    return
                 self.stream.enter_dictation()
                 r = Result(True, "dictating")
                 self.last = Executed(d, r, typed_chars=0)
@@ -148,11 +163,25 @@ class Runner:
                 return
             case Intent.OPEN_FILE if d.file_query:
                 hits = search_files(d.file_query)
-                r = self.executor.open_file(hits[0]) if hits else Result(False, "no file found")
+                if not hits:
+                    r = Result(False, "no file found")
+                elif self._may(f"open file {hits[0].name}"):
+                    r = self.executor.open_file(hits[0])
+                else:
+                    r = denied
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.PRESS_KEY if d.key_combo:
-                r = self.executor.press_key(d.key_combo)
+                where = self.executor.frontmost_app()
+                r = (
+                    self.executor.press_key(d.key_combo)
+                    if self._may(f"press {d.key_combo} in {where}")
+                    else denied
+                )
+                if r.ok:
+                    self.last = Executed(d, r)
+            case Intent.SCREEN:
+                r = self.executor.screen(" ".join(d.tail.split()[: d.consumed_words]))
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.UNDO if self.last is not None:
@@ -183,9 +212,48 @@ class Runner:
             self.display.show_result(r)
 
 
-def build_runner(cfg: Config, display: Display | None) -> Runner:
-    jev = Jev(model=cfg.model)
+def build_approver(runner: Runner) -> Callable[[str, str], Reply]:
+    """Spoken reply -> approve / deny / unrelated, using the runner's Jev client."""
+    jev = runner.jev
+    assert jev is not None
+    criteria = QUESTIONS["reply"]["criteria"]
+    return lambda reply, action: classify_reply(reply, action, jev, criteria)
+
+
+def build_guard(
+    jev: JevLike, ask: Callable[[str], bool], mode: Mode, log: Callable[[str], None]
+) -> Guard:
+    q = QUESTIONS["is_harmful"]
+    return Guard(jev_harm(jev, q["criteria"], q["instructions"]), ask, mode=mode, log=log)
+
+
+def build_runner(
+    cfg: Config,
+    display: Display | None,
+    *,
+    ask: Callable[[str], bool] = lambda action: False,
+    mode: Mode = Mode.ASK,
+    jev: JevLike | None = None,
+) -> Runner:
+    """The live pipeline. `ask` is how a harmful action gets its yes (voice in the bar)."""
+    from yapp.ax import Screen
+
+    jev = jev or Jev(model=cfg.model)
     apps = installed_apps()
+    log = display.status if display else (lambda s: None)
     if display:
-        display.status(f"{len(apps)} apps in catalog · model {cfg.model}")
-    return Runner(cfg, jev, Executor(), apps, learning=Learning(cfg), display=display)
+        display.status(f"{len(apps)} apps in catalog · model {cfg.model} · mode {mode}")
+    from yapp.native import bring_to_front, leave_full_screen_if_needed
+
+    executor = Executor(leave_full_screen=leave_full_screen_if_needed, raise_app=bring_to_front)
+    guard = build_guard(jev, ask, mode, log)
+    screen = Screen(
+        jev,
+        type_text=executor.type_text,
+        press_key=executor.press_key,
+        threshold=cfg.thresholds.screen,
+        log=log,
+        guard=lambda action, ctx: guard.check(action, ctx).allowed,
+    )
+    executor.screen_fn = screen.run
+    return Runner(cfg, jev, executor, apps, learning=Learning(cfg), display=display, guard=guard)

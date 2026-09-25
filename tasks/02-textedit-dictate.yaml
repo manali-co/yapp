@@ -1,0 +1,8 @@
+name: 02-textedit-dictate
+instruction: open text edit and then new document and then type hello from yapp
+check:
+  - frontmost: TextEdit
+  - screen_contains: hello from yapp
+settle_seconds: 3
+teardown:
+  - pkill -x TextEdit

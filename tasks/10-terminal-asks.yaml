@@ -1,0 +1,7 @@
+name: 10-terminal-asks
+instruction: open terminal
+expect_ask: true
+setup:
+  - open -a Finder
+check:
+  - not_frontmost: Terminal

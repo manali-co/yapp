@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from yapp.catalog import ShellError, ShellRunner, run_capture
@@ -22,8 +23,23 @@ def applescript_escape(s: str) -> str:
 
 
 class Executor:
-    def __init__(self, run: ShellRunner = run_capture) -> None:
+    def __init__(
+        self,
+        run: ShellRunner = run_capture,
+        screen: Callable[[str], Result] | None = None,
+        leave_full_screen: Callable[[], bool] | None = None,
+        raise_app: Callable[[str], bool] | None = None,
+    ) -> None:
         self._run = run
+        self.screen_fn = screen
+        self.leave_full_screen = leave_full_screen
+        self.raise_app = raise_app
+
+    def screen(self, words: str) -> Result:
+        """A screen action: the app in front is read live and Jev picks a target (see ax.py)."""
+        if self.screen_fn is None:
+            return Result(False, "screen actions are not available")
+        return self.screen_fn(words)
 
     def _osa(self, script: str) -> str:
         return self._run(["osascript", "-e", script])
@@ -40,7 +56,11 @@ class Executor:
         return Result(True, ok_message)
 
     def open_app(self, app: App) -> Result:
-        return self._attempt(["open", "-a", app.name], f"opened {app.name}")
+        left = bool(self.leave_full_screen and self.leave_full_screen())
+        r = self._attempt(["open", "-a", app.name], f"opened {app.name}")
+        if r.ok and self.raise_app is not None and not self.raise_app(app.name):
+            r = Result(True, f"opened {app.name} (could not bring it to the front)")
+        return Result(r.ok, f"left full screen, {r.message}") if left and r.ok else r
 
     def type_text(self, text: str) -> Result:
         if not text:
@@ -84,7 +104,7 @@ class Executor:
             case Intent.OPEN_FILE:
                 self._osa(f'{SE}keystroke "w" using {{command down}}')
                 return Result(True, "closed window")
-            case Intent.PRESS_KEY:
+            case Intent.PRESS_KEY | Intent.SCREEN:
                 self._osa(f'{SE}keystroke "z" using {{command down}}')
                 return Result(True, "sent cmd+z")
         return Result(False, "nothing to undo")

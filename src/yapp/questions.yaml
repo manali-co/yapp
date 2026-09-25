@@ -5,7 +5,7 @@ intent:
   criteria:
     open_app:
       what: Launch an application or bring it to the front
-      not_for: Opening a named document or file (that is open_file); pressing a shortcut
+      not_for: Opening a named document or file (that is open_file); commands inside the current app (that is screen_action)
       examples: ["open notes", "launch safari", "switch to slack", "bring up the terminal", "go to chrome"]
     type_text:
       what: Type or dictate words into the app that is currently focused
@@ -16,9 +16,13 @@ intent:
       not_for: Launching an app with no file named
       examples: ["open my resume", "find the budget spreadsheet", "show the tax pdf"]
     press_key:
-      what: Press a keyboard shortcut
-      not_for: Typing words
+      what: Press one of the basic keyboard shortcuts (save, copy, paste, select all, close, enter, escape)
+      not_for: Typing words; commands that live in an app's menus or buttons (that is screen_action)
       examples: ["save", "copy that", "paste", "select all", "hit enter", "press escape"]
+    screen_action:
+      what: Do something inside the app in front by naming a menu command, button, tab, link, or field
+      not_for: Launching a different app; typing free text with no field named; the basic shortcuts above
+      examples: ["new tab", "new document", "new reminder", "zoom in", "find on page", "search for fable five", "bold this", "close this tab", "go to the address bar", "reply to this email", "click sign in", "show downloads", "go to downloads"]
     undo:
       what: Reverse or cancel what Yapp just did
       not_for: The undo shortcut inside an app while dictating a document
@@ -48,10 +52,10 @@ is_complete:
   criteria:
     "true":
       what: A verb and its target are both present (or the verb needs no target)
-      examples: ["open notes", "open notes and", "open notes and then", "switch to safari and", "type hello", "save", "undo", "copy that"]
+      examples: ["open notes", "open notes and", "open notes and then", "switch to safari and", "type hello", "save", "undo", "copy that", "new tab", "new document and then", "new reminder and then type buy stamps", "new note", "zoom in", "find on page", "search for cats", "bold this", "close this tab", "next tab and", "show downloads", "clear history"]
     "false":
       what: The verb has no target yet, or only filler so far
-      examples: ["open", "switch to", "go to the", "um open", "type", "and", "open the"]
+      examples: ["open", "switch to", "go to the", "um open", "type", "and", "open the", "search for", "find", "new", "zoom"]
 
 ends_dictation:
   instructions: >
@@ -65,10 +69,41 @@ ends_dictation:
       what: Ordinary sentence content that belongs in the document
       examples: ["and then we went home", "thanks for your help", "the meeting is at five", "open to suggestions"]
 
-is_destructive:
-  instructions: Carrying out instruction_so_far could delete data, send a message, or spend money.
+is_addressed:
+  instructions: >
+    instruction_so_far was said to the computer (a command or something to type), not to
+    another person in the room and not thinking aloud.
   criteria:
     "true":
-      examples: ["delete everything", "send the email", "empty the trash", "buy it now", "close without saving"]
+      what: Speech meant for the computer
+      examples: ["open notes", "type dear sam", "new tab", "search for cats", "close this", "zoom in", "save that"]
     "false":
-      examples: ["open notes", "type hello", "save", "undo"]
+      what: Conversation with someone else, or musing
+      examples: ["yeah let's grab lunch at one", "did you see the game last night", "hold on someone's at the door", "i think we should ship it tomorrow", "no you go first", "what do you want for dinner"]
+
+is_harmful:
+  instructions: >
+    Yapp is about to perform `action` on the user's Mac (`screen` describes what is in front).
+    The action is harmful if it is hard to undo or reaches outside the machine: it deletes or
+    discards data, sends or posts or shares something, spends money, signs out, changes system
+    or account settings, overwrites a file, or runs commands in a terminal. Reading, opening,
+    navigating, searching, zooming, saving, undoing, and typing into a draft are not harmful.
+  criteria:
+    "true":
+      what: Hard to undo, or reaches other people, money, or the system
+      examples: ["press Empty Trash in Finder", "press Send in Mail", "press Delete in Notes", "press Move to Trash in Finder", "press Buy now in Safari", "press Sign Out in Slack", "press Don't Save in TextEdit", "open Terminal", "dictate into Terminal", "press Restart in System Settings", "press Remove Account in System Settings", "press Delete Conversation in Messages"]
+    "false":
+      what: Reversible and local
+      examples: ["open Notes", "open Google Chrome", "press New Tab in Google Chrome", "type 'weather in toronto' into Address and search bar in Google Chrome", "press Zoom In in Safari", "press Save in TextEdit", "press Undo in Notes", "open file budget.xlsx", "open System Settings", "open Finder", "press Bold in Pages", "dictate into TextEdit", "press Back in Google Chrome", "press New Note in Notes", "press cmd+c in Finder"]
+
+reply:
+  criteria:
+    approve:
+      what: Permission to go ahead
+      examples: ["yes", "yeah", "yep", "go ahead", "do it", "sure", "ok", "okay", "confirm", "yes do it", "go for it"]
+    deny:
+      what: Refusal or cancel
+      examples: ["no", "nope", "stop", "cancel", "don't", "wait", "no don't", "never mind", "not that"]
+    unrelated:
+      what: Not an answer to the question
+      examples: ["open notes", "let's get lunch", "um", "what time is it", "hold on"]

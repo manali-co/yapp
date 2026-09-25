@@ -12,7 +12,7 @@ from typesafe_sdk import Choice, Noul, Question
 
 from yapp.catalog import narrow
 from yapp.config import Config
-from yapp.jev import Jev
+from yapp.jev import JevLike
 from yapp.types import App, Decision, Intent
 
 Examples = dict[str, list[str]]
@@ -70,9 +70,31 @@ def consumed_for(tail: str, intent: Intent) -> int:
     return len(words)
 
 
+def spoken_forms(name: str) -> list[str]:
+    """How a name is said: 'TextEdit' -> ['textedit', 'text edit']; 'Google Chrome' -> [...]."""
+    lower = name.lower()
+    split = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name).lower()
+    return [lower] if split == lower else [lower, split]
+
+
+def canonical_app_names(text: str, apps: list[App]) -> str:
+    """Whisper writes 'text edit' for TextEdit; say it the way the catalog spells it.
+
+    Only the words Jev reads change; word counts used for the transcript cursor do not.
+    """
+    out = text
+    for app in apps:
+        forms = spoken_forms(app.name)
+        if len(forms) == 2 and re.search(rf"\b{re.escape(forms[1])}\b", out):
+            out = re.sub(rf"\b{re.escape(forms[1])}\b", forms[0], out)
+    return out
+
+
 def _app_option(app: App, learned: list[str], negatives: list[str]) -> dict[str, Any]:
     words = [w for w in app.name.lower().split() if len(w) > 1]
-    generated = [f"open {w}" for w in words] + [f"switch to {app.name.lower()}"]
+    forms = spoken_forms(app.name)
+    generated = [f"open {f}" for f in forms] + [f"open {w}" for w in words[:1]]
+    generated += [f"switch to {forms[-1]}"]
     option: dict[str, Any] = {
         "what": app.description,
         "examples": (learned[-5:] + generated)[:8],
@@ -82,9 +104,12 @@ def _app_option(app: App, learned: list[str], negatives: list[str]) -> dict[str,
     return option
 
 
-def _with_learned_intent_examples(criteria: dict[str, Any], learned: Examples) -> dict[str, Any]:
+def _with_learned_intent_examples(
+    criteria: dict[str, Any], learned: Examples, extra: list[str] | None = None
+) -> dict[str, Any]:
     """Phrases learned for app options are also open_app phrasings; tell the intent question."""
     phrases = [p for key, ps in learned.items() if key not in KEY_COMBOS for p in ps[-2:]]
+    phrases += extra or []
     if not phrases:
         return criteria
     out = {k: (dict(v) if isinstance(v, dict) else v) for k, v in criteria.items()}
@@ -104,7 +129,13 @@ def build_questions(ctx: Context, tail: str = "", limit: int = 60) -> dict[str, 
         for a in apps
     }
     app_criteria["unsure"] = "None of these applications"
-    intent_criteria = _with_learned_intent_examples(q["intent"]["criteria"], ctx.examples)
+    # The intent question must know how the apps on THIS Mac are said ("open text edit").
+    catalog_phrases = (
+        {f"open {form}" for a in apps[:3] for form in spoken_forms(a.name)} if tail else set()
+    )
+    intent_criteria = _with_learned_intent_examples(
+        q["intent"]["criteria"], ctx.examples, sorted(catalog_phrases)
+    )
     return {
         "intent": Choice(instructions=q["intent"]["instructions"], criteria=intent_criteria),
         "app": Choice(instructions="Which application does the user mean?", criteria=app_criteria),
@@ -118,19 +149,21 @@ def build_questions(ctx: Context, tail: str = "", limit: int = 60) -> dict[str, 
             instructions=q["ends_dictation"]["instructions"],
             criteria=q["ends_dictation"]["criteria"],
         ),
-        "is_destructive": Noul(
-            instructions=q["is_destructive"]["instructions"],
-            criteria=q["is_destructive"]["criteria"],
+        "is_addressed": Noul(
+            instructions=q["is_addressed"]["instructions"],
+            criteria=q["is_addressed"]["criteria"],
         ),
     }
 
 
-def classify(tail: str, ctx: Context, jev: Jev, cfg: Config) -> Decision:
+def classify(tail: str, ctx: Context, jev: JevLike, cfg: Config) -> Decision:
     state = {
-        "instruction_so_far": strip_leading_conjunctions(tail),
+        "instruction_so_far": canonical_app_names(strip_leading_conjunctions(tail), ctx.apps),
         "already_done": ctx.already_done[-3:],
         "frontmost_app": ctx.frontmost_app,
         "dictating": ctx.dictating,
+        # Names on this Mac that sound like the words said ("text edit" -> TextEdit).
+        "installed_apps_like_these_words": [a.name for a in narrow(ctx.apps, tail, 3)],
     }
     questions = build_questions(ctx, tail, cfg.catalog_limit)
     resp = jev.ask(state, questions)
@@ -153,7 +186,7 @@ def classify(tail: str, ctx: Context, jev: Jev, cfg: Config) -> Decision:
         file_query=extract_file_query(tail) if intent == Intent.OPEN_FILE else None,
         is_complete=resp.noul("is_complete"),
         ends_dictation=resp.noul("ends_dictation"),
-        is_destructive=resp.noul("is_destructive"),
+        is_addressed=resp.noul("is_addressed"),
         consumed_words=consumed_for(tail, intent),
         latency_ms=resp.latency_ms,
         raw=resp.raw,

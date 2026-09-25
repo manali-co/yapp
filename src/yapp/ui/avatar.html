@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Yapp avatar</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  html, body { margin: 0; background: transparent; }
+  body { font: var(--yapp-text-body); color: var(--yapp-label); min-height: 100vh; display: grid; place-items: center; }
+  body.stage { background: var(--yapp-material-window); }
+  #controls { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 10px; align-items: center;
+    background: var(--yapp-material); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); box-shadow: 0 0 0 .5px var(--yapp-material-border), var(--yapp-shadow); border-radius: 14px; padding: 12px 14px; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  button { white-space: nowrap; font: 500 12px/1 var(--yapp-font); color: var(--yapp-label-2); background: transparent; border: 0; border-radius: 6px; padding: 7px 10px; cursor: pointer; }
+  button:hover { color: var(--yapp-label); }
+  button[aria-pressed="true"] { color: var(--yapp-label); background: var(--yapp-control-bg); box-shadow: 0 0 0 .5px var(--yapp-control-border); }
+  label { font: var(--yapp-text-hint); color: var(--yapp-label-2); display: flex; gap: 8px; align-items: center; }
+  input[type=range] { width: 120px; accent-color: var(--yapp-accent); }
+  body.embed #controls { display: none; }
+</style>
+</head>
+<body>
+<canvas id="avatar"></canvas>
+<div id="controls">
+  <div class="row" id="states"></div>
+  <div class="row">
+    <label>mic <input id="level" type="range" min="0" max="1" step="0.01" value="0"></label>
+    <label>confidence <input id="conf" type="range" min="0" max="1" step="0.01" value="0"></label>
+    <label>countdown <input id="cd" type="range" min="0" max="1" step="0.01" value="1"></label>
+    <button id="commit">commit word</button><button id="hold" aria-pressed="false">pin state</button>
+    <button data-app="">system</button><button data-app="light">light</button><button data-app="dark">dark</button>
+  </div>
+</div>
+<script src="yapp-avatar.js"></script>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const embed = q.has('embed'); if (embed) document.body.classList.add('embed'); else document.body.classList.add('stage');
+  if (q.get('appearance')) document.documentElement.classList.add('appearance-' + q.get('appearance'));
+  const size = +q.get('size') || (embed ? Math.min(innerWidth, innerHeight) : 192);
+  const lvlQ = q.get('level');
+  let states = null;
+  const av = new YappAvatar(document.getElementById('avatar'), {
+    size, state: q.get('state') || 'idle', hold: q.has('hold'),
+    autoLevel: lvlQ === 'auto', autoCommit: q.has('hold') || lvlQ === 'auto', level: lvlQ && lvlQ !== 'auto' ? +lvlQ : 0,
+    confidence: q.has('confidence') ? +q.get('confidence') : undefined, onchange: sync
+  });
+  if (q.has('countdown')) av.setCountdown(+q.get('countdown'));
+  window.yapp = { setState: (n, o) => av.setState(n, o), commit: () => av.commit(), setLevel: v => av.setLevel(v), setConfidence: v => av.setConfidence(v), setCountdown: v => av.setCountdown(v), setRing: (m, v) => av.setRing(m, v), avatar: av, get state() { return av.state; } };
+  states = document.getElementById('states');
+  YappAvatar.STATES.forEach((s, i) => { const b = document.createElement('button'); b.textContent = (i + 1) + ' ' + s; b.dataset.state = s; b.onclick = () => av.setState(s); states.appendChild(b); });
+  function sync(name) { if (!states) return; states.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.state === name)); }
+  sync(av.state);
+  document.getElementById('level').oninput = e => { av.autoLevel = false; av.setLevel(e.target.value); };
+  document.getElementById('conf').oninput = e => av.setConfidence(e.target.value);
+  document.getElementById('cd').oninput = e => av.setCountdown(+e.target.value >= 1 ? null : +e.target.value);
+  document.getElementById('commit').onclick = () => av.commit();
+  const hold = document.getElementById('hold'); hold.setAttribute('aria-pressed', av.hold); hold.onclick = () => { av.hold = !av.hold; hold.setAttribute('aria-pressed', av.hold); };
+  document.querySelectorAll('[data-app]').forEach(b => b.onclick = () => { document.documentElement.classList.remove('appearance-light', 'appearance-dark'); if (b.dataset.app) document.documentElement.classList.add('appearance-' + b.dataset.app); av.syncColors(); });
+  addEventListener('keydown', e => { const i = +e.key - 1; if (i >= 0 && i < 9) av.setState(YappAvatar.STATES[i]); if (e.key === ' ') av.commit(); });
+})();
+</script>
+</body>
+</html>

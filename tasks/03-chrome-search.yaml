@@ -1,0 +1,6 @@
+name: 03-chrome-search
+instruction: open chrome and then new tab and then search for weather in toronto
+check:
+  - frontmost: Google Chrome
+  - window_title_contains: weather
+settle_seconds: 4
