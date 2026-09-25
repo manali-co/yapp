@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use Yapp, or build on its ideas or code, please cite it and credit Manali."
+title: "Yapp: hold a key, talk, and your Mac acts while you're still talking"
+type: software
+authors:
+  - name: "Manali"
+    alias: "manali-co"
+    website: "https://github.com/manali-co"
+  - family-names: "Agrawal"
+    given-names: "Ayush"
+repository-code: "https://github.com/manali-co/yapp"
+url: "https://github.com/manali-co/yapp"
+license: CC-BY-4.0
+version: "0.1.0"
+date-released: "2026-09-21"
+keywords:
+  - macOS
+  - voice
+  - speech-to-action
+  - whisper
+  - decision-model
+abstract: >-
+  A macOS app that transcribes speech on-device and turns each locked-in phrase
+  into an action through a fast typed decision model, so the Mac acts while the
+  user is still talking. Wrong actions are cheap: "undo" reverses the last one.

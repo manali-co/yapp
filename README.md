@@ -11,7 +11,7 @@
   <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
   <img alt="ruff" src="https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black">
   <img alt="mypy strict" src="https://img.shields.io/badge/types-mypy%20strict-2A6DB0">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-5B63C7"></a>
+  <a href="LICENSE"><img alt="CC BY 4.0, credit required" src="https://img.shields.io/badge/license-CC%20BY%204.0-5B63C7"></a>
 </p>
 
 Hold **⌥ Space**, say what you want, let go. "Open Notes and switch to Safari" is two actions with no pause between them, and the second one starts while you're still saying the first.
@@ -96,9 +96,21 @@ UI and the avatar are designed in Claude Design first and ported with `scripts/p
 | `docs/` | The design spec and the plans that built it. |
 | `brand/` | Icon, glyphs, banners and the avatar animation. See [`brand/README.md`](brand/README.md). |
 
-## License
+## License and credit
 
-MIT. See [LICENSE](LICENSE).
+Yapp is [CC BY 4.0](LICENSE). Use it, fork it, ship it, sell it if you must. The one rule is credit: name Manali, link back here, and say if you changed things.
+
+If it ends up in something you write or publish, please cite it (GitHub's "Cite this repository" button reads [`CITATION.cff`](CITATION.cff)):
+
+```bibtex
+@software{manali_yapp_2026,
+  author  = {Manali and Agrawal, Ayush},
+  title   = {Yapp: hold a key, talk, and your Mac acts while you're still talking},
+  year    = {2026},
+  url     = {https://github.com/manali-co/yapp},
+  license = {CC-BY-4.0}
+}
+```
 
 <p align="center">
   <br>
