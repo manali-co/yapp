@@ -205,6 +205,8 @@ class Runner:
             case Intent.UNDO if self.last is not None:
                 last = self.last
                 ws = self.workspace
+                if ws is not None and ws.held_text:
+                    ws.drop_held()  # never typed: nothing to erase for those words
                 if last.app and ws is not None:
                     # The keystrokes of undo must reach the app that was acted on, not the
                     # app the user is working in.
@@ -227,6 +229,7 @@ class Runner:
         ws = self.workspace
         if ws is None:
             return self.executor.open_app(app)
+        self._flush_held()  # words meant for the previous app go there first
         ws.decide(tail, app.name)
         activate = ws.before_open(app.name)
         r = self.executor.open_app(app, activate=activate)
@@ -262,27 +265,33 @@ class Runner:
         text = " ".join(words) + " "
         ws = self.workspace
         app = ""
+        delivered = len(text)
         if ws is not None and ws.parallel and ws.work_app:
             app = ws.work_app
             if ws.type_on_side(text, self.executor.type_ax):
                 r = Result(True, f"typed {len(text)} chars on the side")
             else:
                 r = Result(True, f"holding {len(ws.held_text)} chars for one borrow")
+                delivered = 0  # undo must not erase what never reached the app
         else:
             r = self.executor.type_text(text)
+        self._count_typed(r, delivered, app)
+        self._report(r)
+
+    def _count_typed(self, r: Result, chars: int, app: str) -> None:
         last = self.last
         if last is not None and last.decision.intent == Intent.TYPE_TEXT:
-            self.last = Executed(
-                last.decision, r, typed_chars=last.typed_chars + len(text), app=app
-            )
-        self._report(r)
+            self.last = Executed(last.decision, r, typed_chars=last.typed_chars + chars, app=app)
 
     def _flush_held(self) -> None:
         ws = self.workspace
         if ws is None or not ws.held_text:
             return
+        held, app = len(ws.held_text), ws.held_app
         out = ws.flush_held(self.executor.type_text)
         if isinstance(out, Result):
+            if out.ok:
+                self._count_typed(out, held, app)
             self._report(out)
 
     def _report(self, r: Result) -> None:

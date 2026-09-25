@@ -95,3 +95,20 @@ def test_discard_button_recognises_the_throw_away_choices() -> None:
     assert discard_button([("Cancel", 1), ("Don’t Save", 2)]) == ("Don’t Save", 2)
     assert discard_button([("Cancel", 1), ("Delete", 2), ("Save", 3)]) == ("Delete", 2)
     assert discard_button([("Cancel", 1), ("Save", 3)]) is None
+
+
+def test_restore_tries_every_window_and_keeps_the_failures() -> None:
+    wm, ax, log = make([MAIN])
+    wm.begin_parallel("Notes")
+    orig_set = ax.set_frame
+    ax.frames["te-1"] = Rect(0, 0, 10, 10)
+    wm.moved.append(("te-1", Rect(5, 5, 20, 20)))  # a second moved window
+
+    def flaky(win: object, rect: Rect) -> bool:
+        return False if str(win) == "te-1" else orig_set(win, rect)
+
+    wm._set_frame = flaky
+    assert not wm.restore() and ax.frames["Notes"] == WIN  # Notes still went back
+    assert [str(w) for w, _ in wm.moved] == ["te-1"]  # kept for a retry
+    wm._set_frame = orig_set
+    assert wm.restore() and wm.moved == []

@@ -190,6 +190,32 @@ def test_refused_dictation_is_held_and_typed_with_one_borrow() -> None:
     assert ws.held_text == "" and ws.flush_held(typed.append) is None
 
 
+def test_held_words_follow_their_app_and_survive_a_failed_borrow() -> None:
+    from yapp.types import Result
+
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    ws.after_open("TextEdit")
+    assert not ws.type_on_side("draft ", lambda app, text: False)
+    ws.work_app = "Safari"  # a later command moved on
+    ws.raise_app = lambda app: False
+    out = ws.flush_held(lambda text: Result(True, "ok"))
+    assert out is not None and not out.ok and ws.held_text == "draft " and ws.held_app == "TextEdit"
+    ws.raise_app = w.raise_app
+    typed: list[str] = []
+
+    def keystrokes(text: str) -> Result:
+        typed.append(text)
+        return Result(True, "ok")
+
+    ws.flush_held(keystrokes)
+    assert typed == ["draft "] and w.raised[-2:] == ["TextEdit", "Slack"] and ws.held_text == ""
+    assert ws.drop_held() == 0
+
+
 def test_borrow_refuses_to_type_when_the_app_will_not_come_forward() -> None:
     w = World()
     ws = make(w)

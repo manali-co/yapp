@@ -357,3 +357,29 @@ def test_undo_after_parallel_dictation_borrows_focus_to_the_work_app() -> None:
     world.raised.clear()
     feed(r, "undo")
     assert ex.log[-1] == "undo" and world.raised == ["Notes", "Slack"]
+
+
+def test_held_dictation_does_not_count_for_undo_until_delivered() -> None:
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)
+    ex = FakeExec()
+    ex.ax_ok = False  # type: ignore[attr-defined]
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws,
+    )
+    words = "open notes and type hello there my friend".split()
+    for i in range(1, len(words) + 1):
+        r.tick(words[:i])
+    # two words of lookahead are still held back; "hello there" was refused by AX and held
+    assert r.last is not None and r.last.typed_chars == 0 and ws.held_text == "hello there "
+    r.finish()  # the one borrow, then the count reflects what was typed
+    assert ex.log[-1] == "type:hello there my friend " and r.last is not None
+    assert r.last.typed_chars == len("hello there my friend ")

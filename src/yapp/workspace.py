@@ -61,6 +61,7 @@ class Workspace:
         self.user_app: str = ""
         self.work_app: str = ""
         self.held_text: str = ""  # dictation a field refused; typed with one borrow at the end
+        self.held_app: str = ""  # ... into this app, even if work_app moves on
 
     # ---- placement -------------------------------------------------------------------
     @property
@@ -149,14 +150,28 @@ class Workspace:
         session instead of taking the keyboard on every tick."""
         if not self.held_text and self.work_app and type_ax(self.work_app, text):
             return True
+        self.held_app = self.held_app or self.work_app
         self.held_text += text
         return False
 
     def flush_held(self, keystrokes: Callable[[str], Any]) -> Any:
-        if not self.held_text or not self.work_app:
+        """Type the held words into the app they were meant for. The buffer is cleared only
+        when the keystrokes report success, so a failed borrow loses nothing."""
+        from yapp.types import Result
+
+        if not self.held_text or not self.held_app:
             return None
-        text, self.held_text = self.held_text, ""
-        return self.borrow_focus(self.work_app, lambda: keystrokes(text))
+        text = self.held_text
+        out = self.borrow_focus(self.held_app, lambda: keystrokes(text))
+        if isinstance(out, Result) and not out.ok:
+            return out  # still held
+        self.held_text, self.held_app = "", ""
+        return out
+
+    def drop_held(self) -> int:
+        n = len(self.held_text)
+        self.held_text, self.held_app = "", ""
+        return n
 
     def _discard(self, w: Any) -> str | None:
         """A closed window may ask 'save?'. Discarding is the guard's call, never ours."""

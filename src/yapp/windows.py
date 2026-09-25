@@ -330,11 +330,13 @@ class WindowManager:
     def restore(self) -> bool:
         if not self.moved:
             return False
-        ok = all(self._set_frame(win, frame) for win, frame in reversed(self.moved))
-        self.moved = []
+        failed = [
+            (win, frame) for win, frame in reversed(self.moved) if not self._set_frame(win, frame)
+        ]
+        self.moved = list(reversed(failed))  # keep what did not move back, for a retry
         self.layout = None
         self.placed = 0
-        return ok
+        return not failed
 
 
 def describe_windows(app_name: str) -> str:

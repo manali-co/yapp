@@ -391,6 +391,19 @@ def test_hand_over_loop_follows_the_front_app_each_step() -> None:
         FakeResp("none", 0.1, "none", "s0", 0.1, status="done"),
         summaries=["a", "b", "c", "d", "e", "f"],
     )
-    s.frontmost = lambda: seen.append(next(fronts)) or seen[-1]  # type: ignore[func-returns-value]
+
+    def front() -> str:
+        seen.append(next(fronts))
+        return seen[-1]
+
+    s.frontmost = front
+    targeted: list[str] = []
+    inner = s.summary
+
+    def summary(app: str) -> str:
+        targeted.append(app)  # the app each step reads before choosing a target
+        return inner(app)
+
+    s.summary = summary
     s.run("zoom in")
-    assert seen[0] == "Chrome" and "Notes" in seen[2:]  # step 2 re-read the front app
+    assert targeted[0] == "Chrome" and "Notes" in targeted[1:]  # a later step targets Notes
