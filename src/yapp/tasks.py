@@ -213,15 +213,13 @@ def dictated_text(instruction: str) -> str:
 
 def owned_by_task(name: str, instruction: str) -> bool:
     """Ownership by content: a new item is the task's only if its name carries two
-    consecutive words of what the task dictated, or is empty while the task dictated
-    something (the misfire that leaves a blank item). A person's own new item, or one
-    arriving through sync, does not qualify."""
+    consecutive words of what the task dictated. Blank items are never deleted: nothing
+    proves a blank one is the task's rather than one that arrived through sync. A person's
+    own new item does not qualify either."""
     content = [w for w in re.findall(r"[a-z0-9']+", dictated_text(instruction)) if len(w) > 1]
     if not content:
         return False
     text = name.lower()
-    if not text.strip():
-        return True
     return any(f"{a} {b}" in text for a, b in zip(content, content[1:], strict=False))
 
 
