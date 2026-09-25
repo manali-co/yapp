@@ -93,9 +93,19 @@ def _attr(el: Any, name: str) -> Any:
     return value if err == 0 else None
 
 
+def refresh_workspace() -> None:
+    """NSWorkspace learns about activation changes from the main run loop; a script that
+    never spins it (yapp --once, yapp tasks) would keep seeing the first app forever."""
+    from Foundation import NSDate, NSRunLoop, NSThread
+
+    if NSThread.isMainThread():
+        NSRunLoop.mainRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.02))
+
+
 def frontmost_app_name() -> str:
     from AppKit import NSWorkspace
 
+    refresh_workspace()
     app = NSWorkspace.sharedWorkspace().frontmostApplication()
     return str(app.localizedName()) if app is not None else "unknown"
 
@@ -104,6 +114,7 @@ def app_element(name: str | None) -> tuple[Any, str]:
     from AppKit import NSWorkspace
     from ApplicationServices import AXUIElementCreateApplication
 
+    refresh_workspace()
     ws = NSWorkspace.sharedWorkspace()
     app = None
     if name:

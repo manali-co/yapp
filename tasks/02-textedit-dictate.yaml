@@ -5,4 +5,4 @@ check:
   - screen_contains: hello from yapp
 settle_seconds: 3
 teardown:
-  - osascript -e 'tell application "TextEdit" to quit saving no'
+  - pkill -x TextEdit
