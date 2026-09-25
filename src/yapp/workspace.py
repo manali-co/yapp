@@ -60,8 +60,9 @@ class Workspace:
         self.mode: str | None = None
         self.user_app: str = ""
         self.work_app: str = ""
-        self.held_text: str = ""  # dictation a field refused; typed with one borrow at the end
-        self.held_app: str = ""  # ... into this app, even if work_app moves on
+        # Dictation a field refused, per app in order: typed with one borrow per app at the
+        # end (or before the workspace moves to another app). Words never mix across apps.
+        self.held: list[tuple[str, str]] = []
 
     # ---- placement -------------------------------------------------------------------
     @property
@@ -148,29 +149,49 @@ class Workspace:
         """Dictation in parallel mode: append through Accessibility. When the field refuses,
         hold the words; `flush_held` types them with a single borrow at the end of the
         session instead of taking the keyboard on every tick."""
-        if not self.held_text and self.work_app and type_ax(self.work_app, text):
+        app = self.work_app
+        holding_here = bool(self.held) and self.held[-1][0] == app
+        if not holding_here and app and type_ax(app, text):
             return True
-        self.held_app = self.held_app or self.work_app
-        self.held_text += text
+        if holding_here:
+            self.held[-1] = (app, self.held[-1][1] + text)
+        else:
+            self.held.append((app, text))
         return False
 
+    @property
+    def held_text(self) -> str:
+        return "".join(t for _, t in self.held)
+
+    @property
+    def held_app(self) -> str:
+        return self.held[-1][0] if self.held else ""
+
     def flush_held(self, keystrokes: Callable[[str], Any]) -> Any:
-        """Type the held words into the app they were meant for. The buffer is cleared only
-        when the keystrokes report success, so a failed borrow loses nothing."""
+        """Type each app's held words into that app, one borrow per app, oldest first. A
+        buffer is dropped only when its keystrokes report success; a failed borrow keeps
+        it and stops (later buffers wait for the next flush)."""
         from yapp.types import Result
 
-        if not self.held_text or not self.held_app:
-            return None
-        text = self.held_text
-        out = self.borrow_focus(self.held_app, lambda: keystrokes(text))
-        if isinstance(out, Result) and not out.ok:
-            return out  # still held
-        self.held_text, self.held_app = "", ""
-        return out
+        last: Any = None
+        while self.held:
+            app, text = self.held[0]
 
-    def drop_held(self) -> int:
-        n = len(self.held_text)
-        self.held_text, self.held_app = "", ""
+            def type_it(text: str = text) -> Any:
+                return keystrokes(text)
+
+            out = self.borrow_focus(app, type_it)
+            if isinstance(out, Result) and not out.ok:
+                return out  # still held, in order
+            self.held.pop(0)
+            last = out
+        return last
+
+    def drop_held(self, app: str = "") -> int:
+        """Forget held words (all, or one app's) — undo of a dictation that never landed."""
+        keep = [(a, t) for a, t in self.held if app and a != app]
+        n = sum(len(t) for a, t in self.held if not app or a == app)
+        self.held = keep
         return n
 
     def _discard(self, w: Any) -> str | None:

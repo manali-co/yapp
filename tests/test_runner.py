@@ -383,3 +383,14 @@ def test_held_dictation_does_not_count_for_undo_until_delivered() -> None:
     r.finish()  # the one borrow, then the count reflects what was typed
     assert ex.log[-1] == "type:hello there my friend " and r.last is not None
     assert r.last.typed_chars == len("hello there my friend ")
+
+
+def test_failed_typing_is_not_counted_for_undo() -> None:
+    class Refusing(FakeExec):
+        def type_text(self, text: str) -> Result:
+            return Result(False, "no field")
+
+    ex = Refusing()
+    r = Runner(Config(), None, ex, APPS, classify=lambda tail, ctx: canned(tail, ctx.dictating))
+    feed(r, "type hello there")
+    assert r.last is not None and r.last.typed_chars == 0

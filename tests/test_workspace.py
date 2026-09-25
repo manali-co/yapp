@@ -244,3 +244,26 @@ def test_second_parallel_session_keeps_the_first_frame_for_restore() -> None:
     ws.decide("two", "TextEdit")  # Slack is already at the left half now
     assert ws.windows.user_frame == Rect(100, 100, 900, 700)
     assert ws.windows.restore() and w.frames["slack-1"] == Rect(100, 100, 900, 700)
+
+
+def test_held_words_stay_separate_per_app_and_flush_in_order() -> None:
+    from yapp.types import Result
+
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")
+    ws.work_app = "TextEdit"
+    assert not ws.type_on_side("one ", lambda app, text: False)
+    ws.work_app = "Safari"
+    assert not ws.type_on_side("two ", lambda app, text: False)
+    assert ws.held == [("TextEdit", "one "), ("Safari", "two ")]
+    typed: list[tuple[str, str]] = []
+
+    def keystrokes(text: str) -> Result:
+        typed.append((w.front, text))
+        return Result(True, "ok")
+
+    ws.flush_held(keystrokes)
+    assert typed == [("TextEdit", "one "), ("Safari", "two ")] and ws.held == []
+    ws.type_on_side("x", lambda app, text: False)
+    assert ws.drop_held("Nope") == 0 and ws.drop_held("Safari") == 1 and ws.held == []
