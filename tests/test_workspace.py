@@ -447,3 +447,13 @@ def test_steps_wait_for_a_pause_in_typing() -> None:
     ws2 = make(w, decision="hand_over")
     ws2.decide("x", "TextEdit")
     assert ws2.wait_for_typing_pause()  # hand-over mode: nothing to wait for
+
+
+def test_work_app_activating_itself_is_never_taken_for_the_users_switch() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")
+    ws.work_app = "TextEdit"
+    ws.typing_now = lambda: True
+    w.front = "TextEdit"  # a sheet made the work app activate itself while the user types
+    assert ws.guard_focus() and w.front == "Slack" and ws.user_app == "Slack"

@@ -161,11 +161,12 @@ class Workspace:
         front = self.frontmost()
         if front == self.user_app or not front:
             return False
-        if self.typing_now():
-            # The user is active: this switch may be theirs. Follow them from now on.
-            self.log(f"focus: {front} is in front and the user is active; following them")
+        if front != self.work_app and self.typing_now():
+            # Some other app, and the user is active: they switched themselves. Follow.
+            self.log(f"focus: the user moved to {front}; following them")
             self.user_app = front
             return False
+        # The work app (or something it opened) took the front: never the user's doing.
         self.raise_app(self.user_app)
         self.log(f"focus: {front} took the front during a step; gave {self.user_app} back")
         return True

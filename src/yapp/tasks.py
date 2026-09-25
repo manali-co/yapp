@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -50,8 +51,6 @@ class Task:
     discard_after: list[str] = field(default_factory=list)  # close windows, drop unsaved changes
     close_tab_after: list[str] = field(default_factory=list)  # press File › Close Tab in the app
     cleanup: bool = True  # unwind the runner's ledger (windows/apps Yapp opened) after checks
-    delete_notes_containing: list[str] = field(default_factory=list)  # test notes go away
-    delete_reminders_named: list[str] = field(default_factory=list)  # test reminders too
     # Every task snapshots Notes and Reminders and deletes what it created: a disturbed run
     # can dictate into whatever app the person at the Mac has in front.
     tidy_notes: bool = True
@@ -117,8 +116,6 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 discard_after=[str(a) for a in data.get("discard_after") or []],
                 close_tab_after=[str(a) for a in data.get("close_tab_after") or []],
                 cleanup=bool(data.get("cleanup", True)),
-                delete_notes_containing=[str(a) for a in data.get("delete_notes_containing") or []],
-                delete_reminders_named=[str(a) for a in data.get("delete_reminders_named") or []],
                 tidy_notes=bool(data.get("tidy_notes", True)),
                 tidy_reminders=bool(data.get("tidy_reminders", True)),
             )
@@ -185,67 +182,79 @@ def screen_text(app: str = "", max_nodes: int = 6000, max_seconds: float = 1.5) 
     return "\n".join(parts)
 
 
-def _osascript(script: str) -> str:
+def _osascript(script: str) -> tuple[bool, str]:
+    """(ok, text). Automation denied or a failed command is a failure, never a result."""
     r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
-    return (r.stdout or r.stderr).strip()
+    return r.returncode == 0, (r.stdout if r.returncode == 0 else r.stderr).strip()
 
 
-def _ids(app: str, what: str) -> set[str]:
-    out = _osascript(f'tell application "{app}" to get id of every {what}')
-    return {x.strip() for x in out.split(",") if x.strip() and "error" not in out}
+def owned_by_task(name: str, instruction: str) -> bool:
+    """Ownership by content: a new item is the task's only if its name is empty (a misfire)
+    or carries two consecutive words of the instruction. A person's own new item, or one
+    arriving through sync, does not qualify."""
+    words = [w for w in re.findall(r"[a-z0-9']+", instruction.lower()) if len(w) > 1]
+    text = name.lower()
+    if not text.strip():
+        return True
+    return any(f"{a} {b}" in text for a, b in zip(words, words[1:], strict=False))
 
 
-def snapshot_content(task: Task) -> dict[str, set[str]]:
-    """Ids of notes/reminders before a task, so only what the task created is deleted."""
-    snap: dict[str, set[str]] = {}
-    if task.delete_notes_containing or task.tidy_notes:
+def _ids(app: str, what: str) -> set[str] | None:
+    """Ids of every item, or None when the read failed (an empty library is a set)."""
+    ok, out = _osascript(f'tell application "{app}" to get id of every {what}')
+    if not ok:
+        return None
+    return {x.strip() for x in out.split(",") if x.strip()}
+
+
+def _names(app: str, what: str, ids: set[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for i in ids:
+        ok, name = _osascript(f'tell application "{app}" to get name of {what} id "{i}"')
+        out[i] = name if ok else ""
+    return out
+
+
+def snapshot_content(task: Task) -> dict[str, set[str] | None]:
+    """Ids of notes/reminders before a task (None = the read failed), for tidy-up."""
+    snap: dict[str, set[str] | None] = {}
+    if task.tidy_notes:
         snap["Notes"] = _ids("Notes", "note")
-    if task.delete_reminders_named or task.tidy_reminders:
+    if task.tidy_reminders:
         snap["Reminders"] = _ids("Reminders", "reminder")
     return snap
 
 
-def delete_new_content(snap: dict[str, set[str]]) -> list[str]:
-    """Delete every note/reminder that did not exist before the task, whatever it says
-    (a dictation misfire can create reminders named after the instruction itself)."""
+def delete_new_content(snap: dict[str, set[str] | None], instruction: str) -> list[str]:
+    """Delete the notes/reminders the task created: new since the snapshot AND owned by the
+    task by content (see owned_by_task). Anything else new is left alone."""
     notes: list[str] = []
     for app, what in (("Notes", "note"), ("Reminders", "reminder")):
         if app not in snap:
             continue
-        if not snap[app]:
-            notes.append(f"{app}: no snapshot before the task; deleting nothing")
-            continue  # never wipe a library because the first read failed
-        time.sleep(1.0)  # a just-created item can take a moment to show up to AppleScript
-        new = _ids(app, what) - snap[app]
-        if len(new) > 5:
-            notes.append(f"{app}: {len(new)} new items looks wrong; deleting nothing")
+        before = snap[app]
+        if before is None:
+            notes.append(f"{app}: the snapshot before the task failed; deleting nothing")
             continue
-        for i in new:
-            _osascript(f'tell application "{app}" to delete {what} id "{i}"')
-        notes.append(f"deleted {len(new)} new {what}(s)")
+        time.sleep(1.0)  # a just-created item can take a moment to show up to AppleScript
+        after = _ids(app, what)
+        if after is None:
+            notes.append(f"{app}: could not list items after the task; deleting nothing")
+            continue
+        new = after - before
+        names = _names(app, what, new)
+        mine = [i for i in new if owned_by_task(names.get(i, ""), instruction)]
+        failed = 0
+        for i in mine:
+            ok, _ = _osascript(f'tell application "{app}" to delete {what} id "{i}"')
+            failed += 0 if ok else 1
+        skipped = len(new) - len(mine)
+        notes.append(
+            f"deleted {len(mine) - failed} of {len(mine)} {what}(s) the task created"
+            + (f"; {failed} could not be deleted" if failed else "")
+            + (f"; left {skipped} new {what}(s) that are not the task's" if skipped else "")
+        )
     return notes
-
-
-def delete_notes(containing: str) -> str:
-    """Harness only: delete the notes a task created. Needs Automation access to Notes
-    (macOS asks once for Yapp); the product never deletes the user's content this way."""
-    text = containing.replace("\\", "\\\\").replace('"', '\\"')
-    return _osascript(
-        'tell application "Notes"\n'
-        f'set ids to id of (every note whose name contains "{text}")\n'
-        "set n to 0\nrepeat with i in ids\ndelete note id i\nset n to n + 1\nend repeat\n"
-        f'return "deleted " & n & " note(s) containing {text}"\nend tell'
-    )
-
-
-def delete_reminders(named: str) -> str:
-    text = named.replace("\\", "\\\\").replace('"', '\\"')
-    return _osascript(
-        'tell application "Reminders"\n'
-        f'set rs to (every reminder whose name is "{text}")\n'
-        "set n to count of rs\nif n > 0 then delete rs\n"
-        f'return "deleted " & n & " reminder(s) named {text}"\nend tell'
-    )
 
 
 def close_tab(app_name: str) -> bool:
@@ -400,7 +409,7 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     checks: list[tuple[str, bool, str]] = []
     asked_by_task: list[str] = []
     runner = None
-    content_before: dict[str, set[str]] = {}
+    content_before: dict[str, set[str] | None] = {}
     try:
         content_before = snapshot_content(task)
         for app_name in task.quit_before:
@@ -433,11 +442,7 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
                 display.status("   cleanup: " + ", ".join(done))
         for app_name in task.close_tab_after:
             close_tab(app_name)
-        for text in task.delete_notes_containing:
-            display.status(f"   {delete_notes(text)}")
-        for name in task.delete_reminders_named:
-            display.status(f"   {delete_reminders(name)}")
-        for note in delete_new_content(content_before):
+        for note in delete_new_content(content_before, task.instruction):
             display.status(f"   {note}")
         for cmd in task.teardown:
             _shell(cmd)

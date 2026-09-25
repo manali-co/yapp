@@ -68,3 +68,14 @@ def test_expect_ask_tasks_never_get_a_yes(monkeypatch: object) -> None:
     plain = Task("u", "open notes", [], expect_ask=False, settle_seconds=0)
     o = tasks_mod.run_task(plain, Config(), Terminal(), Mode.ASK, approve=True)
     assert seen == [False, True] and not o.passed  # asked when it should not have
+
+
+def test_ownership_by_content() -> None:
+    from yapp.tasks import owned_by_task
+
+    instr = "open reminders and then new reminder and then type buy stamps"
+    assert owned_by_task("Buy stamps lonenta", instr)
+    assert owned_by_task("And then new reminder buy stamps", instr)
+    assert owned_by_task("", instr)  # an empty item from a misfire
+    assert not owned_by_task("Call the dentist", instr)  # the user's own new reminder
+    assert not owned_by_task("stamps", instr)  # one word is not enough
