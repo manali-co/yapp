@@ -105,9 +105,12 @@ class Workspace:
         return self.mode
 
     def reset(self) -> None:
-        """Session over: forget the placement; the ledger survives until clean-up."""
+        """Session over: forget the placement; the ledger survives until clean-up. Windows
+        Yapp opened keep their glow until clean-up (they are still Yapp's); a glow on a
+        window that was already the user's fades now."""
         self.mode = None
-        self.glow_done()
+        if self.ledger.empty:
+            self.glow_done()
 
     # ---- opening apps ----------------------------------------------------------------
     def before_open(self, app: str) -> bool:

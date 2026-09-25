@@ -313,11 +313,20 @@ def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> N
 
     ws.focused = focused
     ws.decide("open notes", "Notes")
-    ws.before_open("Notes")
+    ws.before_open("Notes")  # Notes was already running: nothing of Yapp's in the ledger
     ws.after_open("Notes")
     assert shown == ["notes-1"]
     ws.reset()
-    assert shown[-1] == "done"
+    assert shown[-1] == "done"  # the user's own app: the glow fades at session end
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")  # launched by Yapp: stays marked until clean-up
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+    ws.after_open("TextEdit")
+    ws.reset()
+    assert shown[-1] == "te-1"
+    ws.cleanup()
+    assert shown[-1] == "hide"
     clicks: list[tuple[float, float]] = []
 
     def real_click(x: float, y: float) -> bool:
