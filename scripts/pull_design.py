@@ -9,7 +9,7 @@ menubar-glyph-attention.svg, and yapp_theme.py -> src/yapp/theme.py (reformatted
 
 Icon refresh 2026-09-24: icon.svg, icon-1024.png, icon-16.png, icon-32.png re-pulled from the same
 project after the icon was redesigned there (pebble + ring, the avatar's idle contour with its mic
-ring). The showcase pages and icon-sheet.png live under brand/design for reference.
+ring). The showcase pages live under brand/design; icon-sheet.png lives under brand/png.
 
 No edits were made on port. Visual changes go through the design project first.
 Not ported: support.js (Claude Design's preview runtime), Yapp.dc.html and wireframes.dc.html

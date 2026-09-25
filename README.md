@@ -16,7 +16,7 @@
 
 Hold **⌥ Space**, say what you want, let go. "Open Notes and switch to Safari" is two actions with no pause between them, and the second one starts while you're still saying the first.
 
-Yapp is a small macOS app. Speech is transcribed on-device with Whisper as a stream of locked-in words. Every time the stream grows, the words not yet acted on go to [TypeSafe AI's Jev](https://docs.typesafe.ai), a decision model that answers typed questions with probabilities in well under half a second. Code does the rest: launch apps, dictate into the focused window word by word, open files, press shortcuts. Yapp never asks a question. If it got it wrong, say "undo".
+Yapp is a small macOS app. Speech is transcribed on-device with Whisper as a stream of locked-in words. Every time the stream grows, the words not yet acted on go to [TypeSafe AI's Jev](https://docs.typesafe.ai), a decision model that answers typed questions with probabilities in well under half a second. Code does the rest: launch apps, dictate into the focused window word by word, open files, press shortcuts. Yapp never asks a question. If it got it wrong, say "undo": launches, dictation and file opens are reversed exactly; a key press or screen action is undone by sending Cmd-Z to the app, so it reverses whatever that app considers its last change.
 
 <p align="center">
   <img alt="Yapp's avatar breathing through idle, listening, thinking, acting and done." src="brand/png/avatar-states.gif" width="128">
@@ -29,7 +29,7 @@ Yapp is a small macOS app. Speech is transcribed on-device with Whisper as a str
 - **It acts mid-sentence.** Most voice tools wait for silence, then think. Yapp decides on every locked-in word, so the first app is already open while you're describing the second.
 - **No model writes text.** Jev only ever picks from options you gave it and says how sure it is. Anything free-form, such as what to type or which file you meant, is extracted in code. That keeps it fast and keeps it honest.
 - **Confidence is the safety lever.** Every action has its own threshold. Above it, Yapp acts. Below it, nothing happens and the avatar shrugs.
-- **Wrong is cheap.** "Undo" reverses the last action and teaches the app what you meant.
+- **Wrong is cheap.** "Undo" reverses the last action (exactly for launches, dictation and file opens; via Cmd-Z for key presses) and teaches the app what you meant.
 - **Testable without a microphone.** The whole intent layer runs on plain strings.
 
 ## Install
@@ -98,7 +98,7 @@ UI and the avatar are designed in Claude Design first and ported with `scripts/p
 
 ## License and credit
 
-Yapp is [CC BY 4.0](LICENSE). Use it, fork it, ship it, sell it if you must. The one rule is credit: name Manali, link back here, and say if you changed things.
+Yapp is [CC BY 4.0](LICENSE). Use it, fork it, ship it, sell it if you must. The one rule is credit: name Manali, link back here, keep the licence notice, and say if you changed things.
 
 If it ends up in something you write or publish, please cite it (GitHub's "Cite this repository" button reads [`CITATION.cff`](CITATION.cff)):
 
