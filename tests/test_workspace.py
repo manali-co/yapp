@@ -1,7 +1,7 @@
 from typing import Any
 
 from yapp.ledger import Ledger, OpenedWindow
-from yapp.placement import HAND_OVER, PARALLEL, Placement
+from yapp.placement import HAND_OVER, PARALLEL, Placement, Purpose
 from yapp.windows import Display, Rect, WindowManager
 from yapp.workspace import Workspace
 
@@ -37,7 +37,9 @@ class World:
         return True
 
 
-def make(world: World, decision: str = PARALLEL, force: str | None = None) -> Workspace:
+def make(
+    world: World, decision: str = PARALLEL, force: str | None = None, purpose: str = "tool"
+) -> Workspace:
     def focused(app: str) -> Any:
         wins = world.wins.get(app)
         return wins[0] if wins else None
@@ -69,6 +71,7 @@ def make(world: World, decision: str = PARALLEL, force: str | None = None) -> Wo
         force=force,
         log=world.log.append,
         sleep=lambda s: None,
+        purpose=lambda instruction, app: Purpose(purpose, 0.9, 2),
     )
 
 
@@ -463,3 +466,54 @@ def test_work_app_activating_itself_right_after_a_step_is_given_back() -> None:
     ws.typing_now = lambda: True
     w.front = "TextEdit"  # a sheet made the work app activate itself while the user types
     assert ws.after_step() and w.front == "Slack" and ws.user_app == "Slack"
+
+
+def test_hand_off_windows_become_the_users_at_session_end() -> None:
+    w = World()
+    ws = make(w, purpose="hand_off")
+    shown: list[str] = []
+
+    class FakeHighlight:
+        def show(self, win: Any) -> bool:
+            shown.append(str(win))
+            return True
+
+        def done(self) -> None:
+            shown.append("done")
+
+        def hide(self) -> None:
+            shown.append("hide")
+
+    ws.highlight = FakeHighlight()
+    ws.decide("open text edit for my notes", "TextEdit")
+    ws.purpose_for("open text edit for my notes", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+    ws.after_open("TextEdit")
+    assert ws.ledger.launched_apps == ["TextEdit"] and shown == ["te-1"]
+    ws.reset()
+    assert ws.ledger.empty and shown[-1] == "done"  # theirs now: un-glowed, never closed
+    assert any("handed over" in line for line in w.log)
+    done = ws.cleanup()
+    assert w.quit == [] and w.closed == [] and done == ["put your window back"]
+
+
+def test_tool_windows_stay_yapps_until_clean_up() -> None:
+    w = World()
+    ws = make(w, purpose="tool")
+    ws.decide("add buy stamps to reminders", "Reminders")
+    ws.purpose_for("add buy stamps to reminders", "Reminders")
+    ws.before_open("Reminders")
+    w.running.add("Reminders")
+    ws.after_open("Reminders")
+    ws.reset()
+    assert ws.ledger.launched_apps == ["Reminders"]
+    assert "quit Reminders" in ws.cleanup()
+
+
+def test_no_decider_means_everything_is_handed_off() -> None:
+    w = World()
+    ws = make(w)
+    ws._purpose = None
+    assert ws.purpose_for("open text edit", "TextEdit") == "hand_off"

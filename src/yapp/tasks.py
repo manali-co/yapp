@@ -371,6 +371,11 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
         from yapp.highlight import debug_state
 
         return False, f"no glow window of ours around {arg} {frame}; {debug_state()}"
+    if kind == "app_running":
+        from yapp.native import app_is_running
+
+        running = app_is_running(str(arg))
+        return running, f"{arg} running={running}"
     if kind == "app_not_running":
         from yapp.native import app_is_running
 

@@ -237,6 +237,7 @@ class Runner:
             return self.executor.open_app(app)
         self._flush_held()  # words meant for the previous app go there first
         ws.decide(tail, app.name)
+        ws.purpose_for(tail, app.name)
         activate = ws.before_open(app.name)
         r = self.executor.open_app(app, activate=activate)
         if r.ok:
@@ -249,6 +250,7 @@ class Runner:
             return self.executor.screen(words)
         ws.decide(words)
         app = ws.work_app if ws.parallel else ws.frontmost()
+        ws.purpose_for(words, app)
         before = ws.snapshot_windows(app)
         ws.glow(app)  # the glow says which windows are Yapp's
         r = self.executor.screen(words, app=app if ws.parallel else None, parallel=ws.parallel)
@@ -343,7 +345,7 @@ def build_workspace(
     from yapp import windows as win
     from yapp.ax import frontmost_app_name
     from yapp.native import app_is_running, bring_to_front, quit_app
-    from yapp.placement import decide_placement, seconds_since_input, typing_now
+    from yapp.placement import decide_placement, decide_purpose, seconds_since_input, typing_now
     from yapp.pointer import borrow_pointer
 
     def decide(instruction: str, front: str, target: str) -> Placement:
@@ -377,6 +379,7 @@ def build_workspace(
         focused=win.focused_window,
         real_click=lambda x, y: borrow_pointer(x, y),
         typing_now=typing_now,
+        purpose=lambda instruction, app: decide_purpose(jev, instruction, app),
     )
 
 
