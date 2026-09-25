@@ -430,12 +430,23 @@ def decide(
     text_key = resp.choice("text").key
     status = resp.choice("status")
     by = {t.key: t for t in targets}
+    target = by.get(tgt.key)
+    confidence = tgt.confidence
+    if op == "type" and target is not None and not target.typeable:
+        # A menu entry that merely contains the words (History › "weather in toronto")
+        # cannot be typed into; take Jev's best-ranked field instead of giving up.
+        ranked = sorted(tgt.probabilities.items(), key=lambda kv: -kv[1])
+        for key, prob in ranked:
+            cand = by.get(key)
+            if cand is not None and cand.typeable:
+                target, confidence = cand, max(prob, confidence * 0.8)
+                break
     return ScreenDecision(
-        target=by.get(tgt.key),
+        target=target,
         operation=op,
         text=text_criteria.get(text_key, candidates[-1] if candidates else ""),
         submit=resp.noul("submit"),
-        confidence=tgt.confidence,
+        confidence=confidence,
         probabilities=tgt.probabilities,
         latency_ms=resp.latency_ms,
         status=status.key,

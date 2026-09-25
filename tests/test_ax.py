@@ -114,7 +114,8 @@ class FakeResp:
 
     def choice(self, name: str) -> FakeChoice:
         if name == "target":
-            return FakeChoice(self._t, self._c, {self._t: self._c})
+            probs = getattr(self, "probs", None) or {self._t: self._c}
+            return FakeChoice(self._t, self._c, probs)
         if name == "operation":
             return FakeChoice(self._op, 0.9, {})
         if name == "status":
@@ -362,3 +363,16 @@ def test_merge_equivalents_dedupes_the_same_command_under_two_menus() -> None:
     b = Target("m9", "menu", "AXMenuItem", "Clear History…", "History › Clear History…", "")
     c = Target("m10", "menu", "AXMenuItem", "Clear History…", "Edit › Clear History…", "⌘K")
     assert merge_equivalents([a, b, c]) == [a, c]  # different shortcut = different command
+
+
+def test_type_into_a_menu_falls_back_to_the_best_field() -> None:
+    from yapp.ax import decide
+
+    hist = Target(
+        "m7", "menu", "AXMenuItem", "cats - Google Search", "History › cats - Google Search"
+    )
+    field = Target("c1", "control", "AXTextField", "Address and search bar", "Chrome")
+    resp = FakeResp("m7", 0.9, "type", "s0", 0.9)
+    resp.probs = {"m7": 0.6, "c1": 0.3, "none": 0.1}  # type: ignore[attr-defined]
+    d = decide("search for cats", [hist, field], FakeJev(resp))  # type: ignore[arg-type]
+    assert d.target is field and d.operation == "type" and d.confidence >= 0.3
