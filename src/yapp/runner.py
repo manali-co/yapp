@@ -243,9 +243,9 @@ def build_runner(
     log = display.status if display else (lambda s: None)
     if display:
         display.status(f"{len(apps)} apps in catalog · model {cfg.model} · mode {mode}")
-    from yapp.native import leave_full_screen_if_needed
+    from yapp.native import bring_to_front, leave_full_screen_if_needed
 
-    executor = Executor(leave_full_screen=leave_full_screen_if_needed)
+    executor = Executor(leave_full_screen=leave_full_screen_if_needed, raise_app=bring_to_front)
     guard = build_guard(jev, ask, mode, log)
     screen = Screen(
         jev,

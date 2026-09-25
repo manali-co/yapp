@@ -28,10 +28,12 @@ class Executor:
         run: ShellRunner = run_capture,
         screen: Callable[[str], Result] | None = None,
         leave_full_screen: Callable[[], bool] | None = None,
+        raise_app: Callable[[str], bool] | None = None,
     ) -> None:
         self._run = run
         self.screen_fn = screen
         self.leave_full_screen = leave_full_screen
+        self.raise_app = raise_app
 
     def screen(self, words: str) -> Result:
         """A screen action: the app in front is read live and Jev picks a target (see ax.py)."""
@@ -56,6 +58,8 @@ class Executor:
     def open_app(self, app: App) -> Result:
         left = bool(self.leave_full_screen and self.leave_full_screen())
         r = self._attempt(["open", "-a", app.name], f"opened {app.name}")
+        if r.ok and self.raise_app is not None and not self.raise_app(app.name):
+            r = Result(True, f"opened {app.name} (could not bring it to the front)")
         return Result(r.ok, f"left full screen, {r.message}") if left and r.ok else r
 
     def type_text(self, text: str) -> Result:

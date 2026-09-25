@@ -340,3 +340,35 @@ def observe_control(handler: Callable[[str], None]) -> Any:
         obs, "control:", CONTROL_NOTE, None
     )
     return obs
+
+
+def bring_to_front(app_name: str, timeout: float = 4.0) -> bool:
+    """After `open -a`, make sure the app is really in front.
+
+    A background (menu-bar) process asking Launch Services to open an app does not always
+    get the activation it asked for on recent macOS; setting the app's AXFrontmost attribute
+    through Accessibility does. Polls until the app is running and frontmost.
+    """
+    import time
+
+    from AppKit import NSWorkspace
+    from ApplicationServices import AXUIElementCreateApplication, AXUIElementSetAttributeValue
+    from Foundation import NSDate, NSRunLoop, NSThread
+
+    deadline = time.monotonic() + timeout
+    ws = NSWorkspace.sharedWorkspace()
+    while time.monotonic() < deadline:
+        if NSThread.isMainThread():
+            NSRunLoop.mainRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.05))
+        front = ws.frontmostApplication()
+        if front is not None and (front.localizedName() or "").lower() == app_name.lower():
+            return True
+        for app in ws.runningApplications():
+            if (app.localizedName() or "").lower() == app_name.lower():
+                el = AXUIElementCreateApplication(app.processIdentifier())
+                AXUIElementSetAttributeValue(el, "AXFrontmost", True)
+                app.activateWithOptions_(1 << 1)  # NSApplicationActivateIgnoringOtherApps
+                break
+        time.sleep(0.15)
+    front = ws.frontmostApplication()
+    return front is not None and (front.localizedName() or "").lower() == app_name.lower()
