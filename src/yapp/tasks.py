@@ -52,6 +52,8 @@ class Task:
     cleanup: bool = True  # unwind the runner's ledger (windows/apps Yapp opened) after checks
     delete_notes_containing: list[str] = field(default_factory=list)  # test notes go away
     delete_reminders_named: list[str] = field(default_factory=list)  # test reminders too
+    tidy_notes: bool = False  # delete every note the task created (snapshot diff)
+    tidy_reminders: bool = False  # same for reminders
 
 
 @dataclass
@@ -115,6 +117,8 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 cleanup=bool(data.get("cleanup", True)),
                 delete_notes_containing=[str(a) for a in data.get("delete_notes_containing") or []],
                 delete_reminders_named=[str(a) for a in data.get("delete_reminders_named") or []],
+                tidy_notes=bool(data.get("tidy_notes", False)),
+                tidy_reminders=bool(data.get("tidy_reminders", False)),
             )
         )
     return out
@@ -182,6 +186,35 @@ def screen_text(app: str = "", max_nodes: int = 6000, max_seconds: float = 1.5) 
 def _osascript(script: str) -> str:
     r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
     return (r.stdout or r.stderr).strip()
+
+
+def _ids(app: str, what: str) -> set[str]:
+    out = _osascript(f'tell application "{app}" to get id of every {what}')
+    return {x.strip() for x in out.split(",") if x.strip() and "error" not in out}
+
+
+def snapshot_content(task: Task) -> dict[str, set[str]]:
+    """Ids of notes/reminders before a task, so only what the task created is deleted."""
+    snap: dict[str, set[str]] = {}
+    if task.delete_notes_containing or task.tidy_notes:
+        snap["Notes"] = _ids("Notes", "note")
+    if task.delete_reminders_named or task.tidy_reminders:
+        snap["Reminders"] = _ids("Reminders", "reminder")
+    return snap
+
+
+def delete_new_content(snap: dict[str, set[str]]) -> list[str]:
+    """Delete every note/reminder that did not exist before the task, whatever it says
+    (a dictation misfire can create reminders named after the instruction itself)."""
+    notes: list[str] = []
+    for app, what in (("Notes", "note"), ("Reminders", "reminder")):
+        if app not in snap:
+            continue
+        new = _ids(app, what) - snap[app]
+        for i in new:
+            _osascript(f'tell application "{app}" to delete {what} id "{i}"')
+        notes.append(f"deleted {len(new)} new {what}(s)")
+    return notes
 
 
 def delete_notes(containing: str) -> str:
@@ -358,7 +391,9 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     checks: list[tuple[str, bool, str]] = []
     asked_by_task: list[str] = []
     runner = None
+    content_before: dict[str, set[str]] = {}
     try:
+        content_before = snapshot_content(task)
         for app_name in task.quit_before:
             quit_app(app_name)
         for cmd in task.setup:
@@ -393,6 +428,8 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
             display.status(f"   {delete_notes(text)}")
         for name in task.delete_reminders_named:
             display.status(f"   {delete_reminders(name)}")
+        for note in delete_new_content(content_before):
+            display.status(f"   {note}")
         for cmd in task.teardown:
             _shell(cmd)
         for app_name in task.discard_after:

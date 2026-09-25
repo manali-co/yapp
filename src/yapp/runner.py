@@ -250,9 +250,10 @@ class Runner:
         ws.decide(words)
         app = ws.work_app if ws.parallel else ws.frontmost()
         before = ws.snapshot_windows(app)
-        ws.glow(app)  # both modes: the glow says which window Yapp is in
+        ws.glow(app)  # the glow says which windows are Yapp's
         r = self.executor.screen(words, app=app if ws.parallel else None, parallel=ws.parallel)
         ws.note_new_windows(app, before)
+        ws.track_glow()
         return r
 
     def _cleanup(self) -> Result:

@@ -156,6 +156,12 @@ class Workspace:
         if not self.highlight.show(win):
             self.log(f"glow: no frame for the {app} window")
 
+    def track_glow(self) -> None:
+        """Re-read the glowed window's frame now (the app's timer does this too; a process
+        without a run loop, like the benchmark, relies on this call)."""
+        if self.highlight is not None:
+            self.highlight.track()
+
     def glow_done(self) -> None:
         if self.highlight is not None:
             self.highlight.done()

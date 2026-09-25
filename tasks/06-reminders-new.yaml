@@ -6,3 +6,4 @@ check:
   - screen_contains: buy stamps
 settle_seconds: 3
 delete_reminders_named: [buy stamps]
+tidy_reminders: true
