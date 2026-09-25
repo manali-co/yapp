@@ -1,4 +1,5 @@
 name: 09-notes-search
+placement: hand_over
 instruction: open notes and then search for groceries
 check:
   - frontmost: Notes

@@ -1,4 +1,5 @@
 name: 07-settings-bluetooth
+placement: hand_over
 instruction: open system settings and then search for bluetooth
 check:
   - frontmost: System Settings

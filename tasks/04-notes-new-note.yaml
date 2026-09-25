@@ -1,4 +1,5 @@
 name: 04-notes-new-note
+placement: hand_over
 instruction: open notes and then new note and then type groceries milk and eggs
 check:
   - frontmost: Notes

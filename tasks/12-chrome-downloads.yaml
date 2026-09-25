@@ -1,4 +1,5 @@
 name: 12-chrome-downloads
+placement: hand_over
 instruction: open chrome and then show downloads
 check:
   - frontmost: Google Chrome

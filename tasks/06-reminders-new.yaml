@@ -1,4 +1,5 @@
 name: 06-reminders-new
+placement: hand_over
 instruction: open reminders and then new reminder and then type buy stamps
 check:
   - frontmost: Reminders
