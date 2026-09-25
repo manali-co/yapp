@@ -1,0 +1,49 @@
+# CodeRabbit review settings for manali-co/yapp. Docs: https://docs.coderabbit.ai/reference/configuration
+language: en-US
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: [dev, main]
+  path_instructions:
+    - path: "src/yapp/executor.py"
+      instructions: >
+        This file sends keystrokes and shell commands on the user's Mac. Flag any new command
+        that is not routed through the `run` seam, any AppleScript built from unescaped user
+        text, and any action that could delete, send, or spend without passing the guard.
+    - path: "src/yapp/guard.py"
+      instructions: >
+        The permission guard. Any change to thresholds, to what counts as an ask, or to the
+        failure path (a Jev error must never allow an action) needs an explicit justification
+        in the PR and a test.
+    - path: "src/yapp/native.py"
+      instructions: >
+        PyObjC and Accessibility code. Check main-thread requirements (AppKit, Text Services),
+        that nothing here blocks the Cocoa run loop, and that AX attribute writes are limited
+        to windows Yapp created.
+    - path: "src/yapp/bundle.py"
+      instructions: >
+        Builds the .app bundle. Flag anything that weakens code signing, adds entitlements, or
+        writes outside ~/Applications and ~/.yapp.
+    - path: "src/yapp/questions.yaml"
+      instructions: >
+        Jev question criteria. Examples must be generic phrasings, never app-specific
+        hardcoding; true/false keys must be quoted strings.
+    - path: "tests/**"
+      instructions: Tests must not need the network or a TYPESAFE_API_KEY unless marked `jev`.
+  tools:
+    ruff:
+      enabled: true
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+    actionlint:
+      enabled: true
+chat:
+  auto_reply: true
