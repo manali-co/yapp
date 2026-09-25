@@ -198,15 +198,31 @@ def _osascript(script: str, timeout: float = 10.0) -> tuple[bool, str]:
     return r.returncode == 0, (r.stdout if r.returncode == 0 else r.stderr).strip()
 
 
+DICTATION_VERBS = ("type", "write", "enter", "say")
+
+
+def dictated_text(instruction: str) -> str:
+    """The content a task dictates: the words after its last 'type'/'write'/'enter'/'say'.
+    Only these are task-specific; "new reminder" is a phrase anyone might use."""
+    words = instruction.lower().split()
+    for i in range(len(words) - 1, -1, -1):
+        if words[i] in DICTATION_VERBS:
+            return " ".join(words[i + 1 :])
+    return ""
+
+
 def owned_by_task(name: str, instruction: str) -> bool:
-    """Ownership by content: a new item is the task's only if its name is empty (a misfire)
-    or carries two consecutive words of the instruction. A person's own new item, or one
+    """Ownership by content: a new item is the task's only if its name carries two
+    consecutive words of what the task dictated, or is empty while the task dictated
+    something (the misfire that leaves a blank item). A person's own new item, or one
     arriving through sync, does not qualify."""
-    words = [w for w in re.findall(r"[a-z0-9']+", instruction.lower()) if len(w) > 1]
+    content = [w for w in re.findall(r"[a-z0-9']+", dictated_text(instruction)) if len(w) > 1]
+    if not content:
+        return False
     text = name.lower()
     if not text.strip():
         return True
-    return any(f"{a} {b}" in text for a, b in zip(words, words[1:], strict=False))
+    return any(f"{a} {b}" in text for a, b in zip(content, content[1:], strict=False))
 
 
 def _ids(app: str, what: str) -> set[str] | None:

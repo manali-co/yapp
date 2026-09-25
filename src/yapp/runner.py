@@ -449,7 +449,7 @@ def build_runner(
         click_pid=click_pid,
         click_real=lambda t, point: workspace.borrow_pointer(*point),
         before_step=workspace.wait_for_typing_pause,
-        after_step=workspace.guard_focus,
+        after_step=workspace.after_step,
     )
     executor.screen_fn = screen.run
     return Runner(

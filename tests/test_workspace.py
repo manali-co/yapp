@@ -429,9 +429,8 @@ def test_focus_is_given_back_when_the_work_app_takes_the_front() -> None:
     clock = [100.0]
     ws.now = lambda: clock[0]
     ws.decide("open text edit", "TextEdit")  # parallel; user in Slack
-    ws.wait_for_typing_pause()  # a step is about to happen: attribution window opens
-    w.front = "TextEdit"  # a new window made TextEdit activate itself
-    assert ws.guard_focus() and w.front == "Slack" and w.raised[-1] == "Slack"
+    w.front = "TextEdit"  # a new window made TextEdit activate itself as the step finished
+    assert ws.after_step() and w.front == "Slack" and w.raised[-1] == "Slack"
     assert not ws.guard_focus()  # nothing to do now
     w.front = "Mail"
     ws.typing_now = lambda: True  # the user switched to Mail themselves
@@ -461,7 +460,6 @@ def test_work_app_activating_itself_right_after_a_step_is_given_back() -> None:
     ws = make(w)
     ws.decide("open text edit", "TextEdit")
     ws.work_app = "TextEdit"
-    ws.wait_for_typing_pause()  # the step happened just now
     ws.typing_now = lambda: True
     w.front = "TextEdit"  # a sheet made the work app activate itself while the user types
-    assert ws.guard_focus() and w.front == "Slack" and ws.user_app == "Slack"
+    assert ws.after_step() and w.front == "Slack" and ws.user_app == "Slack"

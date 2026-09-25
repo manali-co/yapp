@@ -153,10 +153,13 @@ class Workspace:
             waited += 0.15
         if waited:
             self.log(f"focus: waited {waited:.1f}s for a pause in the user's typing")
-        paused = not self.typing_now()
-        if paused:
-            self._last_step_at = self.now()
-        return paused
+        return not self.typing_now()
+
+    def after_step(self) -> bool:
+        """Called when a step on the side has finished: from now on, for a moment, a change
+        of the front app is Yapp's doing (a long step must not be misread as the user's)."""
+        self._last_step_at = self.now()
+        return self.guard_focus()
 
     def guard_focus(self) -> bool:
         """After a step on the side: if the work app took the front (a new window or sheet

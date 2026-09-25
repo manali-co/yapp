@@ -79,6 +79,8 @@ def test_ownership_by_content() -> None:
     assert owned_by_task("", instr)  # an empty item from a misfire
     assert not owned_by_task("Call the dentist", instr)  # the user's own new reminder
     assert not owned_by_task("stamps", instr)  # one word is not enough
+    assert not owned_by_task("New reminder", instr)  # a generic phrase, not task content
+    assert not owned_by_task("", "open reminders and then new reminder")  # nothing dictated
 
 
 def test_osascript_timeout_is_a_failure(monkeypatch: object) -> None:
