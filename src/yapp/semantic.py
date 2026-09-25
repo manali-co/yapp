@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+
+LOG = logging.getLogger(__name__)
 
 Embedder = Callable[[str], np.ndarray | None]
 
@@ -31,8 +34,8 @@ def default_embedder() -> Embedder | None:
     for factory in (local_embedder, apple_embedder):
         try:
             return factory()
-        except Exception:  # noqa: BLE001 - a missing model or framework just drops a tier
-            continue
+        except Exception as e:  # noqa: BLE001 - a missing model or framework just drops a tier
+            LOG.warning("embedder %s unavailable: %s", factory.__name__, type(e).__name__)
     return None
 
 

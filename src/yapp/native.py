@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from typing import Any
 
@@ -42,15 +43,12 @@ def make_transparent(window: Any) -> None:
             CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY | STATIONARY | IGNORES_CYCLE
         )
         ns.setHidesOnDeactivate_(False)
+        # Private WebKit keys come and go across versions; a missing one is not an error.
         for key, value in (("drawsBackground", False), ("drawsTransparentBackground", True)):
-            try:
+            with contextlib.suppress(Exception):
                 wk.setValue_forKey_(value, key)
-            except Exception:  # noqa: BLE001 - private keys come and go across WebKit versions
-                pass
-        try:
+        with contextlib.suppress(Exception):
             wk.setUnderPageBackgroundColor_(NSColor.clearColor())
-        except Exception:  # noqa: BLE001
-            pass
 
     AppHelper.callAfter(apply)
 

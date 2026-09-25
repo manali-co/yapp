@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import time
 from collections.abc import Mapping
@@ -103,7 +104,11 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
 
 
 def _shell(cmd: str) -> str:
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
+    """Run one task command. It is an argv line (shlex rules), not a shell: no pipes or &&."""
+    argv = shlex.split(cmd)
+    if not argv:
+        return ""
+    r = subprocess.run(argv, capture_output=True, text=True, check=False)  # noqa: S603
     return (r.stdout or "") + (r.stderr or "")
 
 
