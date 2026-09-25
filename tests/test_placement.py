@@ -52,3 +52,9 @@ def test_state_carries_the_signals() -> None:
     s = jev.states[0]
     assert s["app_in_front_when_spoken"] == "Slack" and s["instruction_target_app"] == "TextEdit"
     assert s["seconds_since_user_typed_or_clicked"] == 1.2 and s["displays"] == 1
+
+
+def test_typing_now_window() -> None:
+    from yapp.placement import typing_now
+
+    assert typing_now(lambda: 0.3) and not typing_now(lambda: 5.0)

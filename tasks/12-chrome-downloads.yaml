@@ -5,3 +5,4 @@ check:
   - frontmost: Google Chrome
   - window_title_contains: Download
 settle_seconds: 3
+close_tab_after: [Google Chrome]

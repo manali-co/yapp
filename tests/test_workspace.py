@@ -287,3 +287,102 @@ def test_borrow_gives_back_the_app_the_user_is_in_now() -> None:
     w.front = "Mail"  # the user moved on before a retried flush
     ws.borrow_focus("TextEdit", lambda: None)
     assert w.raised[-2:] == ["TextEdit", "Mail"] and w.front == "Mail"
+
+
+def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> None:
+    w = World()
+    ws = make(w)
+    shown: list[str] = []
+
+    class FakeHighlight:
+        def show(self, win: Any) -> bool:
+            shown.append(str(win))
+            return True
+
+        def done(self) -> None:
+            shown.append("done")
+
+        def hide(self) -> None:
+            shown.append("hide")
+
+    ws.highlight = FakeHighlight()
+
+    def focused(app: str) -> Any:
+        wins = w.wins.get(app)
+        return wins[0] if wins else None
+
+    ws.focused = focused
+    ws.decide("open notes", "Notes")
+    ws.before_open("Notes")  # Notes was already running: nothing of Yapp's in the ledger
+    ws.after_open("Notes")
+    assert shown == ["notes-1"]
+    ws.reset()
+    assert shown[-1] == "done"  # the user's own app: the glow fades at session end
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")  # launched by Yapp: stays marked until clean-up
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+    ws.after_open("TextEdit")
+    ws.reset()
+    assert shown[-1] == "te-1"
+    ws.cleanup()
+    assert shown[-1] == "hide"
+    clicks: list[tuple[float, float]] = []
+
+    def real_click(x: float, y: float) -> bool:
+        clicks.append((x, y))
+        return True
+
+    ws.real_click = real_click
+    assert ws.borrow_pointer(5.0, 6.0) and clicks == [(5.0, 6.0)]
+    assert w.log[-2:] == ["attention: Borrowing your mouse for a moment", "attention done"]
+    ws.real_click = lambda x, y: False
+    assert not ws.borrow_pointer(1.0, 1.0)
+
+
+def test_typing_now_forces_parallel_and_blocks_raising_and_borrowing() -> None:
+    w = World()
+    ws = make(w, decision="hand_over")
+    typing = [True]
+    ws.typing_now = lambda: typing[0]
+    assert ws.decide("open text edit", "TextEdit") == "parallel"  # Jev said hand over
+    assert any("typing right now" in line for line in w.log)
+    ws2 = make(w, decision="hand_over", force="hand_over")
+    ws2.typing_now = lambda: typing[0]
+    ws2.decide("open text edit", "TextEdit")
+    assert ws2.before_open("TextEdit") is False  # pinned hand-over still never raises mid-typing
+    out = ws2.borrow_focus("TextEdit", lambda: "typed")
+    assert not out.ok and "typing" in out.message and "TextEdit" not in w.raised
+    typing[0] = False
+    assert ws2.before_open("TextEdit") is True
+    assert ws2.borrow_focus("TextEdit", lambda: "typed") == "typed"
+
+
+def test_glow_never_marks_the_users_own_window_in_parallel_mode() -> None:
+    w = World()
+    ws = make(w)
+    shown: list[str] = []
+
+    class FakeHighlight:
+        def show(self, win: Any) -> bool:
+            shown.append(str(win))
+            return True
+
+        def done(self) -> None:
+            pass
+
+        def hide(self) -> None:
+            pass
+
+    ws.highlight = FakeHighlight()
+
+    def focused(app: str) -> Any:
+        wins = w.wins.get(app)
+        return wins[0] if wins else None
+
+    ws.focused = focused
+    ws.decide("open notes", "Notes")  # parallel; the user is in Slack (slack-1)
+    ws.glow("Slack")
+    assert shown == []
+    ws.glow("Notes")
+    assert shown == ["notes-1"]

@@ -90,6 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     ax.add_argument("--out", default=str(Path.home() / ".yapp" / "ax.log"))
     ax.add_argument("--dump", action="store_true", help="write the app's on-screen text instead")
     ax.add_argument("--windows", action="store_true", help="write the app's windows and sheets")
+    ax.add_argument("--glow", action="store_true", help="diagnostic: glow the app's window 3 s")
     p.set_defaults(command="app", log=False)
     return p
 
@@ -140,6 +141,11 @@ def main(argv: list[str] | None = None) -> int:
             from yapp.audio import debug_keys
 
             return debug_keys(display, seconds=10)
+        if args.command == "ax" and args.glow:
+            from yapp.highlight import glow_diagnostic
+
+            Path(args.out).write_text(glow_diagnostic(args.app or ""))
+            return 0
         if args.command == "ax" and args.windows:
             from yapp.windows import describe_windows
 

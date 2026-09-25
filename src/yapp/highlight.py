@@ -1,0 +1,417 @@
+"""The glow around windows Yapp is working in, and Yapp's own drawn cursor.
+
+Like the tint a browser agent puts on the tab it drives: a soft rounded frame in the avatar's
+acting hue, just outside the window's edge, tracking the window as it moves. Steady while
+acting, pulsing while Yapp needs the user (attention), fading when done, gone at clean-up.
+Never drawn on the user's own windows.
+
+The colour is read from the design bundle (the avatar's acting state in yapp-avatar.js) so the
+frame matches the bar; the timings come from tokens.css.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from yapp.windows import Rect
+
+ACTING_DEFAULT = (0.70, 0.060, 45.0)  # oklch L, C, h of the avatar's acting state
+INSET = 3.0  # px from the window edge to the stroke (drawn inside, like a browser's tab tint)
+RADIUS = 11.0
+_ACTING_RE = re.compile(r"acting:\s*\{[^}]*?L:\s*([\d.]+),\s*C:\s*([\d.]+),\s*h:\s*([\d.]+)")
+_DUR_RE = re.compile(r"--yapp-dur-(\w+):\s*(\d+)ms")
+
+
+def acting_hue(avatar_js: str) -> tuple[float, float, float]:
+    m = _ACTING_RE.search(avatar_js)
+    return (float(m.group(1)), float(m.group(2)), float(m.group(3))) if m else ACTING_DEFAULT
+
+
+def durations(tokens_css: str) -> dict[str, int]:
+    return {k: int(v) for k, v in _DUR_RE.findall(tokens_css)}
+
+
+def oklch_to_srgb(L: float, C: float, h: float) -> tuple[float, float, float]:
+    """OKLCH → sRGB (0..1, clipped). The avatar uses OKLCH; AppKit wants RGB."""
+    a = C * math.cos(math.radians(h))
+    b = C * math.sin(math.radians(h))
+    l_ = L + 0.3963377774 * a + 0.2158037573 * b
+    m_ = L - 0.1055613458 * a - 0.0638541728 * b
+    s_ = L - 0.0894841775 * a - 1.2914855480 * b
+    l3, m3, s3 = l_**3, m_**3, s_**3
+    r = 4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3
+    g = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3
+    bl = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3
+
+    def gamma(x: float) -> float:
+        x = min(1.0, max(0.0, x))
+        return 1.055 * x ** (1 / 2.4) - 0.055 if x > 0.0031308 else 12.92 * x
+
+    return gamma(r), gamma(g), gamma(bl)
+
+
+class Drawer(Protocol):
+    """What the native layer must do; the state machine never touches AppKit itself."""
+
+    def place(self, frame: Rect) -> None: ...
+    def pulse(self, on: bool) -> None: ...
+    def fade(self, ms: int) -> None: ...
+    def hide(self) -> None: ...
+    def cursor(self, point: tuple[float, float] | None) -> None: ...
+
+
+@dataclass
+class Highlight:
+    """State machine: hidden → acting → (attention ↔ acting) → done (fading) → hidden."""
+
+    drawer: Drawer
+    frame_of: Callable[[Any], Rect | None]
+    settle_ms: int = 1400
+    state: str = "hidden"
+    window: Any = None
+    misses: int = 0  # consecutive frame reads that failed (AX can blink)
+    MISSES_TO_HIDE = 4
+    log: Callable[[str], None] = lambda s: None
+
+    def show(self, window: Any) -> bool:
+        """Glow around `window` (an AX window) while Yapp acts in it."""
+        frame = self.frame_of(window) if window is not None else None
+        if frame is None:
+            return False
+        self.window = window
+        self.misses = 0
+        self.log(f"glow: on {frame}")
+        self.drawer.place(frame)
+        if self.state != "attention":
+            self.state = "acting"
+        return True
+
+    def track(self) -> None:
+        """Called on a timer while visible: follow the window if it moved or resized."""
+        if self.state in ("acting", "attention") and self.window is not None:
+            frame = self.frame_of(self.window)
+            if frame is None:
+                self.misses += 1
+                if self.misses >= self.MISSES_TO_HIDE:  # the window is really gone
+                    self.log("glow: the window is gone; hiding")
+                    self.hide()
+            else:
+                self.misses = 0
+                self.drawer.place(frame)
+
+    def attention(self, on: bool) -> None:
+        if self.state == "hidden":
+            return
+        self.state = "attention" if on else "acting"
+        self.drawer.pulse(on)
+
+    def cursor(self, point: tuple[float, float] | None) -> None:
+        if self.state != "hidden":
+            self.drawer.cursor(point)
+
+    def done(self) -> None:
+        if self.state in ("acting", "attention"):
+            self.state = "done"
+            self.drawer.pulse(False)
+            self.drawer.fade(self.settle_ms)
+
+    def hide(self) -> None:
+        self.state = "hidden"
+        self.window = None
+        self.drawer.hide()
+
+
+# ---------------------------------------------------------------- AppKit
+
+
+_classes: dict[str, Any] = {}  # Objective-C classes may be defined only once per process
+_drawer: Drawer | None = None
+
+
+def _objc_classes(colour: Any) -> tuple[Any, Any]:
+    """GlowView and the timer target, defined once (PyObjC refuses a second definition)."""
+    if "GlowView" in _classes:
+        return _classes["GlowView"], _classes["State"]
+    from AppKit import NSBezierPath, NSColor, NSMakeRect, NSView
+    from Foundation import NSObject
+
+    class GlowView(NSView):  # type: ignore[misc]
+        dot: Any = None
+        colour: Any = None
+
+        def isFlipped(self) -> bool:
+            return True
+
+        def drawRect_(self, rect: Any) -> None:
+            bounds = self.bounds()
+            # Two strokes inside the edge: a wide soft one (the glow) and a crisp one.
+            for width, alpha, inset in ((14.0, 0.18, INSET + 4), (3.0, 0.95, INSET)):
+                path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                    NSMakeRect(
+                        inset,
+                        inset,
+                        bounds.size.width - 2 * inset,
+                        bounds.size.height - 2 * inset,
+                    ),
+                    RADIUS,
+                    RADIUS,
+                )
+                path.setLineWidth_(width)
+                self.colour.colorWithAlphaComponent_(alpha).setStroke()
+                path.stroke()
+            if self.dot is not None:
+                x, y = self.dot
+                self.colour.setFill()
+                NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(x - 5, y - 5, 10, 10)).fill()
+                NSColor.whiteColor().colorWithAlphaComponent_(0.9).setFill()
+                NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(x - 2, y - 2, 4, 4)).fill()
+
+    class State(NSObject):  # type: ignore[misc]
+        window: Any = None
+        view: Any = None
+        timer: Any = None
+        tracker: Any = None
+        on_track: Any = None
+        up: bool = False
+        fading: int = 0  # bumps on every place/fade so a stale fade cannot hide a new glow
+
+        def tick_(self, timer: Any) -> None:
+            if self.window is None:
+                return
+            self.up = not self.up
+            self.window.animator().setAlphaValue_(1.0 if self.up else 0.45)
+
+        def track_(self, timer: Any) -> None:
+            if self.on_track is not None:
+                self.on_track()  # Highlight.track(): follow the window, hide when it is gone
+
+    _classes["GlowView"], _classes["State"] = GlowView, State
+    return GlowView, State
+
+
+def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawer:
+    """The real overlay: borderless, click-through, on every Space, above normal windows.
+    One per process: the same window is reused by every runner built later."""
+    global _drawer
+    if _drawer is not None:
+        return _drawer
+    from AppKit import (
+        NSAnimationContext,
+        NSColor,
+        NSFloatingWindowLevel,
+        NSMakeRect,
+        NSScreen,
+        NSWindow,
+    )
+    from Foundation import NSTimer
+    from PyObjCTools import AppHelper
+
+    from yapp.native import CAN_JOIN_ALL_SPACES, FULL_SCREEN_AUXILIARY, IGNORES_CYCLE, STATIONARY
+
+    r, g, b = rgb
+    colour = NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, 1.0)
+    GlowView, State = _objc_classes(colour)
+    st = State.alloc().init()
+
+    def ensure() -> Any:
+        if st.window is None:
+            w = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                NSMakeRect(0, 0, 10, 10), 0, 2, False
+            )
+            w.setOpaque_(False)
+            w.setBackgroundColor_(NSColor.clearColor())
+            w.setHasShadow_(False)
+            w.setIgnoresMouseEvents_(True)
+            w.setLevel_(NSFloatingWindowLevel)
+            w.setCollectionBehavior_(
+                CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY | STATIONARY | IGNORES_CYCLE
+            )
+            w.setReleasedWhenClosed_(False)
+            st.view = GlowView.alloc().initWithFrame_(NSMakeRect(0, 0, 10, 10))
+            st.view.colour = colour
+            w.setContentView_(st.view)
+            st.window = w
+        return st.window
+
+    def start_tracking() -> None:
+        if st.tracker is None and st.on_track is not None:
+            st.tracker = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                0.15, st, "track:", None, True
+            )
+
+    def stop_tracking() -> None:
+        if st.tracker is not None:
+            st.tracker.invalidate()
+            st.tracker = None
+
+    def stop_pulse() -> None:
+        if st.timer is not None:
+            st.timer.invalidate()
+            st.timer = None
+        if st.window is not None:
+            st.window.setAlphaValue_(1.0)
+
+    class Native:
+        def place(self, frame: Rect) -> None:
+            def apply() -> None:
+                w = ensure()
+                # A fade may be running from the previous window: stop it, so the frame
+                # never lingers at the old size around a smaller window.
+                st.fading += 1
+                NSAnimationContext.beginGrouping()
+                NSAnimationContext.currentContext().setDuration_(0.0)
+                w.animator().setAlphaValue_(1.0)
+                NSAnimationContext.endGrouping()
+                main_h = NSScreen.screens()[0].frame().size.height
+                x, y = frame.x, main_h - (frame.y + frame.h)
+                w.setFrame_display_(NSMakeRect(x, y, frame.w, frame.h), True)
+                w.setAlphaValue_(1.0)
+                w.orderFrontRegardless()
+                st.view.setNeedsDisplay_(True)
+                start_tracking()
+
+            AppHelper.callAfter(apply)
+
+        def pulse(self, on: bool) -> None:
+            def apply() -> None:
+                if on and st.timer is None and st.window is not None:
+                    st.timer = (
+                        NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                            pulse_ms / 1000.0, st, "tick:", None, True
+                        )
+                    )
+                elif not on:
+                    stop_pulse()
+
+            AppHelper.callAfter(apply)
+
+        def fade(self, ms: int) -> None:
+            def apply() -> None:
+                stop_pulse()
+                if st.window is None:
+                    return
+                NSAnimationContext.beginGrouping()
+                NSAnimationContext.currentContext().setDuration_(ms / 1000.0)
+                st.window.animator().setAlphaValue_(0.0)
+                NSAnimationContext.endGrouping()
+                AppHelper.callLater(
+                    ms / 1000.0 + 0.05, lambda: st.window and st.window.orderOut_(None)
+                )
+
+            AppHelper.callAfter(apply)
+
+        def hide(self) -> None:
+            def apply() -> None:
+                stop_pulse()
+                stop_tracking()
+                st.fading += 1  # a pending fade must not resurrect anything
+                if st.window is not None:
+                    st.window.orderOut_(None)
+
+            AppHelper.callAfter(apply)
+
+        def set_tracker(self, fn: Any) -> None:
+            st.on_track = fn
+
+        def cursor(self, point: tuple[float, float] | None) -> None:
+            def apply() -> None:
+                if st.view is None or st.window is None:
+                    return
+                if point is None:
+                    st.view.dot = None
+                else:
+                    origin = st.window.frame().origin
+                    main_h = NSScreen.screens()[0].frame().size.height
+                    top = main_h - (origin.y + st.window.frame().size.height)
+                    st.view.dot = (point[0] - origin.x, point[1] - top)
+                st.view.setNeedsDisplay_(True)
+
+            AppHelper.callAfter(apply)
+
+    def debug() -> str:
+        w = st.window
+        if w is None:
+            return "no overlay window yet"
+        f = w.frame()
+        return (
+            f"overlay frame=({f.origin.x},{f.origin.y},{f.size.width},{f.size.height}) "
+            f"alpha={w.alphaValue()} visible={w.isVisible()} active_space={w.isOnActiveSpace()} "
+            f"level={w.level()} fading={st.fading} "
+            f"tracker={'on' if st.tracker is not None else 'off'}"
+        )
+
+    _drawer = Native()
+    _drawer.debug = debug  # type: ignore[attr-defined]
+    return _drawer
+
+
+def debug_state() -> str:
+    return _drawer.debug() if _drawer is not None and hasattr(_drawer, "debug") else "no drawer"
+
+
+def build_highlight(
+    ui_dir: Any, frame_of: Callable[[Any], Rect | None], log: Callable[[str], None] = lambda s: None
+) -> Highlight:
+    """Highlight wired to the design bundle's colour and timings."""
+    avatar = ui_dir.joinpath("yapp-avatar.js").read_text()
+    tokens = ui_dir.joinpath("tokens.css").read_text()
+    L, C, h = acting_hue(avatar)
+    d = durations(tokens)
+    drawer = native_drawer(oklch_to_srgb(L, C, h), pulse_ms=d.get("pulse", 380))
+    highlight = Highlight(drawer, frame_of, settle_ms=d.get("settle", 1400), log=log)
+    set_tracker = getattr(drawer, "set_tracker", None)
+    if set_tracker is not None:
+        set_tracker(highlight.track)
+    return highlight
+
+
+def glow_diagnostic(app_name: str, seconds: float = 3.0) -> str:
+    """Dev check: show the glow on the app's focused window, pump the run loop, report."""
+    import os
+    import time
+    from importlib import resources
+
+    import Quartz
+
+    from yapp import windows as win
+    from yapp.ax import refresh_workspace
+
+    lines = []
+    h = build_highlight(resources.files("yapp.ui"), win.window_frame)
+    w = win.focused_window(app_name)
+    if w is None:
+        wins = win.app_windows(app_name)
+        w = wins[0] if wins else None
+    lines.append(f"window={w is not None} frame={win.window_frame(w) if w is not None else None}")
+    lines.append(f"show={h.show(w)} state={h.state}")
+    mine = os.getpid()
+    for i in range(int(seconds / 0.25)):
+        if i == 4:  # the sequence a task goes through: hide, then show a smaller frame
+            h.hide()
+            refresh_workspace()
+            lines.append("hid; " + debug_state())
+            h.frame_of = lambda win: Rect(200, 100, 500, 400)
+            h.show(w)
+            refresh_workspace()
+            lines.append("shown smaller; " + debug_state())
+        refresh_workspace()
+        time.sleep(0.25)
+        ours = [
+            (info.get("kCGWindowBounds"), info.get("kCGWindowAlpha"), info.get("kCGWindowLayer"))
+            for info in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, 0) or []
+            if info.get("kCGWindowOwnerPID") == mine
+        ]
+        onscreen = [
+            info.get("kCGWindowBounds")
+            for info in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, 0)
+            or []
+            if info.get("kCGWindowOwnerPID") == mine
+        ]
+        lines.append(f"t={i * 0.25:.2f} state={h.state} ours={ours} onscreen={onscreen}")
+    h.hide()
+    refresh_workspace()
+    return "\n".join(lines)

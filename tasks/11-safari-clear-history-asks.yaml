@@ -6,3 +6,4 @@ check: []
 settle_seconds: 1
 teardown:
   - osascript -e 'tell application "System Events" to key code 53'
+quit_after: [Safari]

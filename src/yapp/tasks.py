@@ -48,6 +48,8 @@ class Task:
     quit_after: list[str] = field(default_factory=list)  # ... and after (never pkill: it makes
     # macOS show a "quit unexpectedly" alert on the next launch, which breaks the next task)
     discard_after: list[str] = field(default_factory=list)  # close windows, drop unsaved changes
+    close_tab_after: list[str] = field(default_factory=list)  # press File › Close Tab in the app
+    cleanup: bool = True  # unwind the runner's ledger (windows/apps Yapp opened) after checks
 
 
 @dataclass
@@ -107,12 +109,25 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 activate_before=[str(a) for a in data.get("activate_before") or []],
                 quit_after=[str(a) for a in data.get("quit_after") or []],
                 discard_after=[str(a) for a in data.get("discard_after") or []],
+                close_tab_after=[str(a) for a in data.get("close_tab_after") or []],
+                cleanup=bool(data.get("cleanup", True)),
             )
         )
     return out
 
 
 # ---------------------------------------------------------------- live probes
+
+
+def settle(seconds: float) -> None:
+    """Wait like the real app does: with the main run loop turning, so overlay windows,
+    animations, and NSWorkspace notifications actually happen while we wait."""
+    from yapp.ax import refresh_workspace
+
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        refresh_workspace()
+        time.sleep(0.1)
 
 
 def _shell(cmd: str) -> str:
@@ -160,6 +175,19 @@ def screen_text(app: str = "", max_nodes: int = 6000, max_seconds: float = 1.5) 
     return "\n".join(parts)
 
 
+def close_tab(app_name: str) -> bool:
+    """Harness helper: press the app's 'Close Tab' menu command (the tab a task opened)."""
+    from yapp.ax import ax_menus, ax_press
+    from yapp.native import app_is_running
+
+    if not app_is_running(app_name):
+        return False
+    for t in ax_menus(app_name):
+        if t.label.lower() == "close tab":
+            return ax_press(t)
+    return False
+
+
 def discard_app(app_name: str) -> list[str]:
     """Harness only: close every window of the app, discarding unsaved changes, then quit."""
     from yapp import windows as win
@@ -198,6 +226,40 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
         home = win.display_of(frame, win.displays()).frame
         half = home.left_half() if kind == "window_in_left_half" else home.right_half()
         return half.contains_centre(frame) and frame.w <= half.w + 2, f"{arg} at {frame}"
+    if kind == "highlight_around":
+        import os
+
+        import Quartz
+
+        from yapp import windows as win
+
+        w = win.focused_window(str(arg))
+        frame = win.window_frame(w) if w is not None else None
+        if frame is None:
+            return False, f"no window for {arg}"
+        settle(0.5)  # the window server applies our ordering a beat after the run loop turns
+        mine = os.getpid()
+        for info in (
+            Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, 0) or []
+        ):
+            if info.get("kCGWindowOwnerPID") != mine:
+                continue
+            b = info.get("kCGWindowBounds", {})
+            glow = win.Rect(b.get("X", 0), b.get("Y", 0), b.get("Width", 0), b.get("Height", 0))
+            close = all(
+                abs(a - b) <= 2
+                for a, b in (
+                    (glow.x, frame.x),
+                    (glow.y, frame.y),
+                    (glow.w, frame.w),
+                    (glow.h, frame.h),
+                )
+            )
+            if close:
+                return True, f"glow {glow} on {arg} {frame}"
+        from yapp.highlight import debug_state
+
+        return False, f"no glow window of ours around {arg} {frame}; {debug_state()}"
     if kind == "app_not_running":
         from yapp.native import app_is_running
 
@@ -263,6 +325,8 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     started = time.perf_counter()
     counting = CountingJev(Jev(model=cfg.model))
     checks: list[tuple[str, bool, str]] = []
+    asked_by_task: list[str] = []
+    runner = None
     try:
         for app_name in task.quit_before:
             quit_app(app_name)
@@ -281,11 +345,19 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
             acted += [v.reason for v in verdicts if v.outcome.value == "execute"]
             time.sleep(cfg.tick_seconds)
         acted += [v.reason for v in runner.finish() if v.outcome.value == "execute"]
-        time.sleep(task.settle_seconds)
+        settle(task.settle_seconds)
         checks = [(json.dumps(c, ensure_ascii=False), *run_check(c, before)) for c in task.checks]
+        asked_by_task = list(asked)  # clean-up may ask too (a save sheet); that is not the task
     except Exception as e:  # noqa: BLE001 - one broken task must not lose the others' results
         checks.append(("run", False, f"{type(e).__name__}: {e}"))
     finally:
+        ws = getattr(runner, "workspace", None)
+        if task.cleanup and ws is not None:
+            done = ws.cleanup()  # what this task opened goes away again
+            if done:
+                display.status("   cleanup: " + ", ".join(done))
+        for app_name in task.close_tab_after:
+            close_tab(app_name)
         for cmd in task.teardown:
             _shell(cmd)
         for app_name in task.discard_after:
@@ -296,9 +368,9 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     ok = all(c[1] for c in checks)
     out = Outcome(
         task.name,
-        ok and bool(asked) == task.expect_ask,
+        ok and bool(asked_by_task) == task.expect_ask,
         checks,
-        asked,
+        asked_by_task,
         task.expect_ask,
         seconds,
         counting.calls,
@@ -306,6 +378,16 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
         acted,
     )
     return out
+
+
+def user_touched_during(seconds: float) -> bool:
+    """Did the person at the Mac press a key or click while the task ran?"""
+    try:
+        from yapp.placement import seconds_since_input
+
+        return seconds_since_input() < seconds
+    except Exception:  # noqa: BLE001 - if we cannot tell, assume not
+        return False
 
 
 def screen_locked() -> bool:

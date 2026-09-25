@@ -5,3 +5,4 @@ check:
   - frontmost: Safari
   - window_title_contains: fable
 settle_seconds: 4
+close_tab_after: [Safari]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from yapp import intent as intent_mod
 from yapp.approval import Reply, classify_reply
@@ -250,6 +250,7 @@ class Runner:
         ws.decide(words)
         app = ws.work_app if ws.parallel else ws.frontmost()
         before = ws.snapshot_windows(app)
+        ws.glow(app)  # both modes: the glow says which window Yapp is in
         r = self.executor.screen(words, app=app if ws.parallel else None, parallel=ws.parallel)
         ws.note_new_windows(app, before)
         return r
@@ -336,11 +337,13 @@ def build_workspace(
     attention: Callable[[str], None] = lambda s: None,
     attention_done: Callable[[], None] = lambda: None,
     may: Callable[[str], bool] = lambda action: False,
+    highlight: Any = None,
 ) -> Workspace:
     from yapp import windows as win
     from yapp.ax import frontmost_app_name
     from yapp.native import app_is_running, bring_to_front, quit_app
-    from yapp.placement import decide_placement, seconds_since_input
+    from yapp.placement import decide_placement, seconds_since_input, typing_now
+    from yapp.pointer import borrow_pointer
 
     def decide(instruction: str, front: str, target: str) -> Placement:
         return decide_placement(
@@ -369,6 +372,10 @@ def build_workspace(
         may=may,
         sheet_buttons=win.sheet_buttons,
         press=win.press,
+        highlight=highlight,
+        focused=win.focused_window,
+        real_click=lambda x, y: borrow_pointer(x, y),
+        typing_now=typing_now,
     )
 
 
@@ -382,9 +389,11 @@ def build_runner(
     force_placement: str | None = None,
     attention: Callable[[str], None] = lambda s: None,
     attention_done: Callable[[], None] = lambda: None,
+    highlight: Any = None,
 ) -> Runner:
     """The live pipeline. `ask` is how a harmful action gets its yes (voice in the bar)."""
     from yapp.ax import Screen, ax_type
+    from yapp.pointer import click_in_app, pid_of
 
     jev = jev or Jev(model=cfg.model)
     apps = installed_apps()
@@ -395,14 +404,38 @@ def build_runner(
 
     executor = Executor(leave_full_screen=leave_full_screen_if_needed, raise_app=bring_to_front)
     guard = build_guard(jev, ask, mode, log)
+    if highlight is None:
+        from yapp import windows as win
+        from yapp.barapp import UI
+        from yapp.highlight import build_highlight
+
+        highlight = build_highlight(UI, win.window_frame, log)
+
+    def attention_on(text: str) -> None:
+        attention(text)
+        highlight.attention(True)
+
+    def attention_off() -> None:
+        highlight.attention(False)
+        attention_done()
+
     workspace = build_workspace(
         jev,
         log,
         force_placement=force_placement,
-        attention=attention,
-        attention_done=attention_done,
+        attention=attention_on,
+        attention_done=attention_off,
         may=lambda action: guard.check(action, "").allowed,
+        highlight=highlight,
     )
+
+    def click_pid(t: Any, point: tuple[float, float]) -> bool:
+        pid = pid_of(t.ref)
+        if pid is None:
+            return False
+        highlight.cursor(point)  # Yapp's drawn cursor: where the virtual click went
+        return click_in_app(pid, *point)
+
     screen = Screen(
         jev,
         type_text=executor.type_text,
@@ -412,6 +445,8 @@ def build_runner(
         guard=lambda action, ctx: guard.check(action, ctx).allowed,
         ax_type=lambda t, text: ax_type(t, text, append=t.role == "AXTextArea"),
         borrow=workspace.borrow_focus,
+        click_pid=click_pid,
+        click_real=lambda t, point: workspace.borrow_pointer(*point),
     )
     executor.screen_fn = screen.run
     return Runner(

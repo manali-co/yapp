@@ -2,6 +2,7 @@ name: 02-textedit-dictate
 placement: hand_over
 instruction: open text edit and then new document and then type hello from yapp
 check:
+  - highlight_around: TextEdit
   - frontmost: TextEdit
   - screen_contains: hello from yapp
 settle_seconds: 3
