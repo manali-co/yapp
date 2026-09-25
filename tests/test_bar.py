@@ -40,7 +40,7 @@ def test_state_and_transcript_become_js() -> None:
     g = "window.yapp && window.yapp.{f} && window.yapp.{f}"
     assert w.js[0] == g.format(f="setState") + '("listening", {"level": 0.5, "confidence": 0.9})'
     assert w.js[1] == g.format(f="setTranscript") + '("open notes", "and sw", true)'
-    assert w.js[2] == g.format(f="setDecision") + '("Opening Notes", false)'
+    assert w.js[2] == g.format(f="setDecision") + '("Opening Notes", {"muted": false})'
     assert w.js[3] == g.format(f="commit") + "()"
 
 

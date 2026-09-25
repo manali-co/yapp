@@ -93,7 +93,7 @@ class Bar:
         self._call("setTranscript", locked, pending, live)
 
     def decision(self, text: str, muted: bool = False) -> None:
-        self._call("setDecision", text, muted)
+        self._call("setDecision", text, {"muted": muted})  # the page reads o.muted
 
     def level(self, v: float) -> None:
         self._call("setLevel", round(v, 3))

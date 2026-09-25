@@ -118,10 +118,11 @@ def app_element(name: str | None) -> tuple[Any, str]:
     ws = NSWorkspace.sharedWorkspace()
     app = None
     if name:
-        for a in ws.runningApplications():
-            if name.lower() in (a.localizedName() or "").lower():
-                app = a
-                break
+        running = list(ws.runningApplications())
+        wanted = name.lower()
+        app = next((a for a in running if (a.localizedName() or "").lower() == wanted), None)
+        if app is None:  # substring only as a fallback ("chrome" -> Google Chrome)
+            app = next((a for a in running if wanted in (a.localizedName() or "").lower()), None)
     if app is None:
         app = ws.frontmostApplication()
     return AXUIElementCreateApplication(app.processIdentifier()), str(app.localizedName())
@@ -435,12 +436,12 @@ def decide(
     if op == "type" and target is not None and not target.typeable:
         # A menu entry that merely contains the words (History › "weather in toronto")
         # cannot be typed into; take Jev's best-ranked field instead of giving up.
-        ranked = sorted(tgt.probabilities.items(), key=lambda kv: -kv[1])
-        for key, prob in ranked:
-            cand = by.get(key)
-            if cand is not None and cand.typeable:
-                target, confidence = cand, max(prob, confidence * 0.8)
-                break
+        typeable = {k: p for k, p in tgt.probabilities.items() if (c := by.get(k)) and c.typeable}
+        mass = sum(typeable.values())
+        if typeable and mass > 0:
+            key, prob = max(typeable.items(), key=lambda kv: kv[1])
+            if prob >= 0.15:  # Jev's belief among the fields only, never invented
+                target, confidence = by[key], prob / mass
     return ScreenDecision(
         target=target,
         operation=op,
@@ -578,7 +579,9 @@ class Screen:
             return Result(False, "typing is not available")
         if not self.focus(d.target):
             return Result(False, "couldn't focus the field")
-        if self.press_key:
+        if self.press_key and d.target.role != "AXTextArea":
+            # Replace what a single-line field holds (an address, a query). A text area is a
+            # document body: select-all would wipe it, so there we append.
             self.press_key("cmd+a")
         r = self.type_text(d.text)
         if r.ok and d.submit >= 0.5 and self.press_key:

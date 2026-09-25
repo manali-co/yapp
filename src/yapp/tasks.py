@@ -205,28 +205,37 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     asked: list[str] = []
     acted: list[str] = []
 
+    # An expect_ask task proves that the guard asks; it never runs the harmful action itself,
+    # so --approve does not apply to it (Terminal would open, Safari history would go).
+    say_yes = approve and not task.expect_ask
+
     def ask(action: str) -> bool:
         asked.append(action)
-        display.status(f"ASK: may I {action}? → {'yes' if approve else 'no'}")
-        return approve
+        display.status(f"ASK: may I {action}? → {'yes' if say_yes else 'no'}")
+        return say_yes
 
-    for cmd in task.setup:
-        _shell(cmd)
-    before = {"trash": trash_count()}
-    counting = CountingJev(Jev(model=cfg.model))
-    runner = build_runner(cfg, display, ask=ask, mode=mode, jev=counting)
     started = time.perf_counter()
-    words = task.instruction.split()
-    for i in range(task.per_tick, len(words) + task.per_tick, task.per_tick):
-        verdicts = runner.tick(words[:i], words[i : i + 1])
-        acted += [v.reason for v in verdicts if v.outcome.value == "execute"]
-        time.sleep(cfg.tick_seconds)
-    acted += [v.reason for v in runner.finish() if v.outcome.value == "execute"]
-    time.sleep(task.settle_seconds)
+    counting = CountingJev(Jev(model=cfg.model))
+    checks: list[tuple[str, bool, str]] = []
+    try:
+        for cmd in task.setup:
+            _shell(cmd)
+        before = {"trash": trash_count()}
+        runner = build_runner(cfg, display, ask=ask, mode=mode, jev=counting)
+        words = task.instruction.split()
+        for i in range(task.per_tick, len(words) + task.per_tick, task.per_tick):
+            verdicts = runner.tick(words[:i], words[i : i + 1])
+            acted += [v.reason for v in verdicts if v.outcome.value == "execute"]
+            time.sleep(cfg.tick_seconds)
+        acted += [v.reason for v in runner.finish() if v.outcome.value == "execute"]
+        time.sleep(task.settle_seconds)
+        checks = [(json.dumps(c, ensure_ascii=False), *run_check(c, before)) for c in task.checks]
+    except Exception as e:  # noqa: BLE001 - one broken task must not lose the others' results
+        checks.append(("run", False, f"{type(e).__name__}: {e}"))
+    finally:
+        for cmd in task.teardown:
+            _shell(cmd)
     seconds = time.perf_counter() - started
-    checks = [(json.dumps(c, ensure_ascii=False), *run_check(c, before)) for c in task.checks]
-    for cmd in task.teardown:
-        _shell(cmd)
     ok = all(c[1] for c in checks)
     out = Outcome(
         task.name,

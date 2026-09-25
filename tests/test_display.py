@@ -31,3 +31,20 @@ def test_terminal_with_plain_console_renders_every_panel() -> None:
     t.show_result(Result(True, "opened Notes"))
     t.show_result(Result(False, "nope"))
     t.show_error("boom")
+
+
+def test_free_text_is_never_parsed_as_markup() -> None:
+    from io import StringIO
+
+    from rich.console import Console
+
+    from yapp.display import Terminal
+    from yapp.types import Result
+
+    buf = StringIO()
+    term = Terminal(Console(file=buf, force_terminal=False, width=200))
+    term.status("pressed [/b] weird [bold]label")  # a control label with rich-like brackets
+    term.show_result(Result(True, "typed '[x]' into [/]"))
+    term.show_error("[/] not markup")
+    out = buf.getvalue()
+    assert "[/b] weird [bold]label" in out and "[x]" in out and "[/] not markup" in out

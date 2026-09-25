@@ -375,4 +375,8 @@ def test_type_into_a_menu_falls_back_to_the_best_field() -> None:
     resp = FakeResp("m7", 0.9, "type", "s0", 0.9)
     resp.probs = {"m7": 0.6, "c1": 0.3, "none": 0.1}  # type: ignore[attr-defined]
     d = decide("search for cats", [hist, field], FakeJev(resp))  # type: ignore[arg-type]
-    assert d.target is field and d.operation == "type" and d.confidence >= 0.3
+    assert d.target is field and d.operation == "type"
+    assert abs(d.confidence - 1.0) < 1e-9  # the only field carries all the typeable mass
+    resp.probs = {"m7": 0.9, "c1": 0.05, "none": 0.05}  # type: ignore[attr-defined]
+    d = decide("search for cats", [hist, field], FakeJev(resp))  # type: ignore[arg-type]
+    assert d.target is hist  # a 0.05 field is not promoted; the loop will refuse to type

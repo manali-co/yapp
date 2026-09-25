@@ -106,7 +106,6 @@ class BarDisplay:
         match v.outcome:
             case Outcome.EXECUTE:
                 verb = v.reason.split()[0]
-                self.acted = True
                 self._state = "acting"
                 self.bar.set_state("acting", direction=DIRECTION.get(verb, 0.0))
             case _:
@@ -114,6 +113,7 @@ class BarDisplay:
 
     def show_result(self, r: Result) -> None:
         if r.ok:
+            self.acted = True  # a verdict can still be denied by the guard or fail
             copy = result_copy(r.message)
             self.bar.decision(copy)
             if copy == "Undone":

@@ -76,6 +76,8 @@ def build_parser() -> argparse.ArgumentParser:
     tasks = sub.add_parser("tasks", help="run the task suite in tasks/ on this Mac")
     tasks.add_argument("--only", default="", help="substring of task names to run")
     tasks.add_argument("--dir", default="tasks", help="folder of task YAML files")
+    tasks.add_argument("--mode", choices=["ask", "auto"], default=argparse.SUPPRESS)
+    tasks.add_argument("--approve", action="store_true", default=argparse.SUPPRESS)
     sub.add_parser("toggle", help="show/hide the bar of the running Yapp.app")
     sub.add_parser("escape", help="dismiss the bar of the running Yapp.app")
     ax = sub.add_parser("ax", help="spike: read an app's UI via Accessibility and let Jev pick")

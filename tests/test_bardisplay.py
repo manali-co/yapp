@@ -39,7 +39,7 @@ def test_execute_pulses_toward_action_then_result_text() -> None:
     bd.show_verdict(Verdict(Outcome.EXECUTE, "open Notes (0.99 ≥ 0.6)"))
     bd.show_result(Result(True, "opened Notes"))
     assert 'setState("acting"' in w.js[0] and '"direction": 0.0' in w.js[0]
-    assert w.js[1].endswith('setDecision("Opening Notes", false)')
+    assert w.js[1].endswith('setDecision("Opening Notes", {"muted": false})')
     assert bd.acted
 
 
@@ -118,7 +118,7 @@ def test_begin_sends_hint_index_or_false() -> None:
 def test_undo_result_enters_undone_state() -> None:
     bd, w = make()
     bd.show_result(Result(True, "quit Notes"))
-    assert w.js[0].endswith('setDecision("Undone", false)')
+    assert w.js[0].endswith('setDecision("Undone", {"muted": false})')
     assert 'setState("undone"' in w.js[1]
 
 

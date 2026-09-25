@@ -1,4 +1,7 @@
+import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 
 from yapp.tasks import Outcome, load_tasks, run_check
 
@@ -30,3 +33,38 @@ def test_outcome_row_and_ask_expectation() -> None:
     assert o.ask_ok and o.row()["asked"] == ["open Terminal"] and o.row()["seconds"] == 3.2
     quiet = Outcome("t", False, [], [], True, 1.0, 1, 100, [])
     assert not quiet.ask_ok
+
+
+def test_expect_ask_tasks_never_get_a_yes(monkeypatch: object) -> None:
+    """--approve applies to ordinary tasks only; an expect_ask task only proves the ask."""
+    import yapp.tasks as tasks_mod
+    from yapp.config import Config
+    from yapp.display import Terminal
+    from yapp.guard import Mode
+    from yapp.tasks import Task
+
+    seen: list[bool] = []
+
+    class FakeRunner:
+        def tick(self, committed: list[str], pending: list[str]) -> list[object]:
+            return []
+
+        def finish(self) -> list[object]:
+            return []
+
+    def fake_build_runner(
+        cfg: object, display: object, *, ask: Callable[[str], bool], mode: object, jev: object
+    ) -> FakeRunner:
+        seen.append(ask("open Terminal"))
+        return FakeRunner()
+
+    mp = cast(Any, monkeypatch)
+    mp.setattr(tasks_mod, "build_runner", fake_build_runner)
+    mp.setattr(tasks_mod, "Jev", lambda model: object())
+    mp.setattr(time, "sleep", lambda s: None)
+    t = Task("t", "open terminal", [], expect_ask=True, settle_seconds=0)
+    o = tasks_mod.run_task(t, Config(), Terminal(), Mode.ASK, approve=True)
+    assert seen == [False] and o.asked == ["open Terminal"] and o.passed
+    plain = Task("u", "open notes", [], expect_ask=False, settle_seconds=0)
+    o = tasks_mod.run_task(plain, Config(), Terminal(), Mode.ASK, approve=True)
+    assert seen == [False, True] and not o.passed  # asked when it should not have

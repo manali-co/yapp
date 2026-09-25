@@ -41,8 +41,8 @@ point where Yapp is about to touch the machine.
 - Mode persistence: `~/.yapp/state.json` (`mode`), menu-bar checkbox "Auto mode".
 - Task suite: `tasks/*.yaml` (name, instruction, setup, check, expect_ask, budget) run by
   `yapp tasks [--only substr] [--mode ask|auto] [--approve]` on the real Mac through the
-  Yapp bundle. Checkers: frontmost, window_title_contains, ax_value_contains, file_exists,
-  file_contains, shell_contains, trash_count_unchanged. Output: table + ~/.yapp/tasks.jsonl
+  Yapp bundle. Checkers: frontmost, not_frontmost, window_title_contains, screen_contains,
+  file_exists, file_contains, shell_contains, trash_unchanged. Output: table + ~/.yapp/tasks.jsonl
   with pass, ask expected/got, steps, Jev calls, seconds.
 
 ## Out of scope (later)

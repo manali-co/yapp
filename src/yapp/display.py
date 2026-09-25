@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
@@ -39,7 +40,8 @@ class Terminal:
             self.c.push_theme(YAPP_THEME)  # a caller's console must know our style names too
 
     def status(self, msg: str) -> None:
-        self.c.print(f"[bold cyan]{msg}[/]")
+        # Free text (screen labels, page titles) must never be parsed as rich markup.
+        self.c.print(f"[bold cyan]{escape(msg)}[/]")
 
     def listening(self, level: float) -> None:
         n = int(level * 20)
@@ -58,7 +60,7 @@ class Terminal:
 
     def show_decision(self, d: Decision) -> None:
         table = Table(
-            title=f"jev {d.latency_ms} ms · tail: “{d.tail}”",
+            title=f"jev {d.latency_ms} ms · tail: “{escape(d.tail)}”",
             show_header=True,
             header_style="yapp.table.header",
         )
@@ -76,13 +78,13 @@ class Terminal:
         self.c.print(table)
 
     def show_verdict(self, v: Verdict) -> None:
-        self.c.print(f"[{VERDICT_STYLE[v.outcome]}]{v.outcome.upper()}[/] {v.reason}")
+        self.c.print(f"[{VERDICT_STYLE[v.outcome]}]{v.outcome.upper()}[/] {escape(v.reason)}")
 
     def show_result(self, r: Result) -> None:
         if r.ok:
-            self.c.print(f"[yapp.verdict.ok]✓[/] {r.message}")
+            self.c.print(f"[yapp.verdict.ok]✓[/] {escape(r.message)}")
         else:
-            self.c.print(f"[yapp.verdict.refuse]✗[/] {r.message}")
+            self.c.print(f"[yapp.verdict.refuse]✗[/] {escape(r.message)}")
 
     def show_error(self, msg: str) -> None:
-        self.c.print(f"[yapp.verdict.refuse]error:[/] {msg}")
+        self.c.print(f"[yapp.verdict.refuse]error:[/] {escape(msg)}")
