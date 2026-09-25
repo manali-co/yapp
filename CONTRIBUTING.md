@@ -10,7 +10,8 @@ Thanks for helping. Yapp is small on purpose; keep it that way.
 One branch per feature, always: `git switch dev && git pull && git switch -c feature/<name>`.
 Push early and often so the work is visible and recoverable. When the feature is done, open a
 PR into `dev`; `dev` → `main` is a release PR. Direct pushes to `dev` and `main` are blocked
-for everyone, including admins. Keep PRs focused: one feature, its tests, and its docs. A PR
+for everyone. A requested change gets addressed in the PR, not dismissed; repo admins can
+bypass the rules to merge in a pinch, and every bypass is in the audit log. Keep PRs focused: one feature, its tests, and its docs. A PR
 that grows past a feature should be split.
 
 ## Review
