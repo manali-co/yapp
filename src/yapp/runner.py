@@ -412,7 +412,7 @@ def build_runner(
         from yapp.barapp import UI
         from yapp.highlight import build_highlight
 
-        highlight = build_highlight(UI, win.window_frame, log)
+        highlight = build_highlight(UI, win.window_frame, log, number_of=win.window_number)
 
     def attention_on(text: str) -> None:
         attention(text)

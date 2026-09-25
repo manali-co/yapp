@@ -57,7 +57,7 @@ def oklch_to_srgb(L: float, C: float, h: float) -> tuple[float, float, float]:
 class Drawer(Protocol):
     """What the native layer must do; the state machine never touches AppKit itself."""
 
-    def place(self, frame: Rect) -> None: ...
+    def place(self, frame: Rect, above: int | None = None) -> None: ...
     def pulse(self, on: bool) -> None: ...
     def fade(self, ms: int) -> None: ...
     def hide(self) -> None: ...
@@ -70,6 +70,7 @@ class Highlight:
 
     drawer: Drawer
     frame_of: Callable[[Any], Rect | None]
+    number_of: Callable[[Any], int | None] = lambda w: None  # window-server id, for z-order
     settle_ms: int = 1400
     state: str = "hidden"
     window: Any = None
@@ -85,7 +86,7 @@ class Highlight:
         self.window = window
         self.misses = 0
         self.log(f"glow: on {frame}")
-        self.drawer.place(frame)
+        self.drawer.place(frame, self.number_of(window))
         if self.state != "attention":
             self.state = "acting"
         return True
@@ -101,7 +102,7 @@ class Highlight:
                     self.hide()
             else:
                 self.misses = 0
-                self.drawer.place(frame)
+                self.drawer.place(frame, self.number_of(self.window))
 
     def attention(self, on: bool) -> None:
         if self.state == "hidden":
@@ -256,7 +257,7 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
             st.window.setAlphaValue_(1.0)
 
     class Native:
-        def place(self, frame: Rect) -> None:
+        def place(self, frame: Rect, above: int | None = None) -> None:
             def apply() -> None:
                 w = ensure()
                 # A fade may be running from the previous window: stop it, so the frame
@@ -270,7 +271,14 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
                 x, y = frame.x, main_h - (frame.y + frame.h)
                 w.setFrame_display_(NSMakeRect(x, y, frame.w, frame.h), True)
                 w.setAlphaValue_(1.0)
-                w.orderFrontRegardless()
+                if above is not None:
+                    # In the stack right above its own window, not above everything: when
+                    # the user clicks their app, their window comes over both.
+                    w.setLevel_(0)  # NSNormalWindowLevel
+                    w.orderWindow_relativeTo_(1, above)  # NSWindowAbove
+                else:
+                    w.setLevel_(NSFloatingWindowLevel)
+                    w.orderFrontRegardless()
                 st.view.setNeedsDisplay_(True)
                 start_tracking()
 
@@ -354,7 +362,10 @@ def debug_state() -> str:
 
 
 def build_highlight(
-    ui_dir: Any, frame_of: Callable[[Any], Rect | None], log: Callable[[str], None] = lambda s: None
+    ui_dir: Any,
+    frame_of: Callable[[Any], Rect | None],
+    log: Callable[[str], None] = lambda s: None,
+    number_of: Callable[[Any], int | None] = lambda w: None,
 ) -> Highlight:
     """Highlight wired to the design bundle's colour and timings."""
     avatar = ui_dir.joinpath("yapp-avatar.js").read_text()
@@ -362,7 +373,9 @@ def build_highlight(
     L, C, h = acting_hue(avatar)
     d = durations(tokens)
     drawer = native_drawer(oklch_to_srgb(L, C, h), pulse_ms=d.get("pulse", 380))
-    highlight = Highlight(drawer, frame_of, settle_ms=d.get("settle", 1400), log=log)
+    highlight = Highlight(
+        drawer, frame_of, number_of=number_of, settle_ms=d.get("settle", 1400), log=log
+    )
     set_tracker = getattr(drawer, "set_tracker", None)
     if set_tracker is not None:
         set_tracker(highlight.track)
@@ -381,7 +394,7 @@ def glow_diagnostic(app_name: str, seconds: float = 3.0) -> str:
     from yapp.ax import refresh_workspace
 
     lines = []
-    h = build_highlight(resources.files("yapp.ui"), win.window_frame)
+    h = build_highlight(resources.files("yapp.ui"), win.window_frame, number_of=win.window_number)
     w = win.focused_window(app_name)
     if w is None:
         wins = win.app_windows(app_name)

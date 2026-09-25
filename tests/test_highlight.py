@@ -8,8 +8,9 @@ class FakeDrawer:
     def __init__(self) -> None:
         self.calls: list[Any] = []
 
-    def place(self, frame: Rect) -> None:
+    def place(self, frame: Rect, above: int | None = None) -> None:
         self.calls.append(("place", frame))
+        self.above = above
 
     def pulse(self, on: bool) -> None:
         self.calls.append(("pulse", on))
@@ -84,3 +85,12 @@ def test_lost_window_hides_on_track_after_a_few_misses() -> None:
     for _ in range(4):
         h.track()
     assert h.state == "hidden" and d.calls[-1] == ("hide", None)
+
+
+def test_glow_is_stacked_right_above_its_window() -> None:
+    d = FakeDrawer()
+    h = Highlight(d, lambda w: Rect(0, 0, 10, 10), number_of=lambda w: 4242)
+    h.show("w1")
+    assert d.above == 4242
+    h.track()
+    assert d.above == 4242
