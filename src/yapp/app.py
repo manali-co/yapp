@@ -73,6 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("keys", help="print what the hotkey listener sees")
     sub.add_parser("install-app", help="write ~/Applications/Yapp.app")
     sub.add_parser("enroll", help="record 10 s of your voice for spoken approvals")
+    tasks = sub.add_parser("tasks", help="run the task suite in tasks/ on this Mac")
+    tasks.add_argument("--only", default="", help="substring of task names to run")
+    tasks.add_argument("--dir", default="tasks", help="folder of task YAML files")
     sub.add_parser("toggle", help="show/hide the bar of the running Yapp.app")
     sub.add_parser("escape", help="dismiss the bar of the running Yapp.app")
     ax = sub.add_parser("ax", help="spike: read an app's UI via Accessibility and let Jev pick")
@@ -99,6 +102,17 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.command == "enroll":
             return run_enroll(cfg, display)
+        if args.command == "tasks":
+            from yapp.tasks import run_tasks
+
+            return run_tasks(
+                cfg,
+                display,
+                directory=Path(args.dir),
+                only=args.only,
+                mode=Mode(args.mode),
+                approve=args.approve,
+            )
         if args.command == "dev":
             from yapp.live import run_live
 

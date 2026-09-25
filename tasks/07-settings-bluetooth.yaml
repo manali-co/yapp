@@ -1,0 +1,6 @@
+name: 07-settings-bluetooth
+instruction: open system settings and then search for bluetooth
+check:
+  - frontmost: System Settings
+  - screen_contains: bluetooth
+settle_seconds: 3

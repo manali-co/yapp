@@ -12,7 +12,7 @@ from typesafe_sdk import Choice, Noul, Question
 
 from yapp.catalog import narrow
 from yapp.config import Config
-from yapp.jev import Jev
+from yapp.jev import JevLike
 from yapp.types import App, Decision, Intent
 
 Examples = dict[str, list[str]]
@@ -125,7 +125,7 @@ def build_questions(ctx: Context, tail: str = "", limit: int = 60) -> dict[str, 
     }
 
 
-def classify(tail: str, ctx: Context, jev: Jev, cfg: Config) -> Decision:
+def classify(tail: str, ctx: Context, jev: JevLike, cfg: Config) -> Decision:
     state = {
         "instruction_so_far": strip_leading_conjunctions(tail),
         "already_done": ctx.already_done[-3:],

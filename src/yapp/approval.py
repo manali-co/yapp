@@ -7,7 +7,7 @@ from typing import Any
 
 from typesafe_sdk import Choice
 
-from yapp.jev import Jev
+from yapp.jev import JevLike
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class Reply:
     latency_ms: int = 0
 
 
-def classify_reply(reply: str, action: str, jev: Jev, criteria: dict[str, Any]) -> Reply:
+def classify_reply(reply: str, action: str, jev: JevLike, criteria: dict[str, Any]) -> Reply:
     q = Choice(
         instructions=(
             "Yapp asked the user whether it may carry out `action`. `reply` is what was heard "

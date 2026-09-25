@@ -15,7 +15,7 @@ from yapp.display import Display
 from yapp.executor import Executor
 from yapp.guard import Guard, Mode, jev_harm
 from yapp.intent import QUESTIONS, Context
-from yapp.jev import Jev, JevError
+from yapp.jev import Jev, JevError, JevLike
 from yapp.learning import Learning
 from yapp.policy import decide
 from yapp.stream import Stream
@@ -46,7 +46,7 @@ class Runner:
     def __init__(
         self,
         cfg: Config,
-        jev: Jev | None,
+        jev: JevLike | None,
         executor: ExecutorLike,
         apps: list[App],
         *,
@@ -221,7 +221,7 @@ def build_approver(runner: Runner) -> Callable[[str, str], Reply]:
 
 
 def build_guard(
-    jev: Jev, ask: Callable[[str], bool], mode: Mode, log: Callable[[str], None]
+    jev: JevLike, ask: Callable[[str], bool], mode: Mode, log: Callable[[str], None]
 ) -> Guard:
     q = QUESTIONS["is_harmful"]
     return Guard(jev_harm(jev, q["criteria"], q["instructions"]), ask, mode=mode, log=log)
@@ -233,11 +233,12 @@ def build_runner(
     *,
     ask: Callable[[str], bool] = lambda action: False,
     mode: Mode = Mode.ASK,
+    jev: JevLike | None = None,
 ) -> Runner:
     """The live pipeline. `ask` is how a harmful action gets its yes (voice in the bar)."""
     from yapp.ax import Screen
 
-    jev = Jev(model=cfg.model)
+    jev = jev or Jev(model=cfg.model)
     apps = installed_apps()
     log = display.status if display else (lambda s: None)
     if display:

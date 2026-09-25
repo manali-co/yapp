@@ -14,7 +14,7 @@ from typing import Any
 
 from typesafe_sdk import Noul
 
-from yapp.jev import Jev, JevError
+from yapp.jev import JevError, JevLike
 
 Asker = Callable[[str], bool]
 Harm = Callable[[str, str], tuple[float, int]]  # (action, context) -> (harm, latency_ms)
@@ -49,7 +49,7 @@ class GuardVerdict:
         )
 
 
-def jev_harm(jev: Jev, criteria: Any, instructions: str) -> Harm:
+def jev_harm(jev: JevLike, criteria: Any, instructions: str) -> Harm:
     question = Noul(instructions=instructions, criteria=criteria)
 
     def score(action: str, context: str) -> tuple[float, int]:

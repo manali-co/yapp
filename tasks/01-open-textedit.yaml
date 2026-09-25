@@ -1,0 +1,6 @@
+name: 01-open-textedit
+instruction: open text edit
+check:
+  - frontmost: TextEdit
+teardown:
+  - osascript -e 'tell application "TextEdit" to quit saving no'

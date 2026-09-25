@@ -6,7 +6,7 @@ import os
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from typesafe_sdk import (
     Question,
@@ -41,6 +41,12 @@ class JevResponse:
 
     def noul(self, name: str) -> float:
         return self.resp.nouls[name].noul
+
+
+class JevLike(Protocol):
+    """Anything that answers like Jev: the real client, or a counting/recording wrapper."""
+
+    def ask(self, state: Mapping[str, Any], questions: Mapping[str, Question]) -> JevResponse: ...
 
 
 class Jev:

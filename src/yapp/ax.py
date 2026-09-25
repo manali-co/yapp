@@ -16,7 +16,7 @@ from typing import Any
 from rapidfuzz import fuzz
 from typesafe_sdk import Choice, Noul
 
-from yapp.jev import Jev
+from yapp.jev import Jev, JevLike
 from yapp.semantic import Embedder, EmbeddingCache, cosine, rank_fusion
 from yapp.types import Result
 
@@ -332,7 +332,7 @@ def fits(operation: str, target: Target | None) -> bool:
 def decide(
     words: str,
     targets: list[Target],
-    jev: Jev,
+    jev: JevLike,
     history: list[str] | None = None,
     screen: str = "",
 ) -> ScreenDecision:
@@ -420,7 +420,7 @@ class Screen:
 
     def __init__(
         self,
-        jev: Jev,
+        jev: JevLike,
         perceiver: Perceiver | None = None,
         *,
         frontmost: Callable[[], str] = frontmost_app_name,
