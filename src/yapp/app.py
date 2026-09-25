@@ -82,6 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     ax.add_argument("--app", default=None, help="running app name; default frontmost")
     ax.add_argument("--phrases", default="new tab|find on page|zoom in|search for fable five")
     ax.add_argument("--out", default=str(Path.home() / ".yapp" / "ax.log"))
+    ax.add_argument("--dump", action="store_true", help="write the app's on-screen text instead")
     p.set_defaults(command="app", log=False)
     return p
 
@@ -125,6 +126,11 @@ def main(argv: list[str] | None = None) -> int:
             from yapp.audio import debug_keys
 
             return debug_keys(display, seconds=10)
+        if args.command == "ax" and args.dump:
+            from yapp.tasks import screen_text
+
+            Path(args.out).write_text(screen_text(args.app or ""))
+            return 0
         if args.command == "ax":
             from yapp.ax import run_ax
 

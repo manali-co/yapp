@@ -402,13 +402,25 @@ def decide(
             ),
             "submit": Noul(
                 instructions=(
-                    "After typing, the user wants it submitted (a search, an address, 'go')"
+                    "After typing, the user wants it submitted with Return: a search, an "
+                    "address, a query, 'go'. Typing prose into a document or a note is not."
                 ),
                 criteria={
                     "true": {
-                        "examples": ["search for cats", "go to youtube", "look up the weather"]
+                        "what": "The typed words are a query or destination to run",
+                        "examples": [
+                            "search for cats",
+                            "search for weather in toronto",
+                            "go to youtube",
+                            "look up the weather",
+                            "google fable five",
+                            "find on page login",
+                        ],
                     },
-                    "false": {"examples": ["type hello there", "write dear sam"]},
+                    "false": {
+                        "what": "The typed words are content that stays in the field",
+                        "examples": ["type hello there", "write dear sam", "enter my address"],
+                    },
                 },
             ),
         },
