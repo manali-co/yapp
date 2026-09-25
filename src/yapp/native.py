@@ -396,7 +396,8 @@ def _running_app(app_name: str) -> Any:
 
 
 def app_is_running(app_name: str) -> bool:
-    return _running_app(app_name) is not None
+    app = _running_app(app_name)
+    return app is not None and not app.isTerminated()
 
 
 def quit_app(app_name: str, timeout: float = 4.0) -> bool:
