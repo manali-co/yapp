@@ -123,14 +123,15 @@ class Workspace:
 
         self.attention("Borrowing your keyboard for a moment")
         started = time.perf_counter()
+        back = self.frontmost() or self.user_app  # whatever the user is in right now
         try:
             if not self.raise_app(app):
                 self.log(f"borrow: could not bring {app} to the front; nothing typed")
                 return Result(False, f"couldn't bring {app} to the front")
             return act()
         finally:
-            if self.user_app and self.user_app != app:
-                self.raise_app(self.user_app)
+            if back and back != app:
+                self.raise_app(back)
             self.attention_done()
             self.log(f"borrowed focus for {(time.perf_counter() - started) * 1000:.0f} ms")
 

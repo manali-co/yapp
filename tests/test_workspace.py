@@ -278,3 +278,12 @@ def test_held_words_stay_separate_per_app_and_flush_in_order() -> None:
     ws.type_on_side("x", lambda app, text: False, 4)
     ws.type_on_side("y", lambda app, text: False, 5)
     assert ws.drop_held(9) == 0 and ws.drop_held(4) == 1 and [h.action for h in ws.held] == [5]
+
+
+def test_borrow_gives_back_the_app_the_user_is_in_now() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")  # user_app = Slack at that time
+    w.front = "Mail"  # the user moved on before a retried flush
+    ws.borrow_focus("TextEdit", lambda: None)
+    assert w.raised[-2:] == ["TextEdit", "Mail"] and w.front == "Mail"

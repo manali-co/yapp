@@ -207,18 +207,22 @@ class Runner:
             case Intent.UNDO if self.last is not None:
                 last = self.last
                 ws = self.workspace
-                if ws is not None and last.decision.intent == Intent.TYPE_TEXT:
+                dictation = last.decision.intent == Intent.TYPE_TEXT
+                if ws is not None and dictation:
                     ws.drop_held(last.action)  # never typed: nothing to erase for those words
-                if last.app and ws is not None:
+                if dictation and last.typed_chars == 0:
+                    r = Result(True, "forgot the words that were never typed")
+                elif last.app and ws is not None:
                     # The keystrokes of undo must reach the app that was acted on, not the
                     # app the user is working in.
                     out = ws.borrow_focus(last.app, lambda: self.executor.undo(last))
                     r = out if isinstance(out, Result) else Result(False, "undo failed")
                 else:
                     r = self.executor.undo(last)
-                if self.learning:
-                    self.learning.undone(time.time())
-                self.last = None
+                if r.ok:
+                    if self.learning:
+                        self.learning.undone(time.time())
+                    self.last = None  # a failed undo keeps `last` so the user can retry
             case _:
                 r = Result(False, "nothing to execute")
         self.stream.consume(d.consumed_words)

@@ -424,3 +424,19 @@ def test_undo_drops_only_its_own_held_words() -> None:
     assert [h.text for h in ws.held] == ["one two three four "]
     feed(r, "undo")
     assert ws.held == [] and ws.drop_held(action) == 0 and r.last is None
+
+
+def test_failed_undo_keeps_last_for_a_retry() -> None:
+    class Stubborn(FakeExec):
+        def undo(self, last: Executed) -> Result:
+            self.log.append("undo")
+            return Result(False, "app busy")
+
+    ex = Stubborn()
+    r = Runner(Config(), None, ex, APPS, classify=lambda tail, ctx: canned(tail, ctx.dictating))
+    feed(r, "open notes")
+    feed(r, "undo")
+    assert r.last is not None and ex.log[-1] == "undo"
+    ex.undo = lambda last: Result(True, "ok")  # type: ignore[method-assign]
+    feed(r, "undo")
+    assert r.last is None
