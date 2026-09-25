@@ -488,7 +488,7 @@ def test_a_step_is_skipped_when_the_user_keeps_typing_and_focus_is_restored_on_f
     s, log = make_screen(FakeResp("m3", 0.95, "press", "s0", 0.1), summaries=["a", "b"])
     s.before_step = lambda: False
     r = s.run("zoom in", app="Chrome", parallel=True)
-    assert not r.ok and "typing" in r.message and log == []
+    assert not r.ok and "paused after 0 step(s)" in r.message and log == []
     s2, log2 = make_screen(FakeResp("m3", 0.95, "press", "s0", 0.1), summaries=["a", "b"])
     s2.press = lambda t: False
     s2.centre = lambda t: None

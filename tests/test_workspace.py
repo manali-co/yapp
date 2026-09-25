@@ -426,13 +426,20 @@ def test_glow_never_marks_the_users_own_window_in_parallel_mode() -> None:
 def test_focus_is_given_back_when_the_work_app_takes_the_front() -> None:
     w = World()
     ws = make(w)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
     ws.decide("open text edit", "TextEdit")  # parallel; user in Slack
+    ws.wait_for_typing_pause()  # a step is about to happen: attribution window opens
     w.front = "TextEdit"  # a new window made TextEdit activate itself
     assert ws.guard_focus() and w.front == "Slack" and w.raised[-1] == "Slack"
     assert not ws.guard_focus()  # nothing to do now
     w.front = "Mail"
     ws.typing_now = lambda: True  # the user switched to Mail themselves
     assert not ws.guard_focus() and ws.user_app == "Mail" and w.front == "Mail"
+    clock[0] += 10.0  # long after Yapp's last step: a switch to the work app is the user's
+    ws.typing_now = lambda: False
+    w.front = "TextEdit"
+    assert not ws.guard_focus() and ws.user_app == "TextEdit" and w.front == "TextEdit"
 
 
 def test_steps_wait_for_a_pause_in_typing() -> None:
@@ -449,11 +456,12 @@ def test_steps_wait_for_a_pause_in_typing() -> None:
     assert ws2.wait_for_typing_pause()  # hand-over mode: nothing to wait for
 
 
-def test_work_app_activating_itself_is_never_taken_for_the_users_switch() -> None:
+def test_work_app_activating_itself_right_after_a_step_is_given_back() -> None:
     w = World()
     ws = make(w)
     ws.decide("open text edit", "TextEdit")
     ws.work_app = "TextEdit"
+    ws.wait_for_typing_pause()  # the step happened just now
     ws.typing_now = lambda: True
     w.front = "TextEdit"  # a sheet made the work app activate itself while the user types
     assert ws.guard_focus() and w.front == "Slack" and ws.user_app == "Slack"

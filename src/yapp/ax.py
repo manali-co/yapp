@@ -595,7 +595,8 @@ class Screen:
             if self.guard is not None and not self.guard(self._describe(d, app), before):
                 return Result(acted > 0, "not approved")
             if self.parallel and not self.before_step():
-                return Result(acted > 0, "paused: you were typing")
+                # Not done: the caller must not take an interrupted task as complete.
+                return Result(False, f"paused after {acted} step(s): you were typing")
             try:
                 r = self._act(d)
             finally:

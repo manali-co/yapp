@@ -182,9 +182,19 @@ def screen_text(app: str = "", max_nodes: int = 6000, max_seconds: float = 1.5) 
     return "\n".join(parts)
 
 
-def _osascript(script: str) -> tuple[bool, str]:
-    """(ok, text). Automation denied or a failed command is a failure, never a result."""
-    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
+def _osascript(script: str, timeout: float = 10.0) -> tuple[bool, str]:
+    """(ok, text). Automation denied, a failed command, or a hang (a consent prompt waiting
+    for a click) is a failure, never a result."""
+    try:
+        r = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"osascript timed out after {timeout:.0f} s"
     return r.returncode == 0, (r.stdout if r.returncode == 0 else r.stderr).strip()
 
 
@@ -208,10 +218,13 @@ def _ids(app: str, what: str) -> set[str] | None:
 
 
 def _names(app: str, what: str, ids: set[str]) -> dict[str, str]:
+    """Names of the given items; an item whose name could not be read is left out, so a
+    transient failure can never make it look like a task-created (empty-named) item."""
     out: dict[str, str] = {}
     for i in ids:
         ok, name = _osascript(f'tell application "{app}" to get name of {what} id "{i}"')
-        out[i] = name if ok else ""
+        if ok:
+            out[i] = name
     return out
 
 
@@ -243,7 +256,8 @@ def delete_new_content(snap: dict[str, set[str] | None], instruction: str) -> li
             continue
         new = after - before
         names = _names(app, what, new)
-        mine = [i for i in new if owned_by_task(names.get(i, ""), instruction)]
+        mine = [i for i in new if i in names and owned_by_task(names[i], instruction)]
+        unread = len(new) - len(names)
         failed = 0
         for i in mine:
             ok, _ = _osascript(f'tell application "{app}" to delete {what} id "{i}"')
@@ -253,6 +267,7 @@ def delete_new_content(snap: dict[str, set[str] | None], instruction: str) -> li
             f"deleted {len(mine) - failed} of {len(mine)} {what}(s) the task created"
             + (f"; {failed} could not be deleted" if failed else "")
             + (f"; left {skipped} new {what}(s) that are not the task's" if skipped else "")
+            + (f" ({unread} could not be read)" if unread else "")
         )
     return notes
 

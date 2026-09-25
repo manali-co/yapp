@@ -79,3 +79,17 @@ def test_ownership_by_content() -> None:
     assert owned_by_task("", instr)  # an empty item from a misfire
     assert not owned_by_task("Call the dentist", instr)  # the user's own new reminder
     assert not owned_by_task("stamps", instr)  # one word is not enough
+
+
+def test_osascript_timeout_is_a_failure(monkeypatch: object) -> None:
+    import subprocess
+    from typing import Any, cast
+
+    import yapp.tasks as tasks_mod
+
+    def hang(*a: object, **k: object) -> None:
+        raise subprocess.TimeoutExpired(cmd="osascript", timeout=k.get("timeout", 0))  # type: ignore[arg-type]
+
+    cast(Any, monkeypatch).setattr(subprocess, "run", hang)
+    ok, text = tasks_mod._osascript('tell application "Notes" to get id of every note')
+    assert not ok and "timed out" in text
