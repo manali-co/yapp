@@ -165,8 +165,10 @@ def discard_app(app_name: str) -> list[str]:
 
     if not app_is_running(app_name):
         return []
-    notes = [win.close_and_discard(w) for w in win.app_windows(app_name)]
-    quit_app(app_name)
+    notes = ["dismissed alert" for w in win.app_windows(app_name) if win.dismiss_alert(w)]
+    time.sleep(0.4)
+    notes += [win.close_and_discard(w) for w in win.app_windows(app_name)]
+    notes.append("quit" if quit_app(app_name) else "still running (a sheet is open?)")
     return notes
 
 

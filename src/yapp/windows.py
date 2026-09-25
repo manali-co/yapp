@@ -201,6 +201,30 @@ def discard_button(buttons: list[tuple[str, Any]]) -> tuple[str, Any] | None:
     return None
 
 
+def window_buttons(win: Any, max_nodes: int = 400) -> list[tuple[str, Any]]:
+    """Buttons anywhere in a window (alerts are windows without a close button)."""
+    out: list[tuple[str, Any]] = []
+    stack = list(_attr(win, "AXChildren") or [])
+    seen = 0
+    while stack and seen < max_nodes:
+        el = stack.pop()
+        seen += 1
+        if _attr(el, "AXRole") == "AXButton":
+            out.append((str(_attr(el, "AXTitle") or _attr(el, "AXDescription") or ""), el))
+        stack.extend(list(_attr(el, "AXChildren") or []))
+    return out
+
+
+def dismiss_alert(win: Any) -> bool:
+    """An app-modal alert ('You have 3 documents with unconfirmed changes…'): press Cancel."""
+    if _attr(win, "AXCloseButton") is not None:
+        return False
+    for title, el in window_buttons(win):
+        if title.strip().lower() == "cancel":
+            return press(el)
+    return False
+
+
 def close_and_discard(win: Any, settle: float = 0.5) -> str:
     """Harness helper: close a window and throw away unsaved changes. Never used on the user's
     own documents by the product; the product asks the guard first (see workspace.py)."""
