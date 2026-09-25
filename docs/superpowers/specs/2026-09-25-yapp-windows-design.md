@@ -21,7 +21,8 @@ area (full screen exited first). Hand-over mode places nothing.
 Parallel mode never activates the target app: `open -g -a`, presses through AXPress, typing by
 setting the field's AXValue. When a field refuses (error, or the value did not change), Yapp
 **borrows focus**: attention state on, raise the target app, keystrokes, raise the user's app
-again, attention state off. Target ≤ 300 ms. Dictation in parallel mode appends through AXValue
+again, attention state off. Target ≤ 300 ms; measured 720–780 ms on the first build (the raise
+polls at 150 ms and the keystrokes themselves take most of it). Dictation in parallel mode appends through AXValue
 per flush; if the field refuses, the words are held and typed with one borrow at the end.
 
 ## Attention state

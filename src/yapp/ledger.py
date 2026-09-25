@@ -61,7 +61,8 @@ class Ledger:
             if quit_app(app):
                 done.append(f"quit {app}")
             else:
-                log(f"cleanup: could not quit {app}")
+                done.append(f"asked {app} to quit")  # it may still be showing a Save sheet
+                log(f"cleanup: {app} did not quit in time")
         if restore():
             done.append("put your window back")
         self.windows.clear()

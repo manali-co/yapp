@@ -400,7 +400,7 @@ def app_is_running(app_name: str) -> bool:
     return app is not None and not app.isTerminated()
 
 
-def quit_app(app_name: str, timeout: float = 4.0) -> bool:
+def quit_app(app_name: str, timeout: float = 6.0) -> bool:
     """Ask the app to quit the polite way and wait for it to go. A Save sheet keeps it alive,
     which is the right outcome: pressing Don't Save is the guard's decision, not ours."""
     import time
