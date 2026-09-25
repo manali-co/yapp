@@ -135,6 +135,40 @@ class Workspace:
                     self.log(f"windows: {app} placed in the work area")
             if self.user_app and self.user_app != app:
                 self.raise_app(self.user_app)  # the user keeps the keyboard
+                self.guard_focus()
+
+    # ---- keeping the user's focus while working on the side ----------------------------
+    def wait_for_typing_pause(self, max_seconds: float = 6.0) -> bool:
+        """Before a step that might make the work app show a window (which some apps answer
+        by activating themselves): wait until the user has stopped typing. Returns whether
+        a pause came; after `max_seconds` Yapp proceeds anyway."""
+        if not self.parallel:
+            return True
+        waited = 0.0
+        while self.typing_now() and waited < max_seconds:
+            self.sleep(0.15)
+            waited += 0.15
+        if waited:
+            self.log(f"focus: waited {waited:.1f}s for a pause in the user's typing")
+        return not self.typing_now()
+
+    def guard_focus(self) -> bool:
+        """After a step on the side: if the work app took the front (a new window or sheet
+        made it activate itself), give the user's app back at once. Returns whether it had
+        to. Never fights the user: if they themselves just switched apps, leave it."""
+        if not self.parallel or not self.user_app:
+            return False
+        front = self.frontmost()
+        if front == self.user_app or not front:
+            return False
+        if self.typing_now():
+            # The user is active: this switch may be theirs. Follow them from now on.
+            self.log(f"focus: {front} is in front and the user is active; following them")
+            self.user_app = front
+            return False
+        self.raise_app(self.user_app)
+        self.log(f"focus: {front} took the front during a step; gave {self.user_app} back")
+        return True
 
     # ---- the glow ----------------------------------------------------------------------
     def glow(self, app: str, window: Any = None) -> None:

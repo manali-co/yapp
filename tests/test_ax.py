@@ -454,3 +454,30 @@ def test_typing_the_command_itself_is_refused() -> None:
     resp = FakeResp("c1", 0.9, "type", "nothing", 0.1)
     d = decide("new reminder", [field], FakeJev(resp))  # type: ignore[arg-type]
     assert d.operation == "none"
+
+
+def test_parallel_steps_call_the_focus_hooks() -> None:
+    calls: list[str] = []
+    s, log = make_screen(
+        FakeResp("m3", 0.95, "press", "s0", 0.1),
+        FakeResp("none", 0.1, "none", "s0", 0.1, status="done"),
+        summaries=["a", "b", "c"],
+    )
+
+    def before() -> bool:
+        calls.append("before")
+        return True
+
+    def after() -> bool:
+        calls.append("after")
+        return False
+
+    s.before_step = before
+    s.after_step = after
+    s.run("zoom in", app="Chrome", parallel=True)
+    assert calls == ["before", "after"]
+    calls.clear()
+    s2, _ = make_screen(FakeResp("m3", 0.95, "press", "s0", 0.1), summaries=["a", "b"])
+    s2.before_step = before
+    s2.run("zoom in")
+    assert calls == []  # hand-over mode: no hooks

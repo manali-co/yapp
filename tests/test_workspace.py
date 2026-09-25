@@ -421,3 +421,29 @@ def test_glow_never_marks_the_users_own_window_in_parallel_mode() -> None:
     w.wins["Notes"].append("notes-2")
     ws.note_new_windows("Notes", before)  # a window Yapp created: marked
     assert shown == ["notes-2"]
+
+
+def test_focus_is_given_back_when_the_work_app_takes_the_front() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")  # parallel; user in Slack
+    w.front = "TextEdit"  # a new window made TextEdit activate itself
+    assert ws.guard_focus() and w.front == "Slack" and w.raised[-1] == "Slack"
+    assert not ws.guard_focus()  # nothing to do now
+    w.front = "Mail"
+    ws.typing_now = lambda: True  # the user switched to Mail themselves
+    assert not ws.guard_focus() and ws.user_app == "Mail" and w.front == "Mail"
+
+
+def test_steps_wait_for_a_pause_in_typing() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("x", "TextEdit")
+    ticks = [True, True, False]
+    ws.typing_now = lambda: ticks.pop(0) if ticks else False
+    assert ws.wait_for_typing_pause() and any("waited" in line for line in w.log)
+    ws.typing_now = lambda: True
+    assert not ws.wait_for_typing_pause(max_seconds=0.3)  # gave up after the cap
+    ws2 = make(w, decision="hand_over")
+    ws2.decide("x", "TextEdit")
+    assert ws2.wait_for_typing_pause()  # hand-over mode: nothing to wait for

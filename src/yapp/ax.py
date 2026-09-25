@@ -514,7 +514,11 @@ class Screen:
         click_pid: Callable[[Target, tuple[float, float]], bool] | None = None,
         click_real: Callable[[Target, tuple[float, float]], bool] | None = None,
         centre: Callable[[Target], tuple[float, float] | None] = target_centre,
+        before_step: Callable[[], bool] = lambda: True,
+        after_step: Callable[[], bool] = lambda: False,
     ) -> None:
+        self.before_step = before_step  # parallel mode: wait for the user's typing to pause
+        self.after_step = after_step  # parallel mode: give the user's app back if it was taken
         self.jev = jev
         self.guard = guard  # (action, screen) -> may act? see guard.py
         self.ax_type = ax_type  # parallel mode: typing without the keyboard
@@ -590,12 +594,16 @@ class Screen:
                 return Result(True, f"done after {acted} step(s)")
             if self.guard is not None and not self.guard(self._describe(d, app), before):
                 return Result(acted > 0, "not approved")
+            if self.parallel:
+                self.before_step()
             r = self._act(d)
             if not r.ok:
                 return Result(acted > 0, r.message)
             acted += 1
             last_action = action
             self.settle(0.35)
+            if self.parallel:
+                self.after_step()
             app_after = app if self.parallel else self.frontmost()
             after = self.summary(app_after)
             shot_after = self.perceiver.snapshot(app_after)
