@@ -308,6 +308,17 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     return out
 
 
+def screen_locked() -> bool:
+    """A locked screen makes every check see loginwindow; refuse rather than record junk."""
+    try:
+        from Quartz import CGSessionCopyCurrentDictionary
+
+        session = CGSessionCopyCurrentDictionary() or {}
+        return bool(session.get("CGSSessionScreenIsLocked"))
+    except Exception:  # noqa: BLE001 - if we cannot tell, run
+        return False
+
+
 def run_tasks(
     cfg: Config,
     display: Terminal,
@@ -318,6 +329,9 @@ def run_tasks(
     approve: bool = False,
     results: Path = RESULTS,
 ) -> int:
+    if screen_locked():
+        display.show_error("the screen is locked: unlock it and run the tasks again")
+        return 3
     tasks = load_tasks(directory, only)
     if not tasks:
         display.show_error(f"no tasks in {directory}")
