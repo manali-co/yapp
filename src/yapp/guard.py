@@ -89,5 +89,5 @@ class Guard:
         approved = self.ask(action) if asked else False
         v = GuardVerdict(action, harm, self.threshold, asked, approved, ms)
         self.history.append(v)
-        self.log(f"guard [{self.mode}]: {action} → {v.describe()} ({ms} ms)")
+        self.log(f"guard mode={self.mode}: {action} → {v.describe()} ({ms} ms)")
         return v

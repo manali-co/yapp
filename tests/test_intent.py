@@ -94,3 +94,33 @@ def test_live_classification(tail: str, intent: Intent, app: str | None, complet
     if app:
         assert d.app is not None and d.app.key == app
     assert (d.is_complete >= cfg.thresholds.complete) == complete, d.is_complete
+
+
+def test_spoken_forms_split_camel_case() -> None:
+    from yapp.intent import spoken_forms
+
+    assert spoken_forms("TextEdit") == ["textedit", "text edit"]
+    assert spoken_forms("Google Chrome") == ["google chrome"]
+    assert spoken_forms("QuickTime Player") == ["quicktime player", "quick time player"]
+
+
+def test_intent_examples_include_how_installed_apps_are_said() -> None:
+    from yapp.types import App
+
+    apps = [App("textedit", "TextEdit", "Launch TextEdit"), App("notes", "Notes", "Launch Notes")]
+    q = build_questions(ctx(apps=apps), tail="open text edit")
+    intent = q["intent"]
+    assert isinstance(intent, Choice)
+    open_app = intent.criteria["open_app"]
+    assert isinstance(open_app, dict) and "open text edit" in open_app["examples"]
+
+
+def test_canonical_app_names_joins_split_camel_case() -> None:
+    from yapp.intent import canonical_app_names
+    from yapp.types import App
+
+    apps = [App("textedit", "TextEdit", ""), App("facetime", "FaceTime", ""), APPS[0]]
+    assert canonical_app_names("open text edit and then face time", apps) == (
+        "open textedit and then facetime"
+    )
+    assert canonical_app_names("edit the text", apps) == "edit the text"

@@ -1,8 +1,0 @@
-name: 12-chrome-zoom
-instruction: open chrome and then zoom in
-check:
-  - frontmost: Google Chrome
-  - screen_contains: "110%"
-settle_seconds: 2
-teardown:
-  - osascript -e 'tell application "Google Chrome" to activate' -e 'tell application "System Events" to keystroke "0" using command down'

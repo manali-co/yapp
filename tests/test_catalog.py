@@ -26,8 +26,9 @@ def test_slug() -> None:
 
 def test_installed_apps_dedupes_and_sorts() -> None:
     apps = installed_apps(fake_run)
-    assert [a.name for a in apps] == ["Google Chrome", "Notes", "Visual Studio Code"]
-    assert apps[1] == App("notes", "Notes", "Launch Notes")
+    # Finder lives outside the app folders but every Mac has it
+    assert [a.name for a in apps] == ["Finder", "Google Chrome", "Notes", "Visual Studio Code"]
+    assert apps[2] == App("notes", "Notes", "Launch Notes")
 
 
 def test_narrow_keeps_exact_and_limits() -> None:
