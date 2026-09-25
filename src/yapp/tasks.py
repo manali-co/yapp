@@ -234,8 +234,17 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
                 continue
             b = info.get("kCGWindowBounds", {})
             glow = win.Rect(b.get("X", 0), b.get("Y", 0), b.get("Width", 0), b.get("Height", 0))
-            if glow.x <= frame.x and glow.y <= frame.y and glow.w >= frame.w and glow.h >= frame.h:
-                return True, f"glow {glow} around {arg} {frame}"
+            close = all(
+                abs(a - b) <= 2
+                for a, b in (
+                    (glow.x, frame.x),
+                    (glow.y, frame.y),
+                    (glow.w, frame.w),
+                    (glow.h, frame.h),
+                )
+            )
+            if close:
+                return True, f"glow {glow} on {arg} {frame}"
         return False, f"no glow window of ours around {arg} {frame}"
     if kind == "app_not_running":
         from yapp.native import app_is_running

@@ -75,6 +75,7 @@ class Workspace:
         self.ledger = Ledger()
         self.mode: str | None = None
         self.user_app: str = ""
+        self.user_window: Any = None  # the window the user had when they spoke: never glowed
         self.work_app: str = ""
         # Dictation a field refused, in order, tagged with its app and dictation action.
         self.held: list[Held] = []
@@ -89,6 +90,7 @@ class Workspace:
         if self.mode is not None:
             return self.mode
         self.user_app = self.frontmost()
+        self.user_window = self.focused(self.user_app) if self.user_app else None
         if self.force in (HAND_OVER, PARALLEL):
             self.mode = self.force
         elif self.typing_now():
@@ -137,8 +139,11 @@ class Workspace:
         if self.highlight is None:
             return
         win = window if window is not None else self.focused(app)
-        if win is not None:
-            self.highlight.show(win)
+        if win is None:
+            return
+        if self.parallel and self.user_window is not None and win == self.user_window:
+            return  # Yapp works on the side; the user's own window is never marked
+        self.highlight.show(win)
 
     def glow_done(self) -> None:
         if self.highlight is not None:

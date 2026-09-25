@@ -347,3 +347,33 @@ def test_typing_now_forces_parallel_and_blocks_raising_and_borrowing() -> None:
     typing[0] = False
     assert ws2.before_open("TextEdit") is True
     assert ws2.borrow_focus("TextEdit", lambda: "typed") == "typed"
+
+
+def test_glow_never_marks_the_users_own_window_in_parallel_mode() -> None:
+    w = World()
+    ws = make(w)
+    shown: list[str] = []
+
+    class FakeHighlight:
+        def show(self, win: Any) -> bool:
+            shown.append(str(win))
+            return True
+
+        def done(self) -> None:
+            pass
+
+        def hide(self) -> None:
+            pass
+
+    ws.highlight = FakeHighlight()
+
+    def focused(app: str) -> Any:
+        wins = w.wins.get(app)
+        return wins[0] if wins else None
+
+    ws.focused = focused
+    ws.decide("open notes", "Notes")  # parallel; the user is in Slack (slack-1)
+    ws.glow("Slack")
+    assert shown == []
+    ws.glow("Notes")
+    assert shown == ["notes-1"]

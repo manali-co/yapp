@@ -20,7 +20,8 @@ from typing import Any, Protocol
 from yapp.windows import Rect
 
 ACTING_DEFAULT = (0.70, 0.060, 45.0)  # oklch L, C, h of the avatar's acting state
-PAD = 10.0  # px between the window edge and the glow's stroke
+INSET = 3.0  # px from the window edge to the stroke (drawn inside, like a browser's tab tint)
+RADIUS = 11.0
 _ACTING_RE = re.compile(r"acting:\s*\{[^}]*?L:\s*([\d.]+),\s*C:\s*([\d.]+),\s*h:\s*([\d.]+)")
 _DUR_RE = re.compile(r"--yapp-dur-(\w+):\s*(\d+)ms")
 
@@ -126,7 +127,7 @@ def _objc_classes(colour: Any) -> tuple[Any, Any]:
     """GlowView and the timer target, defined once (PyObjC refuses a second definition)."""
     if "GlowView" in _classes:
         return _classes["GlowView"], _classes["State"]
-    from AppKit import NSBezierPath, NSColor, NSMakeRect, NSShadow, NSView
+    from AppKit import NSBezierPath, NSColor, NSMakeRect, NSView
     from Foundation import NSObject
 
     class GlowView(NSView):  # type: ignore[misc]
@@ -138,21 +139,21 @@ def _objc_classes(colour: Any) -> tuple[Any, Any]:
 
         def drawRect_(self, rect: Any) -> None:
             bounds = self.bounds()
-            inset = PAD - 2
-            path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-                NSMakeRect(
-                    inset, inset, bounds.size.width - 2 * inset, bounds.size.height - 2 * inset
-                ),
-                14.0,
-                14.0,
-            )
-            path.setLineWidth_(3.0)
-            shadow = NSShadow.alloc().init()
-            shadow.setShadowColor_(self.colour.colorWithAlphaComponent_(0.9))
-            shadow.setShadowBlurRadius_(16.0)
-            shadow.set()
-            self.colour.colorWithAlphaComponent_(0.95).setStroke()
-            path.stroke()
+            # Two strokes inside the edge: a wide soft one (the glow) and a crisp one.
+            for width, alpha, inset in ((14.0, 0.18, INSET + 4), (3.0, 0.95, INSET)):
+                path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                    NSMakeRect(
+                        inset,
+                        inset,
+                        bounds.size.width - 2 * inset,
+                        bounds.size.height - 2 * inset,
+                    ),
+                    RADIUS,
+                    RADIUS,
+                )
+                path.setLineWidth_(width)
+                self.colour.colorWithAlphaComponent_(alpha).setStroke()
+                path.stroke()
             if self.dot is not None:
                 x, y = self.dot
                 self.colour.setFill()
@@ -164,6 +165,8 @@ def _objc_classes(colour: Any) -> tuple[Any, Any]:
         window: Any = None
         view: Any = None
         timer: Any = None
+        tracker: Any = None
+        on_track: Any = None
         up: bool = False
         fading: int = 0  # bumps on every place/fade so a stale fade cannot hide a new glow
 
@@ -172,6 +175,10 @@ def _objc_classes(colour: Any) -> tuple[Any, Any]:
                 return
             self.up = not self.up
             self.window.animator().setAlphaValue_(1.0 if self.up else 0.45)
+
+        def track_(self, timer: Any) -> None:
+            if self.on_track is not None:
+                self.on_track()  # Highlight.track(): follow the window, hide when it is gone
 
     _classes["GlowView"], _classes["State"] = GlowView, State
     return GlowView, State
@@ -221,6 +228,17 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
             st.window = w
         return st.window
 
+    def start_tracking() -> None:
+        if st.tracker is None and st.on_track is not None:
+            st.tracker = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                0.15, st, "track:", None, True
+            )
+
+    def stop_tracking() -> None:
+        if st.tracker is not None:
+            st.tracker.invalidate()
+            st.tracker = None
+
     def stop_pulse() -> None:
         if st.timer is not None:
             st.timer.invalidate()
@@ -240,11 +258,12 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
                 w.animator().setAlphaValue_(1.0)
                 NSAnimationContext.endGrouping()
                 main_h = NSScreen.screens()[0].frame().size.height
-                x, y = frame.x - PAD, main_h - (frame.y + frame.h) - PAD
-                w.setFrame_display_(NSMakeRect(x, y, frame.w + 2 * PAD, frame.h + 2 * PAD), True)
+                x, y = frame.x, main_h - (frame.y + frame.h)
+                w.setFrame_display_(NSMakeRect(x, y, frame.w, frame.h), True)
                 w.setAlphaValue_(1.0)
                 w.orderFrontRegardless()
                 st.view.setNeedsDisplay_(True)
+                start_tracking()
 
             AppHelper.callAfter(apply)
 
@@ -279,10 +298,15 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
         def hide(self) -> None:
             def apply() -> None:
                 stop_pulse()
+                stop_tracking()
+                st.fading += 1  # a pending fade must not resurrect anything
                 if st.window is not None:
                     st.window.orderOut_(None)
 
             AppHelper.callAfter(apply)
+
+        def set_tracker(self, fn: Any) -> None:
+            st.on_track = fn
 
         def cursor(self, point: tuple[float, float] | None) -> None:
             def apply() -> None:
@@ -310,4 +334,8 @@ def build_highlight(ui_dir: Any, frame_of: Callable[[Any], Rect | None]) -> High
     L, C, h = acting_hue(avatar)
     d = durations(tokens)
     drawer = native_drawer(oklch_to_srgb(L, C, h), pulse_ms=d.get("pulse", 380))
-    return Highlight(drawer, frame_of, settle_ms=d.get("settle", 1400))
+    highlight = Highlight(drawer, frame_of, settle_ms=d.get("settle", 1400))
+    set_tracker = getattr(drawer, "set_tracker", None)
+    if set_tracker is not None:
+        set_tracker(highlight.track)
+    return highlight
