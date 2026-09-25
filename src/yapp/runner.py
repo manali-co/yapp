@@ -342,7 +342,7 @@ def build_workspace(
     from yapp import windows as win
     from yapp.ax import frontmost_app_name
     from yapp.native import app_is_running, bring_to_front, quit_app
-    from yapp.placement import decide_placement, seconds_since_input
+    from yapp.placement import decide_placement, seconds_since_input, typing_now
     from yapp.pointer import borrow_pointer
 
     def decide(instruction: str, front: str, target: str) -> Placement:
@@ -375,6 +375,7 @@ def build_workspace(
         highlight=highlight,
         focused=win.focused_window,
         real_click=lambda x, y: borrow_pointer(x, y),
+        typing_now=typing_now,
     )
 
 

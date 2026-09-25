@@ -165,6 +165,7 @@ def _objc_classes(colour: Any) -> tuple[Any, Any]:
         view: Any = None
         timer: Any = None
         up: bool = False
+        fading: int = 0  # bumps on every place/fade so a stale fade cannot hide a new glow
 
         def tick_(self, timer: Any) -> None:
             if self.window is None:
@@ -231,6 +232,13 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
         def place(self, frame: Rect) -> None:
             def apply() -> None:
                 w = ensure()
+                # A fade may be running from the previous window: stop it, so the frame
+                # never lingers at the old size around a smaller window.
+                st.fading += 1
+                NSAnimationContext.beginGrouping()
+                NSAnimationContext.currentContext().setDuration_(0.0)
+                w.animator().setAlphaValue_(1.0)
+                NSAnimationContext.endGrouping()
                 main_h = NSScreen.screens()[0].frame().size.height
                 x, y = frame.x - PAD, main_h - (frame.y + frame.h) - PAD
                 w.setFrame_display_(NSMakeRect(x, y, frame.w + 2 * PAD, frame.h + 2 * PAD), True)

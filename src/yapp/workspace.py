@@ -49,7 +49,9 @@ class Workspace:
         highlight: Any = None,
         focused: Callable[[str], Any] = lambda app: None,
         real_click: Callable[[float, float], bool] = lambda x, y: False,
+        typing_now: Callable[[], bool] = lambda: False,
     ) -> None:
+        self.typing_now = typing_now  # a hard rule above Jev: never raise while keys are down
         self.may = may  # the guard: (action) -> allowed?
         self.sheet_buttons = sheet_buttons
         self.press = press
@@ -89,6 +91,9 @@ class Workspace:
         self.user_app = self.frontmost()
         if self.force in (HAND_OVER, PARALLEL):
             self.mode = self.force
+        elif self.typing_now():
+            self.mode = PARALLEL
+            self.log("placement: parallel (the user is typing right now)")
         else:
             p = self._decide(instruction, self.user_app, target_app)
             self.mode = p.mode
@@ -104,8 +109,12 @@ class Workspace:
 
     # ---- opening apps ----------------------------------------------------------------
     def before_open(self, app: str) -> bool:
-        """Returns whether the app should be activated (hand over) or left behind (parallel)."""
+        """Returns whether the app should be activated (hand over) or left behind (parallel).
+        Even in hand-over mode a window is never raised while the user is typing."""
         self.ledger.note_launch(app, self.is_running(app))
+        if not self.parallel and self.typing_now():
+            self.log(f"windows: not raising {app}; the user is typing")
+            return False
         return not self.parallel
 
     def after_open(self, app: str) -> None:
@@ -157,6 +166,13 @@ class Workspace:
         started = time.perf_counter()
         back = self.frontmost() or self.user_app  # whatever the user is in right now
         try:
+            for _ in range(20):  # wait for a pause in the user's typing, up to ~3 s
+                if not self.typing_now():
+                    break
+                self.sleep(0.15)
+            else:
+                self.log("borrow: the user kept typing; not taking the keyboard")
+                return Result(False, "you were typing; nothing sent")
             if not self.raise_app(app):
                 self.log(f"borrow: could not bring {app} to the front; nothing typed")
                 return Result(False, f"couldn't bring {app} to the front")

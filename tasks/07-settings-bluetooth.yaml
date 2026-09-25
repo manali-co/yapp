@@ -5,3 +5,4 @@ check:
   - frontmost: System Settings
   - window_title_contains: Bluetooth
 settle_seconds: 3
+quit_after: [System Settings]

@@ -329,3 +329,21 @@ def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> N
     assert w.log[-2:] == ["attention: Borrowing your mouse for a moment", "attention done"]
     ws.real_click = lambda x, y: False
     assert not ws.borrow_pointer(1.0, 1.0)
+
+
+def test_typing_now_forces_parallel_and_blocks_raising_and_borrowing() -> None:
+    w = World()
+    ws = make(w, decision="hand_over")
+    typing = [True]
+    ws.typing_now = lambda: typing[0]
+    assert ws.decide("open text edit", "TextEdit") == "parallel"  # Jev said hand over
+    assert any("typing right now" in line for line in w.log)
+    ws2 = make(w, decision="hand_over", force="hand_over")
+    ws2.typing_now = lambda: typing[0]
+    ws2.decide("open text edit", "TextEdit")
+    assert ws2.before_open("TextEdit") is False  # pinned hand-over still never raises mid-typing
+    out = ws2.borrow_focus("TextEdit", lambda: "typed")
+    assert not out.ok and "typing" in out.message and "TextEdit" not in w.raised
+    typing[0] = False
+    assert ws2.before_open("TextEdit") is True
+    assert ws2.borrow_focus("TextEdit", lambda: "typed") == "typed"

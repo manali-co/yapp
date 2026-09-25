@@ -48,6 +48,8 @@ class Task:
     quit_after: list[str] = field(default_factory=list)  # ... and after (never pkill: it makes
     # macOS show a "quit unexpectedly" alert on the next launch, which breaks the next task)
     discard_after: list[str] = field(default_factory=list)  # close windows, drop unsaved changes
+    close_tab_after: list[str] = field(default_factory=list)  # press File › Close Tab in the app
+    cleanup: bool = True  # unwind the runner's ledger (windows/apps Yapp opened) after checks
 
 
 @dataclass
@@ -107,6 +109,8 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 activate_before=[str(a) for a in data.get("activate_before") or []],
                 quit_after=[str(a) for a in data.get("quit_after") or []],
                 discard_after=[str(a) for a in data.get("discard_after") or []],
+                close_tab_after=[str(a) for a in data.get("close_tab_after") or []],
+                cleanup=bool(data.get("cleanup", True)),
             )
         )
     return out
@@ -158,6 +162,19 @@ def screen_text(app: str = "", max_nodes: int = 6000, max_seconds: float = 1.5) 
         children = _attr(node, "AXChildren") or []
         stack.extend(reversed(list(children)))
     return "\n".join(parts)
+
+
+def close_tab(app_name: str) -> bool:
+    """Harness helper: press the app's 'Close Tab' menu command (the tab a task opened)."""
+    from yapp.ax import ax_menus, ax_press
+    from yapp.native import app_is_running
+
+    if not app_is_running(app_name):
+        return False
+    for t in ax_menus(app_name):
+        if t.label.lower() == "close tab":
+            return ax_press(t)
+    return False
 
 
 def discard_app(app_name: str) -> list[str]:
@@ -285,6 +302,7 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     started = time.perf_counter()
     counting = CountingJev(Jev(model=cfg.model))
     checks: list[tuple[str, bool, str]] = []
+    runner = None
     try:
         for app_name in task.quit_before:
             quit_app(app_name)
@@ -308,6 +326,13 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     except Exception as e:  # noqa: BLE001 - one broken task must not lose the others' results
         checks.append(("run", False, f"{type(e).__name__}: {e}"))
     finally:
+        ws = getattr(runner, "workspace", None)
+        if task.cleanup and ws is not None:
+            done = ws.cleanup()  # what this task opened goes away again
+            if done:
+                display.status("   cleanup: " + ", ".join(done))
+        for app_name in task.close_tab_after:
+            close_tab(app_name)
         for cmd in task.teardown:
             _shell(cmd)
         for app_name in task.discard_after:
