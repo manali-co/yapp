@@ -226,6 +226,15 @@ class WindowManager:
             self.placed += 1
         return ok
 
+    def place_window(self, win: Any) -> bool:
+        """Put one specific window (a document Yapp just created) into the work area."""
+        if self.layout is None or win is None:
+            return False
+        ok = self._set_frame(win, tile(self.layout.work, self.placed))
+        if ok:
+            self.placed += 1
+        return ok
+
     def restore(self) -> bool:
         if self.user_window is None or self.user_frame is None:
             return False

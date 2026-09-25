@@ -28,6 +28,7 @@ Classifier = Callable[[str, Context], Decision]
 
 class ExecutorLike(Protocol):
     def open_app(self, app: App, *, activate: bool = True) -> Result: ...
+    def type_ax(self, app: str, text: str) -> bool: ...
     def type_text(self, text: str) -> Result: ...
     def press_key(self, combo: str) -> Result: ...
     def open_file(self, path: Path) -> Result: ...
@@ -108,8 +109,6 @@ class Runner:
 
     def finish(self) -> list[Verdict]:
         """Key released: last chance for the tail, then flush dictation and reset."""
-        if self.workspace is not None:
-            self.workspace.reset()
         out: list[Verdict] = []
         tail = self.stream.tail()
         if tail and not self.stream.dictating:
@@ -118,6 +117,8 @@ class Runner:
             self._type(self.stream.dictation_words(flush=True))
             self.stream.exit_dictation()
         self.stream.reset()
+        if self.workspace is not None:
+            self.workspace.reset()  # after the last words are typed where they belong
         return out
 
     def _step(self, tail: str) -> Verdict:
@@ -159,7 +160,13 @@ class Runner:
                     self.last = Executed(d, r)
             case Intent.TYPE_TEXT:
                 self.stream.consume(d.consumed_words)
-                if not self._may(f"dictate into {self.executor.frontmost_app()}"):
+                ws = self.workspace
+                where = (
+                    ws.work_app
+                    if ws and ws.parallel and ws.work_app
+                    else self.executor.frontmost_app()
+                )
+                if not self._may(f"dictate into {where}"):
                     self._report(denied)
                     return
                 self.stream.enter_dictation()
@@ -242,7 +249,18 @@ class Runner:
         if not words:
             return
         text = " ".join(words) + " "
-        r = self.executor.type_text(text)
+        ws = self.workspace
+        if ws is not None and ws.parallel and ws.work_app:
+            out = ws.type_on_side(
+                text, self.executor.type_ax, lambda: self.executor.type_text(text)
+            )
+            r = (
+                out
+                if isinstance(out, Result)
+                else Result(True, f"typed {len(text)} chars on the side")
+            )
+        else:
+            r = self.executor.type_text(text)
         last = self.last
         if last is not None and last.decision.intent == Intent.TYPE_TEXT:
             self.last = Executed(last.decision, r, typed_chars=last.typed_chars + len(text))

@@ -49,7 +49,7 @@ def canned(tail: str, dictating: bool) -> Decision:
     if words[:2] == ["switch", "to"] and len(words) >= 3:
         return mk(tail, Intent.OPEN_APP, 0.9, 0.95, ends, SAFARI, len(tail.split()))
     if words[:1] == ["type"]:
-        return mk(tail, Intent.TYPE_TEXT, 0.9, 0.9, ends, consumed=1)
+        return mk(tail, Intent.TYPE_TEXT, 0.9, 0.9, ends, consumed=tail.split().index("type") + 1)
     if words[:1] == ["undo"]:
         return mk(tail, Intent.UNDO, 0.9, 0.9, ends, consumed=1)
     if words[:2] == ["clean", "up"]:
@@ -71,6 +71,10 @@ class FakeExec:
     def type_text(self, text: str) -> Result:
         self.log.append(f"type:{text}")
         return Result(True, "ok")
+
+    def type_ax(self, app: str, text: str) -> bool:
+        self.log.append(f"ax:{app}:{text}")
+        return getattr(self, "ax_ok", True)
 
     def press_key(self, combo: str) -> Result:
         self.log.append(f"key:{combo}")
@@ -295,3 +299,39 @@ def test_cleanup_intent_unwinds_the_ledger_through_the_guard() -> None:
     assert world.quit == ["Safari"] and ws.ledger.empty
     feed(r, "clean up")  # nothing left: no ask, no error
     assert len(seen) == 2  # an empty ledger never reaches the guard
+
+
+def test_parallel_dictation_goes_through_accessibility_then_borrows_focus() -> None:
+    from tests.test_workspace import World
+    from tests.test_workspace import make as make_ws
+
+    world = World()
+    ws = make_ws(world)
+    ex = FakeExec()
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws,
+    )
+    feed(r, "open notes and type hello there")
+    assert ex.log == ["open:Notes:side", "ax:Notes:hello there "] and world.front == "Slack"
+    ex2 = FakeExec()
+    ex2.ax_ok = False  # type: ignore[attr-defined]
+    world2 = World()
+    ws2 = make_ws(world2)
+    r2 = Runner(
+        Config(),
+        None,
+        ex2,
+        APPS,
+        classify=lambda tail, ctx: canned(tail, ctx.dictating),
+        workspace=ws2,
+    )
+    feed(r2, "open notes and type hello there")
+    assert ex2.log == ["open:Notes:side", "ax:Notes:hello there ", "type:hello there "]
+    assert world2.raised[-2:] == ["Notes", "Slack"] and any(
+        "attention" in line for line in world2.log
+    )

@@ -72,6 +72,25 @@ class Executor:
             r = Result(True, f"opened {app.name} (could not bring it to the front)")
         return Result(r.ok, f"left full screen, {r.message}") if left and r.ok else r
 
+    def type_ax(self, app: str, text: str) -> bool:
+        """Append text to the app's focused element without the keyboard (parallel mode)."""
+        try:
+            from ApplicationServices import AXUIElementSetAttributeValue
+
+            from yapp.ax import _attr, app_element
+
+            el, _ = app_element(app)
+            focused = _attr(el, "AXFocusedUIElement")
+            if focused is None:
+                return False
+            current = str(_attr(focused, "AXValue") or "")
+            wanted = current + text
+            if AXUIElementSetAttributeValue(focused, "AXValue", wanted) != 0:
+                return False
+            return str(_attr(focused, "AXValue") or "") == wanted
+        except Exception:  # noqa: BLE001 - any refusal means: borrow focus instead
+            return False
+
     def type_text(self, text: str) -> Result:
         if not text:
             return Result(True, "nothing to type")

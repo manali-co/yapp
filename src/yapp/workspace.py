@@ -113,10 +113,26 @@ class Workspace:
         return self.windows_of(app) if app else []
 
     def note_new_windows(self, app: str, before: list[Any]) -> None:
-        if app:
-            n = self.ledger.note_windows(app, before, self.windows_of(app), self.window_title)
-            if n:
-                self.log(f"ledger: {n} new {app} window(s)")
+        if not app:
+            return
+        already = len(self.ledger.windows)
+        n = self.ledger.note_windows(app, before, self.windows_of(app), self.window_title)
+        if n:
+            self.log(f"ledger: {n} new {app} window(s)")
+            if self.parallel:
+                for w in self.ledger.windows[already:]:
+                    if self.windows.place_window(w.ref):
+                        self.log(f"windows: new {app} window placed in the work area")
+                if self.user_app and self.user_app != app:
+                    self.raise_app(self.user_app)
+
+    def type_on_side(
+        self, text: str, type_ax: Callable[[str, str], bool], keystrokes: Callable[[], Any]
+    ) -> Any:
+        """Dictation in parallel mode: append through Accessibility, else borrow focus once."""
+        if self.work_app and type_ax(self.work_app, text):
+            return None
+        return self.borrow_focus(self.work_app, keystrokes)
 
     def cleanup(self) -> list[str]:
         done = self.ledger.cleanup(

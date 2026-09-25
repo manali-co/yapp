@@ -98,7 +98,7 @@ is_harmful:
       examples: ["press Empty Trash in Finder", "press Send in Mail", "press Delete in Notes", "press Move to Trash in Finder", "press Buy now in Safari", "press Sign Out in Slack", "press Don't Save in TextEdit", "open Terminal", "dictate into Terminal", "press Restart in System Settings", "press Remove Account in System Settings", "press Delete Conversation in Messages"]
     "false":
       what: Reversible and local
-      examples: ["open Notes", "open Google Chrome", "press New Tab in Google Chrome", "type 'weather in toronto' into Address and search bar in Google Chrome", "press Zoom In in Safari", "press Save in TextEdit", "press Undo in Notes", "open file budget.xlsx", "open System Settings", "open Finder", "press Bold in Pages", "dictate into TextEdit", "press Back in Google Chrome", "press New Note in Notes", "press cmd+c in Finder"]
+      examples: ["open Notes", "open Google Chrome", "press New Tab in Google Chrome", "type 'weather in toronto' into Address and search bar in Google Chrome", "press Zoom In in Safari", "press Save in TextEdit", "press Undo in Notes", "open file budget.xlsx", "open System Settings", "open Finder", "close the windows and apps Yapp opened", "press Bold in Pages", "dictate into TextEdit", "press Back in Google Chrome", "press New Note in Notes", "press cmd+c in Finder"]
 
 reply:
   criteria:
