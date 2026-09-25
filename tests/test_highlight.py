@@ -12,6 +12,9 @@ class FakeDrawer:
         self.calls.append(("place", frame))
         self.above = above
 
+    def conceal(self) -> None:
+        self.calls.append(("conceal", None))
+
     def pulse(self, on: bool) -> None:
         self.calls.append(("pulse", on))
 
@@ -94,3 +97,18 @@ def test_glow_is_stacked_right_above_its_window() -> None:
     assert d.above == 4242
     h.track()
     assert d.above == 4242
+
+
+def test_glow_hides_while_the_users_front_window_overlaps_it() -> None:
+    d = FakeDrawer()
+    covered = [False]
+    h = Highlight(d, lambda w: Rect(0, 0, 10, 10), covered_by_front=lambda f: covered[0])
+    h.show("w1")
+    covered[0] = True
+    h.track()
+    assert d.calls[-1] == ("conceal", None) and h.concealed and h.state == "acting"
+    h.track()
+    assert d.calls[-1] == ("conceal", None)  # not repeated
+    covered[0] = False
+    h.track()
+    assert d.calls[-1] == ("place", Rect(0, 0, 10, 10)) and not h.concealed
