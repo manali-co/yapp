@@ -386,6 +386,9 @@ def bring_to_front(app_name: str, timeout: float = 4.0) -> bool:
 def _running_app(app_name: str) -> Any:
     from AppKit import NSWorkspace
 
+    from yapp.ax import refresh_workspace
+
+    refresh_workspace()  # NSWorkspace only learns about launches and quits from the run loop
     for app in NSWorkspace.sharedWorkspace().runningApplications():
         if (app.localizedName() or "").lower() == app_name.lower():
             return app
