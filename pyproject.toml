@@ -3,7 +3,7 @@ name = "yapp"
 version = "0.1.0"
 description = "Hold a key, talk, and your Mac acts while you're still talking. Local Whisper + TypeSafe Jev."
 readme = "README.md"
-license = "MIT"
+license = "CC-BY-4.0"
 requires-python = ">=3.12"
 authors = [{ name = "Manali" }]
 dependencies = [
