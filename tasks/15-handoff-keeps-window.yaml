@@ -1,0 +1,10 @@
+name: 15-handoff-keeps-window
+# The document is for the user: "clean up" must leave TextEdit alone.
+placement: hand_over
+instruction: open text edit and then new document for my notes and then type keep this and then clean up
+quit_before: [TextEdit]
+check:
+  - app_running: TextEdit
+settle_seconds: 3
+cleanup: false
+discard_after: [TextEdit]

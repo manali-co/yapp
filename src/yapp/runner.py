@@ -118,9 +118,10 @@ class Runner:
             self._type(self.stream.dictation_words(flush=True))
             self.stream.exit_dictation()
         self._flush_held()  # words a field refused: one borrow, at the very end
+        said = " ".join(self.stream.committed)  # the whole utterance decides the purpose
         self.stream.reset()
         if self.workspace is not None:
-            self.workspace.reset()  # after the last words are typed where they belong
+            self.workspace.reset(said)  # after the last words are typed where they belong
         return out
 
     def _step(self, tail: str) -> Verdict:
@@ -343,7 +344,7 @@ def build_workspace(
     from yapp import windows as win
     from yapp.ax import frontmost_app_name
     from yapp.native import app_is_running, bring_to_front, quit_app
-    from yapp.placement import decide_placement, seconds_since_input, typing_now
+    from yapp.placement import decide_placement, decide_purpose, seconds_since_input, typing_now
     from yapp.pointer import borrow_pointer
 
     def decide(instruction: str, front: str, target: str) -> Placement:
@@ -377,6 +378,7 @@ def build_workspace(
         focused=win.focused_window,
         real_click=lambda x, y: borrow_pointer(x, y),
         typing_now=typing_now,
+        purpose=lambda instruction, app: decide_purpose(jev, instruction, app),
     )
 
 
@@ -410,7 +412,7 @@ def build_runner(
         from yapp.barapp import UI
         from yapp.highlight import build_highlight
 
-        highlight = build_highlight(UI, win.window_frame, log)
+        highlight = build_highlight(UI, win.window_frame, log, number_of=win.window_number)
 
     def attention_on(text: str) -> None:
         attention(text)

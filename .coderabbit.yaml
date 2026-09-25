@@ -1,5 +1,18 @@
 # CodeRabbit review settings for manali-co/yapp. Docs: https://docs.coderabbit.ai/reference/configuration
 language: en-US
+tone_instructions: >
+  Review against docs/PRINCIPLES.md: Yapp is generic voice computer use for macOS where Jev
+  decides and code executes. Flag any product code that special-cases a particular application,
+  menu item, or window title; any action reaching the machine without the guard; anything that
+  can take the user's focus, cover their front window, or close or delete what is theirs; and
+  harness-only behaviour that could run inside the app. Prefer generic mechanisms over patterns.
+knowledge_base:
+  code_guidelines:
+    filePatterns:
+      - "docs/PRINCIPLES.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "docs/superpowers/specs/*.md"
 reviews:
   profile: assertive
   request_changes_workflow: true
@@ -34,6 +47,16 @@ reviews:
       instructions: >
         Jev question criteria. Examples must be generic phrasings, never app-specific
         hardcoding; true/false keys must be quoted strings.
+    - path: "src/yapp/{workspace,highlight,placement,ledger,pointer,windows}.py"
+      instructions: >
+        The parallel-mode machinery. Check: no window raised or focus borrowed while the user
+        is typing; the glow never marks the user's own window or covers their front window;
+        clean-up touches only what Yapp opened; nothing here names a specific application.
+    - path: "src/yapp/tasks.py"
+      instructions: >
+        The benchmark harness, not the product: it may quit apps and delete items a task
+        created, but must prove ownership (snapshot diff + the task's dictated words) and must
+        never be imported by the app's runtime path.
     - path: "tests/**"
       instructions: Tests must not need the network or a TYPESAFE_API_KEY unless marked `jev`.
   tools:

@@ -24,7 +24,7 @@ class FakeJev:
 
     def ask(self, state: Any, questions: Any) -> FakeResp:
         self.states.append(dict(state))
-        assert "placement" in questions
+        assert "placement" in questions or "purpose" in questions
         return FakeResp(self.key, self.conf)
 
 
@@ -58,3 +58,13 @@ def test_typing_now_window() -> None:
     from yapp.placement import typing_now
 
     assert typing_now(lambda: 0.3) and not typing_now(lambda: 5.0)
+
+
+def test_purpose_needs_confidence_to_call_a_window_a_tool() -> None:
+    from yapp.placement import HAND_OFF, TOOL, decide_purpose
+
+    def run(key: str, conf: float) -> str:
+        jev = FakeJev(key, conf)
+        return decide_purpose(jev, "add buy stamps", "Reminders").kind  # type: ignore[arg-type]
+
+    assert run(TOOL, 0.9) == TOOL and run(TOOL, 0.5) == HAND_OFF and run(HAND_OFF, 0.2) == HAND_OFF

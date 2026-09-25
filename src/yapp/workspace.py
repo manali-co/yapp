@@ -11,11 +11,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from yapp.ledger import Ledger
-from yapp.placement import HAND_OVER, PARALLEL, Placement
+from yapp.ledger import HAND_OFF, Ledger
+from yapp.placement import HAND_OVER, PARALLEL, Placement, Purpose
 from yapp.windows import WindowManager
 
 Decider = Callable[[str, str, str], Placement]  # (instruction, front app, target app)
+PurposeDecider = Callable[[str, str], Purpose]  # (instruction, app) -> hand_off | tool
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,9 @@ class Workspace:
         real_click: Callable[[float, float], bool] = lambda x, y: False,
         typing_now: Callable[[], bool] = lambda: False,
         now: Callable[[], float] = time.monotonic,
+        purpose: PurposeDecider | None = None,
     ) -> None:
+        self._purpose = purpose  # None: everything Yapp opens is a hand-off (kept)
         self.typing_now = typing_now  # a hard rule above Jev: never raise while keys are down
         self.now = now
         self.may = may  # the guard: (action) -> allowed?
@@ -107,15 +110,32 @@ class Workspace:
             self.windows.begin_parallel(self.user_app)
         return self.mode
 
-    def reset(self) -> None:
-        """Session over: forget the placement; the ledger survives until clean-up. Windows
-        Yapp opened keep their glow until clean-up (they are still Yapp's); a glow on a
-        window that was already the user's fades now."""
+    def reset(self, utterance: str = "") -> None:
+        """Session over: forget the placement; the ledger survives until clean-up. What
+        was opened for the user is released to them; Yapp's tool windows keep their glow
+        until clean-up; a glow on a window that was already the user's fades now."""
         self.mode = None
+        self.settle_purposes(utterance)
+        handed = self.ledger.release_hand_offs()
+        if handed:
+            self.log("handed over to the user: " + ", ".join(handed))
         if self.ledger.empty:
-            self.glow_done()
+            self.glow_done()  # nothing of Yapp's left: the glow fades
+        elif self.highlight is not None and self.ledger.windows:
+            self.highlight.show(self.ledger.windows[-1].ref)  # a tool window stays marked
 
     # ---- opening apps ----------------------------------------------------------------
+    def settle_purposes(self, utterance: str) -> str:
+        """Session over: one decision, from everything the user said, tags all of this
+        session's windows and launches hand-off or tool. Unsure, or no decider: hand-off."""
+        kind = HAND_OFF
+        if self._purpose is not None and utterance.strip():
+            p = self._purpose(utterance, self.work_app)
+            kind = p.kind
+            self.log(f"purpose: {kind} ({p.confidence:.2f}, {p.latency_ms} ms) for '{utterance}'")
+        self.ledger.settle_purposes(kind)
+        return kind
+
     def before_open(self, app: str) -> bool:
         """Returns whether the app should be activated (hand over) or left behind (parallel).
         Even in hand-over mode a window is never raised while the user is typing."""

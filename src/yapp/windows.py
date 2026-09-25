@@ -163,6 +163,29 @@ def window_title(win: Any) -> str:
     return str(_attr(win, "AXTitle") or "")
 
 
+def window_number(win: Any) -> int | None:
+    """The window server's id of an AX window: same owner pid, same bounds (±2 px)."""
+    import Quartz
+    from ApplicationServices import AXUIElementGetPid
+
+    err, pid = AXUIElementGetPid(win, None)
+    frame = window_frame(win)
+    if err != 0 or frame is None:
+        return None
+    for info in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, 0) or []:
+        if info.get("kCGWindowOwnerPID") != pid or info.get("kCGWindowLayer", 0) != 0:
+            continue
+        b = info.get("kCGWindowBounds", {})
+        if (
+            abs(b.get("X", 0) - frame.x) <= 2
+            and abs(b.get("Y", 0) - frame.y) <= 2
+            and abs(b.get("Width", 0) - frame.w) <= 2
+            and abs(b.get("Height", 0) - frame.h) <= 2
+        ):
+            return int(info.get("kCGWindowNumber", 0)) or None
+    return None
+
+
 def close_window(win: Any) -> bool:
     from ApplicationServices import AXUIElementPerformAction
 

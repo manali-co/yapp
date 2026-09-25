@@ -1,0 +1,9 @@
+name: 16-tool-window-is-cleaned-up
+# Reminders was only Yapp's tool for the job: "clean up" quits it again.
+placement: hand_over
+instruction: open reminders and then new reminder and then type buy stamps and then clean up
+quit_before: [Reminders]
+check:
+  - app_not_running: Reminders
+settle_seconds: 3
+cleanup: false

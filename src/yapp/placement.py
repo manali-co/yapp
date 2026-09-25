@@ -95,3 +95,63 @@ def decide_placement(
     r = resp.choice("placement")
     mode = PARALLEL if r.key == PARALLEL and r.confidence >= THRESHOLD else HAND_OVER
     return Placement(mode, r.confidence, resp.latency_ms)
+
+
+HAND_OFF = "hand_off"
+TOOL = "tool"
+PURPOSE_THRESHOLD = 0.60
+PURPOSE_CRITERIA: dict[str, Any] = {
+    HAND_OFF: {
+        "what": (
+            "The window is the point: the user wants to see or keep working in what Yapp "
+            "opened, so it stays theirs once Yapp is done"
+        ),
+        "examples": [
+            "open chrome and search for flights to lisbon",
+            "open chrome and then new tab and then search for weather in toronto",
+            "show me the downloads folder",
+            "open text edit and then new document for my notes",
+            "go to the settings page for bluetooth",
+            "open the budget spreadsheet",
+        ],
+    },
+    TOOL: {
+        "what": (
+            "Yapp only used the window to get something done; the user did not ask to see "
+            "it, and it can be closed again"
+        ),
+        "examples": [
+            "add buy stamps to my reminders",
+            "open reminders and then new reminder and then type buy stamps",
+            "open notes and then new note and then type groceries milk and eggs",
+            "make a note that says call the dentist",
+            "check whether the store is open and tell me",
+            "set a timer for ten minutes",
+            "look up the weather and read it to me",
+        ],
+    },
+}
+
+
+@dataclass(frozen=True)
+class Purpose:
+    kind: str
+    confidence: float
+    latency_ms: int = 0
+
+
+def decide_purpose(jev: JevLike, instruction: str, app: str) -> Purpose:
+    """Hand-off (the window is for the user) or tool (Yapp's own scratch). Unsure keeps it."""
+    q = Choice(
+        instructions=(
+            "Yapp opened windows (in `app`, among others) to carry out `instruction`, the "
+            "whole of what the user said. Now that it is done, are those windows something "
+            "the user wants to keep using (hand-off), or were they only Yapp's tools for the "
+            "job (tool)?"
+        ),
+        criteria=PURPOSE_CRITERIA,
+    )
+    resp = jev.ask({"instruction": instruction, "app": app}, {"purpose": q})
+    r = resp.choice("purpose")
+    kind = TOOL if r.key == TOOL and r.confidence >= PURPOSE_THRESHOLD else HAND_OFF
+    return Purpose(kind, r.confidence, resp.latency_ms)

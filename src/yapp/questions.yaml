@@ -68,7 +68,7 @@ ends_dictation:
   criteria:
     "true":
       what: A command aimed at the computer
-      examples: ["stop typing", "open safari", "undo", "switch to notes", "save that"]
+      examples: ["stop typing", "open safari", "undo", "switch to notes", "save that", "clean up", "we're done", "close everything", "put it back"]
     "false":
       what: Ordinary sentence content that belongs in the document
       examples: ["and then we went home", "thanks for your help", "the meeting is at five", "open to suggestions"]

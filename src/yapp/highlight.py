@@ -57,7 +57,8 @@ def oklch_to_srgb(L: float, C: float, h: float) -> tuple[float, float, float]:
 class Drawer(Protocol):
     """What the native layer must do; the state machine never touches AppKit itself."""
 
-    def place(self, frame: Rect) -> None: ...
+    def place(self, frame: Rect, above: int | None = None) -> None: ...
+    def conceal(self) -> None: ...  # off screen for now, state unchanged
     def pulse(self, on: bool) -> None: ...
     def fade(self, ms: int) -> None: ...
     def hide(self) -> None: ...
@@ -70,6 +71,9 @@ class Highlight:
 
     drawer: Drawer
     frame_of: Callable[[Any], Rect | None]
+    number_of: Callable[[Any], int | None] = lambda w: None  # window-server id, for z-order
+    covered_by_front: Callable[[Rect], bool] = lambda frame: False  # the user's window overlaps?
+    concealed: bool = False
     settle_ms: int = 1400
     state: str = "hidden"
     window: Any = None
@@ -84,8 +88,9 @@ class Highlight:
             return False
         self.window = window
         self.misses = 0
+        self.concealed = False
         self.log(f"glow: on {frame}")
-        self.drawer.place(frame)
+        self.drawer.place(frame, self.number_of(window))
         if self.state != "attention":
             self.state = "acting"
         return True
@@ -101,7 +106,15 @@ class Highlight:
                     self.hide()
             else:
                 self.misses = 0
-                self.drawer.place(frame)
+                if self.covered_by_front(frame):
+                    # The user's front window sits over part of Yapp's: the glow must never
+                    # cover what they are working in. Back as soon as the overlap is gone.
+                    if not self.concealed:
+                        self.concealed = True
+                        self.drawer.conceal()
+                    return
+                self.concealed = False
+                self.drawer.place(frame, self.number_of(self.window))
 
     def attention(self, on: bool) -> None:
         if self.state == "hidden":
@@ -256,7 +269,7 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
             st.window.setAlphaValue_(1.0)
 
     class Native:
-        def place(self, frame: Rect) -> None:
+        def place(self, frame: Rect, above: int | None = None) -> None:
             def apply() -> None:
                 w = ensure()
                 # A fade may be running from the previous window: stop it, so the frame
@@ -270,6 +283,7 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
                 x, y = frame.x, main_h - (frame.y + frame.h)
                 w.setFrame_display_(NSMakeRect(x, y, frame.w, frame.h), True)
                 w.setAlphaValue_(1.0)
+                w.setLevel_(NSFloatingWindowLevel)
                 w.orderFrontRegardless()
                 st.view.setNeedsDisplay_(True)
                 start_tracking()
@@ -301,6 +315,13 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
                 AppHelper.callLater(
                     ms / 1000.0 + 0.05, lambda: st.window and st.window.orderOut_(None)
                 )
+
+            AppHelper.callAfter(apply)
+
+        def conceal(self) -> None:
+            def apply() -> None:
+                if st.window is not None:
+                    st.window.orderOut_(None)  # the tracker keeps running; place() brings it back
 
             AppHelper.callAfter(apply)
 
@@ -353,8 +374,26 @@ def debug_state() -> str:
     return _drawer.debug() if _drawer is not None and hasattr(_drawer, "debug") else "no drawer"
 
 
+def front_window_overlaps(frame: Rect) -> bool:
+    """Does the front app's focused window overlap this frame? (Only another app's window
+    counts: the glowed window's own app in front means nothing is covered.)"""
+    from yapp import windows as win
+    from yapp.ax import frontmost_app_name
+
+    app = frontmost_app_name()
+    w = win.focused_window(app)
+    f = win.window_frame(w) if w is not None else None
+    if f is None or f == frame:
+        return False
+    return frame.overlap(f) > 0
+
+
 def build_highlight(
-    ui_dir: Any, frame_of: Callable[[Any], Rect | None], log: Callable[[str], None] = lambda s: None
+    ui_dir: Any,
+    frame_of: Callable[[Any], Rect | None],
+    log: Callable[[str], None] = lambda s: None,
+    number_of: Callable[[Any], int | None] = lambda w: None,
+    covered_by_front: Callable[[Rect], bool] = front_window_overlaps,
 ) -> Highlight:
     """Highlight wired to the design bundle's colour and timings."""
     avatar = ui_dir.joinpath("yapp-avatar.js").read_text()
@@ -362,7 +401,14 @@ def build_highlight(
     L, C, h = acting_hue(avatar)
     d = durations(tokens)
     drawer = native_drawer(oklch_to_srgb(L, C, h), pulse_ms=d.get("pulse", 380))
-    highlight = Highlight(drawer, frame_of, settle_ms=d.get("settle", 1400), log=log)
+    highlight = Highlight(
+        drawer,
+        frame_of,
+        number_of=number_of,
+        covered_by_front=covered_by_front,
+        settle_ms=d.get("settle", 1400),
+        log=log,
+    )
     set_tracker = getattr(drawer, "set_tracker", None)
     if set_tracker is not None:
         set_tracker(highlight.track)
@@ -381,7 +427,7 @@ def glow_diagnostic(app_name: str, seconds: float = 3.0) -> str:
     from yapp.ax import refresh_workspace
 
     lines = []
-    h = build_highlight(resources.files("yapp.ui"), win.window_frame)
+    h = build_highlight(resources.files("yapp.ui"), win.window_frame, number_of=win.window_number)
     w = win.focused_window(app_name)
     if w is None:
         wins = win.app_windows(app_name)

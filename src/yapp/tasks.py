@@ -350,27 +350,35 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
             return False, f"no window for {arg}"
         settle(0.5)  # the window server applies our ordering a beat after the run loop turns
         mine = os.getpid()
-        for info in (
-            Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, 0) or []
-        ):
-            if info.get("kCGWindowOwnerPID") != mine:
-                continue
-            b = info.get("kCGWindowBounds", {})
-            glow = win.Rect(b.get("X", 0), b.get("Y", 0), b.get("Width", 0), b.get("Height", 0))
-            close = all(
-                abs(a - b) <= 2
-                for a, b in (
-                    (glow.x, frame.x),
-                    (glow.y, frame.y),
-                    (glow.w, frame.w),
-                    (glow.h, frame.h),
-                )
+        ours = [
+            info.get("kCGWindowBounds", {})
+            for info in (
+                Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, 0) or []
             )
-            if close:
+            if info.get("kCGWindowOwnerPID") == mine
+        ]
+        front_app = frontmost()
+        if front_app.lower() != str(arg).lower():
+            fw = win.focused_window(front_app)
+            ff = win.window_frame(fw) if fw is not None else None
+            if ff is not None and ff.overlap(frame) > 0:
+                # The user's window overlaps Yapp's: the glow must be concealed right now.
+                if ours:
+                    return False, f"front app {front_app} overlaps {arg} but the glow is on screen"
+                return True, f"front app {front_app} overlaps {arg}: glow concealed"
+        for b in ours:
+            glow = win.Rect(b.get("X", 0), b.get("Y", 0), b.get("Width", 0), b.get("Height", 0))
+            pairs = ((glow.x, frame.x), (glow.y, frame.y), (glow.w, frame.w), (glow.h, frame.h))
+            if all(abs(a - c) <= 2 for a, c in pairs):
                 return True, f"glow {glow} on {arg} {frame}"
         from yapp.highlight import debug_state
 
         return False, f"no glow window of ours around {arg} {frame}; {debug_state()}"
+    if kind == "app_running":
+        from yapp.native import app_is_running
+
+        running = app_is_running(str(arg))
+        return running, f"{arg} running={running}"
     if kind == "app_not_running":
         from yapp.native import app_is_running
 
