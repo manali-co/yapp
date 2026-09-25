@@ -237,9 +237,17 @@ def merge_equivalents(targets: list[Target]) -> list[Target]:
     (it carries the shortcut) so Jev's vote is not split between two spellings of one thing."""
     menus = {t.label.lower(): t for t in targets if t.kind == "menu"}
     out: list[Target] = []
+    seen_menu: set[tuple[str, str]] = set()
     for t in targets:
         if t.kind == "control" and t.role == "AXButton" and t.label.lower() in menus:
             continue
+        if t.kind == "menu":
+            # The same command listed under two menus (Safari › Clear History… and
+            # History › Clear History…) is one action; a split vote would drop it.
+            key = (t.label.lower(), t.shortcut)
+            if key in seen_menu:
+                continue
+            seen_menu.add(key)
         out.append(t)
     return out
 

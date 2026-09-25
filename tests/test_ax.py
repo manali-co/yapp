@@ -353,3 +353,12 @@ def test_describe_typing_step_names_field_text_and_submit() -> None:
     assert Screen._describe(d, "Google Chrome") == (
         "type 'cats' into Address and search bar in Google Chrome and submit"
     )
+
+
+def test_merge_equivalents_dedupes_the_same_command_under_two_menus() -> None:
+    from yapp.ax import merge_equivalents
+
+    a = Target("m8", "menu", "AXMenuItem", "Clear History…", "Safari › Clear History…", "")
+    b = Target("m9", "menu", "AXMenuItem", "Clear History…", "History › Clear History…", "")
+    c = Target("m10", "menu", "AXMenuItem", "Clear History…", "Edit › Clear History…", "⌘K")
+    assert merge_equivalents([a, b, c]) == [a, c]  # different shortcut = different command

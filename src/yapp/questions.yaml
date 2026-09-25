@@ -22,7 +22,7 @@ intent:
     screen_action:
       what: Do something inside the app in front by naming a menu command, button, tab, link, or field
       not_for: Launching a different app; typing free text with no field named; the basic shortcuts above
-      examples: ["new tab", "zoom in", "find on page", "search for fable five", "bold this", "close this tab", "go to the address bar", "reply to this email", "click sign in"]
+      examples: ["new tab", "new document", "new reminder", "zoom in", "find on page", "search for fable five", "bold this", "close this tab", "go to the address bar", "reply to this email", "click sign in", "show downloads", "go to downloads"]
     undo:
       what: Reverse or cancel what Yapp just did
       not_for: The undo shortcut inside an app while dictating a document
@@ -52,7 +52,7 @@ is_complete:
   criteria:
     "true":
       what: A verb and its target are both present (or the verb needs no target)
-      examples: ["open notes", "open notes and", "open notes and then", "switch to safari and", "type hello", "save", "undo", "copy that", "new tab", "zoom in", "find on page", "search for cats", "bold this", "close this tab", "next tab and"]
+      examples: ["open notes", "open notes and", "open notes and then", "switch to safari and", "type hello", "save", "undo", "copy that", "new tab", "new document and then", "new reminder and then type buy stamps", "new note", "zoom in", "find on page", "search for cats", "bold this", "close this tab", "next tab and", "show downloads", "clear history"]
     "false":
       what: The verb has no target yet, or only filler so far
       examples: ["open", "switch to", "go to the", "um open", "type", "and", "open the", "search for", "find", "new", "zoom"]
