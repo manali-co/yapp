@@ -338,13 +338,25 @@ def run_tasks(
         return 2
     outcomes: list[Outcome] = []
     for t in tasks:
+        if screen_locked():
+            display.show_error(
+                f"the screen locked before {t.name}: stopping, nothing recorded for it"
+            )
+            break
         display.status(f"── task {t.name}: “{t.instruction}”")
-        outcomes.append(run_task(t, cfg, display, mode, approve))
-        o = outcomes[-1]
+        o = run_task(t, cfg, display, mode, approve)
+        if screen_locked():
+            display.show_error(
+                f"the screen locked during {t.name}: its result is discarded; stopping"
+            )
+            break
+        outcomes.append(o)
         display.status(
             f"   {'PASS' if o.passed else 'FAIL'} in {o.seconds:.1f}s · jev {o.jev_calls} calls "
             f"{o.jev_ms} ms · asked {o.asked or '-'}"
         )
+    if not outcomes:
+        return 3
     results.parent.mkdir(parents=True, exist_ok=True)
     with results.open("a") as f:
         for o in outcomes:
