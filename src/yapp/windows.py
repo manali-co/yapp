@@ -232,12 +232,26 @@ def close_and_discard(win: Any, settle: float = 0.5) -> str:
 
     if not close_window(win):
         return "could not close"
-    time.sleep(settle)
-    found = discard_button(sheet_buttons(win))
-    if found is None:
-        return "closed"
-    title, el = found
-    return f"closed, pressed {title}" if press(el) else f"closed, could not press {title}"
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        time.sleep(settle)
+        found = discard_button(sheet_buttons(win))
+        if found is not None:
+            title, el = found
+            return f"closed, pressed {title}" if press(el) else f"closed, could not press {title}"
+        if _attr(win, "AXRole") is None:  # the window is gone: nothing asked
+            return "closed"
+    return "closed (no sheet answered)"
+
+
+def discard_open_sheets(app_name: str) -> int:
+    """Answer every 'save?' sheet still open in the app with its throw-away button."""
+    n = 0
+    for w in app_windows(app_name):
+        found = discard_button(sheet_buttons(w))
+        if found is not None and press(found[1]):
+            n += 1
+    return n
 
 
 class WindowManager:

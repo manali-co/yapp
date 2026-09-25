@@ -3,8 +3,7 @@ name: 13-parallel-split
 # front on the left, and type without taking the keyboard.
 instruction: open text edit and then new document and then type parallel hello
 placement: parallel
-setup:
-  - open -a Notes
+activate_before: [Notes]
 check:
   - frontmost: Notes
   - window_in_left_half: Notes
