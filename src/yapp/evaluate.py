@@ -8,7 +8,7 @@ from pathlib import Path
 from rich.table import Table
 
 from yapp.config import Config
-from yapp.display import Display
+from yapp.display import Terminal
 from yapp.intent import Context, classify
 from yapp.jev import Jev
 from yapp.types import App
@@ -30,7 +30,7 @@ BUCKETS = [(0.85, "≥ 0.85"), (0.60, "0.60–0.85"), (0.0, "< 0.60")]
 DEFAULT_PATH = Path("tests/eval/transcripts.jsonl")
 
 
-def run_eval(cfg: Config, display: Display, path: Path = DEFAULT_PATH) -> int:
+def run_eval(cfg: Config, display: Terminal, path: Path = DEFAULT_PATH) -> int:
     if not path.exists():
         display.show_error(f"eval transcripts not found: {path} (run from the repo root)")
         return 2

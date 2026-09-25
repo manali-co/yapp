@@ -1,0 +1,6 @@
+name: 12-chrome-downloads
+instruction: open chrome and then show downloads
+check:
+  - frontmost: Google Chrome
+  - window_title_contains: Download
+settle_seconds: 3

@@ -38,9 +38,16 @@ def test_open_app_unsure_ignores() -> None:
     assert decide(d(app=None), T).outcome == Outcome.IGNORE
 
 
-def test_destructive_refuses_even_when_confident() -> None:
-    v = decide(d(is_destructive=0.6), T)
-    assert v.outcome == Outcome.REFUSE and "delete" in v.reason
+def test_not_addressed_to_the_computer_is_ignored() -> None:
+    v = decide(d(is_addressed=0.2), T)
+    assert v.outcome == Outcome.IGNORE and "not talking to me" in v.reason
+    v = decide(d(is_addressed=0.2, ends_dictation=0.9), T, dictating=True)
+    assert v.outcome == Outcome.EXECUTE  # while dictating the gate does not apply
+
+
+def test_destructive_no_longer_refuses_here() -> None:
+    """Harm is judged on the concrete action by the guard (guard.py), not on the sentence."""
+    assert decide(d(), T).outcome == Outcome.EXECUTE
 
 
 def test_type_text_enters_dictation() -> None:
@@ -70,3 +77,10 @@ def test_none_ignores() -> None:
 )
 def test_press_key(combo: str | None, expected: Outcome) -> None:
     assert decide(d(intent=Intent.PRESS_KEY, app=None, key_combo=combo), T).outcome == expected
+
+
+def test_screen_action_gate() -> None:
+    d_ok = d(intent=Intent.SCREEN, app=None, intent_confidence=0.7)
+    assert decide(d_ok, T).outcome == Outcome.EXECUTE
+    d_low = d(intent=Intent.SCREEN, app=None, intent_confidence=0.5)
+    assert decide(d_low, T).outcome == Outcome.IGNORE

@@ -11,8 +11,8 @@ def decide(
 ) -> Verdict:
     if dictating and d.ends_dictation < t.ends_dictation:
         return Verdict(Outcome.IGNORE, "dictating")
-    if d.is_destructive >= t.destructive:
-        return Verdict(Outcome.REFUSE, "won't do that: could delete, send, or spend")
+    if not dictating and d.is_addressed < t.addressed:
+        return Verdict(Outcome.IGNORE, f"not talking to me ({d.is_addressed:.2f})")
     if d.intent == Intent.NONE:
         return Verdict(Outcome.IGNORE, "not an instruction")
     if d.is_complete < t.complete:
@@ -37,6 +37,8 @@ def decide(
             if not has_last:
                 return Verdict(Outcome.IGNORE, "nothing to undo")
             return _gate(c, t.undo, "undo")
+        case Intent.SCREEN:
+            return _gate(c, t.screen, f"screen '{d.tail}'")
     return Verdict(Outcome.IGNORE, "unhandled intent")
 
 

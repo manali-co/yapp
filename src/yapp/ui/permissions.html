@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Yapp — Permissions</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  html, body { margin: 0; background: transparent; }
+  body { font: var(--yapp-text-body); color: var(--yapp-label); -webkit-font-smoothing: antialiased; }
+  body.embed { width: var(--yapp-window-w); }
+  body.single { width: 480px; min-height: 560px; display: grid; place-items: center; padding: 24px 0; box-sizing: border-box; }
+  body.gallery { padding: 32px; display: flex; flex-direction: column; gap: 18px; background: var(--yapp-material-window); }
+  .wall { position: fixed; inset: 0; z-index: -1; background: radial-gradient(120% 90% at 20% 10%, #dfe7f1, transparent 60%), radial-gradient(90% 90% at 90% 80%, #e8d9cf, transparent 60%), linear-gradient(135deg, #c8d3e2, #d9dde6); }
+  :root.appearance-dark .wall { background: radial-gradient(120% 90% at 20% 10%, #2a3446, transparent 60%), radial-gradient(90% 90% at 90% 80%, #3e2f2c, transparent 60%), linear-gradient(135deg, #171b24, #23262e); }
+  .win { width: var(--yapp-window-w); box-sizing: border-box; background: var(--yapp-material-window); -webkit-backdrop-filter: blur(40px) saturate(180%); backdrop-filter: blur(40px) saturate(180%); color: var(--yapp-label); }
+  body.single .win { border-radius: var(--yapp-radius-window); box-shadow: 0 0 0 0.5px var(--yapp-material-border), inset 0 0.5px 0 var(--yapp-material-highlight), var(--yapp-shadow); overflow: hidden; }
+  .titlebar { height: 38px; display: none; align-items: center; justify-content: center; font: 600 13px/1 var(--yapp-font); color: var(--yapp-label-2); position: relative; }
+  body.single .titlebar { display: flex; }
+  .lights { position: absolute; left: 12px; top: 13px; display: flex; gap: 8px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--yapp-label-4); box-shadow: inset 0 0 0 0.5px var(--yapp-separator); }
+  .tabs { display: flex; gap: 2px; padding: 6px 12px 0; }
+  .tab { font: 500 12px/1 var(--yapp-font); color: var(--yapp-label-2); padding: 6px 10px; border-radius: var(--yapp-radius-control); cursor: pointer; background: transparent; border: 0; }
+  .tab[aria-selected="true"] { color: var(--yapp-label); background: var(--yapp-control-bg); box-shadow: 0 0 0 0.5px var(--yapp-control-border); }
+  .page { display: none; } .page.on { display: block; }
+  .head { padding: 14px 16px 4px; font: var(--yapp-text-title); }
+  .sub { padding: 0 16px 12px; color: var(--yapp-label-2); }
+  .row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-top: 1px solid var(--yapp-separator); }
+  .row .name { font: 600 13px/1.3 var(--yapp-font); }
+  .row .why { color: var(--yapp-label-2); }
+  .row .grow { flex: 1; min-width: 0; }
+  .state { font: 500 12px/1 var(--yapp-font); color: var(--yapp-label-2); white-space: nowrap; display: flex; align-items: center; gap: 5px; }
+  .state .dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--yapp-label-3); }
+  .row.granted .state .dot { background: var(--yapp-label-2); box-shadow: none; }
+  .row.granted .state::after { content: "Granted"; }
+  .row.missing .state::after { content: "Missing"; color: var(--yapp-label); }
+  .btn { font: 500 12px/1 var(--yapp-font); padding: 6px 11px; border-radius: var(--yapp-radius-control); border: 0; cursor: pointer; white-space: nowrap;
+    background: var(--yapp-accent); color: var(--yapp-on-accent); box-shadow: inset 0 0.5px 0 rgba(255,255,255,.25), 0 0.5px 1px rgba(0,0,0,.15); }
+  .btn.plain { background: var(--yapp-control-bg); color: var(--yapp-label); box-shadow: 0 0 0 0.5px var(--yapp-control-border), 0 0.5px 1px rgba(0,0,0,.08); }
+  .row.granted .btn { display: none; }
+  .foot { display: flex; align-items: center; gap: 12px; padding: 12px 16px 14px; border-top: 1px solid var(--yapp-separator); color: var(--yapp-label-2); }
+  .foot .grow { flex: 1; }
+  .say .row .name { width: 150px; flex: none; }
+  .g-row { display: grid; grid-template-columns: 120px 480px 480px; gap: 16px; align-items: start; }
+  .g-row .lbl { font: var(--yapp-text-detail); color: var(--yapp-label-2); padding-top: 24px; }
+  .g-row iframe { width: 480px; height: 560px; border: 0; border-radius: 12px; background: transparent; }
+  .g-head { font: var(--yapp-text-title); }
+</style>
+</head>
+<body>
+<div class="win" id="win">
+  <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div>Yapp</div>
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="perm" aria-selected="true">Permissions</button>
+    <button class="tab" role="tab" data-tab="say" aria-selected="false">What you can say</button>
+  </div>
+  <div class="page perm on" id="perm">
+    <div class="head">Yapp needs three things from macOS</div>
+    <div class="sub">Two of them macOS won’t ask for. Yapp checks every 2 s; this window closes on its own when all three are on.</div>
+    <div class="row" data-perm="mic"><div class="grow"><div class="name">Microphone</div><div class="why">to hear you · transcribed on this Mac, nothing leaves</div></div><span class="state"><i class="dot"></i></span><button class="btn" data-open="mic">Allow</button></div>
+    <div class="row" data-perm="input"><div class="grow"><div class="name">Input Monitoring</div><div class="why">to notice ⌥ Space while another app is in front</div></div><span class="state"><i class="dot"></i></span><button class="btn" data-open="input">Open Settings</button></div>
+    <div class="row" data-perm="accessibility"><div class="grow"><div class="name">Accessibility</div><div class="why">to open apps and type for you</div></div><span class="state"><i class="dot"></i></span><button class="btn" data-open="accessibility">Open Settings</button></div>
+    <div class="foot"><span class="grow" id="foot">In Settings: find Yapp in the list and switch it on. If it isn’t listed, press + and pick Yapp from Applications.</span><button class="btn plain" data-later>Later</button></div>
+  </div>
+  <div class="page say" id="say">
+    <div class="head">Press ⌥ Space. Yapp listens until you close it.</div>
+    <div class="sub">Words act as they lock in, so you can chain them: “open Notes and type shopping list”. Close with ⌥ Space again, Esc, or 4 s of quiet.</div>
+    <div class="row"><div class="name">“open Notes”</div><div class="why">any app by name. “switch to” works too.</div></div>
+    <div class="row"><div class="name">“type …”</div><div class="why">everything after “type” goes into the front app as you say it. “stop typing” ends it.</div></div>
+    <div class="row"><div class="name">“open the budget file”</div><div class="why">files by name from Desktop, Documents, Downloads and recents.</div></div>
+    <div class="row"><div class="name">“run Morning”</div><div class="why">any Shortcut by its name.</div></div>
+    <div class="row"><div class="name">“undo”</div><div class="why">reverses the last thing Yapp did.</div></div>
+    <div class="foot"><span class="grow">Yapp never deletes, sends or pays. It will say “Won’t do that” instead.</span></div>
+  </div>
+</div>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const appearance = q.get('appearance'); if (appearance) document.documentElement.classList.add('appearance-' + appearance);
+  const MODE = q.has('embed') ? 'embed' : (q.has('demo') ? 'single' : 'gallery');
+  document.body.classList.add(MODE);
+  if (MODE === 'gallery') {
+    document.getElementById('win').remove();
+    const h = document.createElement('div'); h.className = 'g-head'; h.textContent = 'Yapp permissions window — light and dark'; document.body.appendChild(h);
+    [['first run · mic granted', 'mic=1&input=0&accessibility=0'], ['all granted (closes itself)', 'mic=1&input=1&accessibility=1'], ['what you can say', 'tab=say']].forEach(([l, p]) => {
+      const row = document.createElement('div'); row.className = 'g-row';
+      row.innerHTML = '<div class="lbl">' + l + '</div>' + ['light', 'dark'].map(a => '<iframe title="' + l + ' ' + a + '" src="permissions.html?demo&appearance=' + a + '&' + p + '"></iframe>').join('');
+      document.body.appendChild(row);
+    });
+    return;
+  }
+  if (MODE === 'single') { const w = document.createElement('div'); w.className = 'wall'; document.body.prepend(w); }
+  const URLS = { mic: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone', input: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent', accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility' };
+  const emit = (name, detail) => { window.dispatchEvent(new CustomEvent('yapp:' + name, { detail })); try { window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.yapp && window.webkit.messageHandlers.yapp.postMessage(Object.assign({ event: name }, detail)); } catch (e) {} };
+  const state = { mic: null, input: null, accessibility: null };
+  function set(p) {
+    Object.assign(state, p || {});
+    document.querySelectorAll('.row[data-perm]').forEach(r => { const v = state[r.dataset.perm]; r.classList.toggle('granted', v === true); r.classList.toggle('missing', v === false); });
+    const missing = Object.keys(state).filter(k => state[k] === false).length;
+    document.getElementById('foot').textContent = missing ? 'In Settings: find Yapp in the list and switch it on. If it isn’t listed, press + and pick Yapp from Applications.' : 'All set. This window will close in a moment.';
+    if (!missing && Object.values(state).every(v => v === true)) emit('permissions-complete', {});
+  }
+  function tab(name) { document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', t.dataset.tab === name)); document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === name)); }
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => tab(t.dataset.tab));
+  document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => emit('open-settings', { permission: b.dataset.open, url: URLS[b.dataset.open] }));
+  document.querySelector('[data-later]').onclick = () => emit('later', {});
+  window.yappPermissions = { set, tab, state, urls: URLS,
+    setAppearance: a => { document.documentElement.classList.remove('appearance-light', 'appearance-dark'); if (a) document.documentElement.classList.add('appearance-' + a); } };
+  if (MODE === 'single') {
+    const b = k => q.has(k) ? q.get(k) === '1' : null;
+    set({ mic: b('mic'), input: b('input'), accessibility: b('accessibility') });
+    if (q.get('tab')) tab(q.get('tab'));
+  } else if (q.has('mic') || q.has('input') || q.has('accessibility')) {
+    set({ mic: q.get('mic') === '1', input: q.get('input') === '1', accessibility: q.get('accessibility') === '1' });
+  }
+})();
+</script>
+</body>
+</html>

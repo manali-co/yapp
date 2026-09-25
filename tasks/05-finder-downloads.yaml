@@ -1,0 +1,5 @@
+name: 05-finder-downloads
+instruction: open finder and then go to downloads
+check:
+  - frontmost: Finder
+  - window_title_contains: Downloads

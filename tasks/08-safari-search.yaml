@@ -1,0 +1,6 @@
+name: 08-safari-search
+instruction: open safari and then search for fable five
+check:
+  - frontmost: Safari
+  - window_title_contains: fable
+settle_seconds: 4

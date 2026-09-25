@@ -1,0 +1,107 @@
+/* Yapp tokens. UI colours follow the user's macOS appearance and map to the system semantic palette
+   (label / secondaryLabel / tertiaryLabel / separator / AccentColor / HUD vibrancy material).
+   Nothing here is a brand hue. Force an appearance for previews with <html class="appearance-light|appearance-dark">. */
+:root, :root.appearance-light {
+  color-scheme: light;
+  --yapp-scheme: light;
+  --yapp-label: rgba(0, 0, 0, 0.85);
+  --yapp-label-2: rgba(0, 0, 0, 0.50);
+  --yapp-label-3: rgba(0, 0, 0, 0.26);
+  --yapp-label-4: rgba(0, 0, 0, 0.10);
+  --yapp-separator: rgba(0, 0, 0, 0.10);
+  --yapp-accent: AccentColor;
+  --yapp-on-accent: #FFFFFF;
+  --yapp-material: rgba(246, 246, 246, 0.74);        /* HUD / popover vibrancy */
+  --yapp-material-window: rgba(236, 236, 236, 0.86); /* window vibrancy */
+  --yapp-material-border: rgba(0, 0, 0, 0.14);
+  --yapp-material-highlight: rgba(255, 255, 255, 0.65);
+  --yapp-shadow: 0 10px 30px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.10);
+  --yapp-control-bg: rgba(255, 255, 255, 0.85);
+  --yapp-control-border: rgba(0, 0, 0, 0.12);
+  --yapp-avatar-edge: rgba(0, 0, 0, 0.22);
+  --yapp-avatar-highlight: rgba(255, 255, 255, 0.75);
+  --yapp-ring-track: rgba(0, 0, 0, 0.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.appearance-light) {
+    color-scheme: dark;
+    --yapp-scheme: dark;
+    --yapp-label: rgba(255, 255, 255, 0.85);
+    --yapp-label-2: rgba(255, 255, 255, 0.55);
+    --yapp-label-3: rgba(255, 255, 255, 0.25);
+    --yapp-label-4: rgba(255, 255, 255, 0.10);
+    --yapp-separator: rgba(255, 255, 255, 0.10);
+    --yapp-material: rgba(40, 40, 40, 0.72);
+    --yapp-material-window: rgba(50, 50, 50, 0.86);
+    --yapp-material-border: rgba(0, 0, 0, 0.55);
+    --yapp-material-highlight: rgba(255, 255, 255, 0.12);
+    --yapp-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.30);
+    --yapp-control-bg: rgba(255, 255, 255, 0.10);
+    --yapp-control-border: rgba(255, 255, 255, 0.10);
+    --yapp-avatar-edge: rgba(0, 0, 0, 0.35);
+    --yapp-avatar-highlight: rgba(255, 255, 255, 0.45);
+    --yapp-ring-track: rgba(255, 255, 255, 0.14);
+  }
+}
+:root.appearance-dark {
+  color-scheme: dark;
+  --yapp-scheme: dark;
+  --yapp-label: rgba(255, 255, 255, 0.85);
+  --yapp-label-2: rgba(255, 255, 255, 0.55);
+  --yapp-label-3: rgba(255, 255, 255, 0.25);
+  --yapp-label-4: rgba(255, 255, 255, 0.10);
+  --yapp-separator: rgba(255, 255, 255, 0.10);
+  --yapp-material: rgba(40, 40, 40, 0.72);
+  --yapp-material-window: rgba(50, 50, 50, 0.86);
+  --yapp-material-border: rgba(0, 0, 0, 0.55);
+  --yapp-material-highlight: rgba(255, 255, 255, 0.12);
+  --yapp-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.30);
+  --yapp-control-bg: rgba(255, 255, 255, 0.10);
+  --yapp-control-border: rgba(255, 255, 255, 0.10);
+  --yapp-avatar-edge: rgba(0, 0, 0, 0.35);
+  --yapp-avatar-highlight: rgba(255, 255, 255, 0.45);
+  --yapp-ring-track: rgba(255, 255, 255, 0.14);
+}
+/* browsers without the AccentColor keyword get Apple's default blue */
+@supports not (color: AccentColor) {
+  :root, :root.appearance-light { --yapp-accent: #007AFF; }
+  :root.appearance-dark { --yapp-accent: #0A84FF; }
+  @media (prefers-color-scheme: dark) { :root:not(.appearance-light) { --yapp-accent: #0A84FF; } }
+}
+:root {
+  /* type: system font, system sizes */
+  --yapp-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Helvetica Neue", sans-serif;
+  --yapp-text-transcript: 400 14px/1.3 var(--yapp-font);
+  --yapp-text-decision: 600 13px/1.3 var(--yapp-font);
+  --yapp-text-detail: 400 13px/1.3 var(--yapp-font);
+  --yapp-text-hint: 400 12px/1.3 var(--yapp-font);
+  --yapp-text-body: 400 13px/1.4 var(--yapp-font);
+  --yapp-text-title: 600 15px/1.3 var(--yapp-font);
+  /* geometry (app-specific) */
+  --yapp-pill-w: 400px;
+  --yapp-pill-h: 96px;
+  --yapp-pill-radius: 48px;
+  --yapp-pill-top: 8px;          /* below the menu bar */
+  --yapp-avatar: 56px;           /* body footprint */
+  --yapp-avatar-box: 64px;       /* canvas incl. ring */
+  --yapp-ring-width: 2px;
+  --yapp-window-w: 400px;
+  --yapp-radius-window: 12px;
+  --yapp-radius-control: 6px;
+  --yapp-space-1: 4px; --yapp-space-2: 8px; --yapp-space-3: 12px; --yapp-space-4: 16px; --yapp-space-6: 24px;
+  /* motion */
+  --yapp-dur-tick: 110ms;        /* word lock-in */
+  --yapp-dur-pulse: 380ms;       /* acting: stretch, snap back */
+  --yapp-dur-base: 240ms;        /* text swaps */
+  --yapp-dur-in: 180ms;          /* bar appears after ⌥ Space (budget: 100 ms to first paint) */
+  --yapp-dur-out: 300ms;         /* bar leaves */
+  --yapp-dur-hold-done: 1500ms;  /* done stays after the bar is closed */
+  --yapp-dur-hold-error: 3000ms;
+  --yapp-dur-commit: 500ms;      /* settling -> locked */
+  --yapp-dur-silence: 4000ms;    /* 1 s grace + 3 s visible countdown */
+  --yapp-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --yapp-ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  /* avatar springs "stiffness damping" (mirrored in yapp-avatar.js) */
+  --yapp-spring-idle: 30 9; --yapp-spring-listening: 110 16; --yapp-spring-thinking: 150 20; --yapp-spring-dictating: 130 18;
+  --yapp-spring-acting: 380 22; --yapp-spring-done: 70 6.5; --yapp-spring-unsure: 24 8; --yapp-spring-refused: 40 10; --yapp-spring-error: 260 18;
+}

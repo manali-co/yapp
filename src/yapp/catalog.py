@@ -38,7 +38,7 @@ def installed_apps(run: ShellRunner = run_capture) -> list[App]:
         out = run(["mdfind", "kMDItemKind == 'Application'"])
     except ShellError:
         out = ""
-    seen: dict[str, App] = {}
+    seen: dict[str, App] = {"Finder": App("finder", "Finder", "Launch Finder")}
     for line in out.splitlines():
         p = Path(line.strip())
         if p.suffix != ".app" or not str(p).startswith(APP_ROOTS):

@@ -1,0 +1,5 @@
+name: 09-notes-search
+instruction: open notes and then search for groceries
+check:
+  - frontmost: Notes
+  - screen_contains: groceries
