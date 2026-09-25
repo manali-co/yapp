@@ -1,4 +1,5 @@
 name: 01-open-textedit
+placement: hand_over
 instruction: open text edit
 check:
   - frontmost: TextEdit

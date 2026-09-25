@@ -1,4 +1,5 @@
 name: 10-terminal-asks
+placement: hand_over
 instruction: open terminal
 expect_ask: true
 setup:
