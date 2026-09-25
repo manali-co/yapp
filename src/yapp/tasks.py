@@ -325,6 +325,7 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     started = time.perf_counter()
     counting = CountingJev(Jev(model=cfg.model))
     checks: list[tuple[str, bool, str]] = []
+    asked_by_task: list[str] = []
     runner = None
     try:
         for app_name in task.quit_before:
@@ -346,6 +347,7 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
         acted += [v.reason for v in runner.finish() if v.outcome.value == "execute"]
         settle(task.settle_seconds)
         checks = [(json.dumps(c, ensure_ascii=False), *run_check(c, before)) for c in task.checks]
+        asked_by_task = list(asked)  # clean-up may ask too (a save sheet); that is not the task
     except Exception as e:  # noqa: BLE001 - one broken task must not lose the others' results
         checks.append(("run", False, f"{type(e).__name__}: {e}"))
     finally:
@@ -366,9 +368,9 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     ok = all(c[1] for c in checks)
     out = Outcome(
         task.name,
-        ok and bool(asked) == task.expect_ask,
+        ok and bool(asked_by_task) == task.expect_ask,
         checks,
-        asked,
+        asked_by_task,
         task.expect_ask,
         seconds,
         counting.calls,
