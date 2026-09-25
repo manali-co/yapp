@@ -202,7 +202,12 @@ def run_app(cfg: Config, log: bool = False) -> int:
 
         def start_hotkeys() -> None:
             try:
-                hot[0] = Hotkeys(on_toggle=toggle, on_escape=escape, on_approve=session.approve)
+                hot[0] = Hotkeys(
+                    on_toggle=toggle,
+                    on_escape=escape,
+                    on_approve=session.approve,
+                    bar_up=lambda: session.running or showing_for_perms[0],
+                )
                 hot[0].start()
                 time.sleep(0.5)
                 display.status(f"hotkey listener alive: {hot[0].is_alive()} ({cfg.hotkey_combo})")

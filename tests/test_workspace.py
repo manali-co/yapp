@@ -313,11 +313,11 @@ def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> N
 
     ws.focused = focused
     ws.decide("open notes", "Notes")
-    ws.before_open("Notes")  # Notes was already running: nothing of Yapp's in the ledger
+    ws.before_open("Notes")  # Notes was already running: its window is the user's
     ws.after_open("Notes")
-    assert shown == ["notes-1"]
+    assert shown == []  # never marked, even though Yapp acts in it
     ws.reset()
-    assert shown[-1] == "done"  # the user's own app: the glow fades at session end
+    assert shown[-1] == "done"  # nothing of Yapp's: whatever glowed fades at session end
     ws.decide("open text edit", "TextEdit")
     ws.before_open("TextEdit")  # launched by Yapp: stays marked until clean-up
     w.running.add("TextEdit")
@@ -326,7 +326,38 @@ def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> N
     ws.reset()
     assert shown[-1] == "te-1"
     ws.cleanup()
-    assert shown[-1] == "hide"
+    assert shown[-1] == "hide" and w.quit == ["TextEdit"]
+
+
+def test_glow_is_hidden_before_anything_closes() -> None:
+    w = World()
+    ws = make(w)
+    trace: list[str] = []
+
+    class FakeHighlight:
+        def show(self, win: Any) -> bool:
+            return True
+
+        def done(self) -> None:
+            pass
+
+        def hide(self) -> None:
+            trace.append("hide")
+
+    ws.highlight = FakeHighlight()
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    ws.after_open("TextEdit")
+    orig_quit = ws.quit_app
+
+    def quit_app(app: str) -> bool:
+        trace.append(f"quit {app}")
+        return orig_quit(app)
+
+    ws.quit_app = quit_app
+    ws.cleanup()
+    assert trace == ["hide", "quit TextEdit"]
     clicks: list[tuple[float, float]] = []
 
     def real_click(x: float, y: float) -> bool:
@@ -384,5 +415,35 @@ def test_glow_never_marks_the_users_own_window_in_parallel_mode() -> None:
     ws.decide("open notes", "Notes")  # parallel; the user is in Slack (slack-1)
     ws.glow("Slack")
     assert shown == []
-    ws.glow("Notes")
-    assert shown == ["notes-1"]
+    ws.glow("Notes")  # Notes was already running: not Yapp's window either
+    assert shown == []
+    before = ws.snapshot_windows("Notes")
+    w.wins["Notes"].append("notes-2")
+    ws.note_new_windows("Notes", before)  # a window Yapp created: marked
+    assert shown == ["notes-2"]
+
+
+def test_focus_is_given_back_when_the_work_app_takes_the_front() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")  # parallel; user in Slack
+    w.front = "TextEdit"  # a new window made TextEdit activate itself
+    assert ws.guard_focus() and w.front == "Slack" and w.raised[-1] == "Slack"
+    assert not ws.guard_focus()  # nothing to do now
+    w.front = "Mail"
+    ws.typing_now = lambda: True  # the user switched to Mail themselves
+    assert not ws.guard_focus() and ws.user_app == "Mail" and w.front == "Mail"
+
+
+def test_steps_wait_for_a_pause_in_typing() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("x", "TextEdit")
+    ticks = [True, True, False]
+    ws.typing_now = lambda: ticks.pop(0) if ticks else False
+    assert ws.wait_for_typing_pause() and any("waited" in line for line in w.log)
+    ws.typing_now = lambda: True
+    assert not ws.wait_for_typing_pause(max_seconds=0.3)  # gave up after the cap
+    ws2 = make(w, decision="hand_over")
+    ws2.decide("x", "TextEdit")
+    assert ws2.wait_for_typing_pause()  # hand-over mode: nothing to wait for

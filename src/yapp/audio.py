@@ -148,6 +148,14 @@ def _is_option(key: Any) -> bool:
     return name in ("alt", "alt_l", "alt_r", "alt_gr")
 
 
+class _FakeKey:
+    """Just enough of a pynput key for HotkeyMatcher: a virtual key code."""
+
+    def __init__(self, vk: int) -> None:
+        self.vk = vk
+        self.name = ""
+
+
 class HotkeyMatcher:
     """Pure key-event logic: ⌥ Space -> "toggle", Escape -> "escape", else None.
 
@@ -176,20 +184,54 @@ class HotkeyMatcher:
             self.option_down = False
 
 
+def swallow(action: str | None, bar_up: bool) -> bool:
+    """Which handled keys never reach the app in front: ⌥ Space always (in Finder it would
+    also open full-screen Quick Look), Escape and Return only while the bar is up."""
+    if action == "toggle":
+        return True
+    return action in ("escape", "approve") and bar_up
+
+
 class Hotkeys:
-    """Global ⌥ Space / Escape listener built on pynput's raw listener."""
+    """Global ⌥ Space / Escape / Return listener built on pynput's raw listener. Keys Yapp
+    handles are consumed (see `swallow`); everything else passes through untouched."""
 
     def __init__(
         self,
         on_toggle: Callable[[], None],
         on_escape: Callable[[], None],
         on_approve: Callable[[], None] = lambda: None,
+        bar_up: Callable[[], bool] = lambda: False,
     ) -> None:
         from pynput import keyboard
 
         self._matcher = HotkeyMatcher()
+        self._peek = HotkeyMatcher()  # a second matcher, for the intercept decision only
         self._on = {"toggle": on_toggle, "escape": on_escape, "approve": on_approve}
-        self._listener = keyboard.Listener(on_press=self._press, on_release=self._release)
+        self._bar_up = bar_up
+        self._listener = keyboard.Listener(
+            on_press=self._press, on_release=self._release, darwin_intercept=self._intercept
+        )
+
+    def _intercept(self, event_type: Any, event: Any) -> Any:
+        """Runs in the event tap before the app in front sees the key. Returning None drops
+        the event; returning it lets it through."""
+        try:
+            import Quartz
+
+            vk = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventKeycode)
+            flags = Quartz.CGEventGetFlags(event)
+            option = bool(flags & Quartz.kCGEventFlagMaskAlternate)
+            if event_type == Quartz.kCGEventKeyDown:
+                self._peek.option_down = option
+                action = self._peek.press(_FakeKey(vk))
+                if swallow(action, self._bar_up()):
+                    return None
+            elif event_type == Quartz.kCGEventKeyUp and vk == VK_SPACE and option:
+                return None  # the matching key-up of a swallowed ⌥ Space
+        except Exception:  # noqa: BLE001 - never break the user's keyboard over a bug here
+            return event
+        return event
 
     def _press(self, key: Any) -> None:
         action = self._matcher.press(key)
