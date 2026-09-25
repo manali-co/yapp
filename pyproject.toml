@@ -8,13 +8,13 @@ requires-python = ">=3.12"
 authors = [{ name = "Manali" }]
 dependencies = [
   "typesafe-sdk>=0.7,<1",
-  "mlx-whisper>=0.4",
+  "mlx-whisper>=0.4.3",
   "sounddevice>=0.5",
   "pynput>=1.7",
   "rapidfuzz>=3.9",
-  "rich>=13.7",
+  "rich>=15.0.0",
   "pyyaml>=6.0",
-  "numpy>=1.26",
+  "numpy>=2.5.3",
   "pywebview>=6.2",
   "pyobjc-framework-AVFoundation>=10",
   "pyobjc-framework-NaturalLanguage>=10",
@@ -26,10 +26,10 @@ yapp = "yapp.app:main"
 
 [dependency-groups]
 dev = [
-  "pytest>=8.2",
+  "pytest>=9.1.1",
   "mypy>=1.10",
   "ruff>=0.5",
-  "types-PyYAML>=6.0",
+  "types-PyYAML>=6.0.12.20260906",
 ]
 
 [build-system]
