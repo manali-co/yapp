@@ -55,3 +55,9 @@ mypy_path = "src"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["jev: hits the real TypeSafe API; skipped without TYPESAFE_API_KEY"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+# B404/B603/B607: subprocess is the point of executor.py; every call goes through one seam
+# and argv lists, never shell=True. B101: asserts are used for type narrowing only.
+skips = ["B101", "B404", "B603", "B607"]

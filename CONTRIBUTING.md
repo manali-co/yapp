@@ -7,8 +7,21 @@ Thanks for helping. Yapp is small on purpose; keep it that way.
     export TYPESAFE_API_KEY=...   # only needed for tests marked `jev` and for running the app
 
 ## Branch flow
-`feature/<name>` → PR into `dev` → `dev` → `main` (release-please). Direct pushes to `dev`
-and `main` are blocked for everyone, including admins.
+One branch per feature, always: `git switch dev && git pull && git switch -c feature/<name>`.
+Push early and often so the work is visible and recoverable. When the feature is done, open a
+PR into `dev`; `dev` → `main` is a release PR. Direct pushes to `dev` and `main` are blocked
+for everyone, including admins. Keep PRs focused: one feature, its tests, and its docs. A PR
+that grows past a feature should be split.
+
+## Review
+CI (`ci`, `security`, `dependency-review`) must be green and every CodeRabbit thread resolved
+before merging. Treat review findings as questions to answer, not commands to obey: fix real
+issues, explain why when something is intentional. Dependabot PRs are merged once CI passes.
+
+## Security
+Read `SECURITY.md`. Never commit keys (push protection is on), never add a shell call outside
+the `run` seam in `executor.py`, never weaken the guard in `guard.py` without a test and a
+sentence in the PR explaining why.
 
 ## Before opening a PR
     uv run ruff check . && uv run ruff format . && uv run mypy src && uv run pytest

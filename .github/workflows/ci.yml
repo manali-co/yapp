@@ -3,6 +3,8 @@ on:
   pull_request:
   push:
     branches: [dev, main]
+permissions:
+  contents: read
 jobs:
   ci:
     runs-on: macos-latest
@@ -15,3 +17,30 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy src
       - run: uv run pytest -q
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv python install 3.12
+      # Known vulnerabilities in the locked dependency tree.
+      - run: uv export --locked --all-groups --no-emit-project --format requirements-txt > /tmp/req.txt
+      - run: uvx pip-audit --strict -r /tmp/req.txt --disable-pip
+      # Common Python security mistakes (subprocess with shell=True, eval, weak crypto).
+      - run: uvx bandit -q -r src -c pyproject.toml
+  dependency-review:
+    # Needs the repository's Dependency graph (Settings → Security → Dependency graph). It is
+    # off for this repo today and cannot be switched on through the API, so this job reports
+    # but does not block until an admin enables it; pip-audit above is the blocking check.
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
