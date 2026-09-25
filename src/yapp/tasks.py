@@ -52,8 +52,10 @@ class Task:
     cleanup: bool = True  # unwind the runner's ledger (windows/apps Yapp opened) after checks
     delete_notes_containing: list[str] = field(default_factory=list)  # test notes go away
     delete_reminders_named: list[str] = field(default_factory=list)  # test reminders too
-    tidy_notes: bool = False  # delete every note the task created (snapshot diff)
-    tidy_reminders: bool = False  # same for reminders
+    # Every task snapshots Notes and Reminders and deletes what it created: a disturbed run
+    # can dictate into whatever app the person at the Mac has in front.
+    tidy_notes: bool = True
+    tidy_reminders: bool = True
 
 
 @dataclass
@@ -117,8 +119,8 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 cleanup=bool(data.get("cleanup", True)),
                 delete_notes_containing=[str(a) for a in data.get("delete_notes_containing") or []],
                 delete_reminders_named=[str(a) for a in data.get("delete_reminders_named") or []],
-                tidy_notes=bool(data.get("tidy_notes", False)),
-                tidy_reminders=bool(data.get("tidy_reminders", False)),
+                tidy_notes=bool(data.get("tidy_notes", True)),
+                tidy_reminders=bool(data.get("tidy_reminders", True)),
             )
         )
     return out

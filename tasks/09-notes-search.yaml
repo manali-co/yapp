@@ -4,4 +4,3 @@ instruction: open notes and then search for groceries
 check:
   - frontmost: Notes
   - screen_contains: groceries
-tidy_notes: true
