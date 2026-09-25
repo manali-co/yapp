@@ -2112,12 +2112,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mlx-whisper", specifier = ">=0.4" },
-    { name = "numpy", specifier = ">=1.26" },
+    { name = "mlx-whisper", specifier = ">=0.4.3" },
+    { name = "numpy", specifier = ">=2.5.3" },
     { name = "pynput", specifier = ">=1.7" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rapidfuzz", specifier = ">=3.9" },
-    { name = "rich", specifier = ">=13.7" },
+    { name = "rich", specifier = ">=15.0.0" },
     { name = "sounddevice", specifier = ">=0.5" },
     { name = "typesafe-sdk", specifier = ">=0.7,<1" },
 ]
@@ -2125,7 +2125,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.10" },
-    { name = "pytest", specifier = ">=8.2" },
+    { name = "pytest", specifier = ">=9.1.1" },
     { name = "ruff", specifier = ">=0.5" },
-    { name = "types-pyyaml", specifier = ">=6.0" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20260906" },
 ]
