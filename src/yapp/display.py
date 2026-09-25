@@ -29,7 +29,6 @@ VERDICT_STYLE = {
     Outcome.EXECUTE: "yapp.verdict.act",
     Outcome.WAIT: "yapp.dim",
     Outcome.IGNORE: "yapp.verdict.unsure",
-    Outcome.REFUSE: "yapp.verdict.refuse",
 }
 
 
@@ -71,7 +70,7 @@ class Terminal:
         table.add_row("[yapp.dim]confidence[/]", f"{d.intent_confidence:.2f}")
         table.add_row("[yapp.dim]is_complete[/]", f"{d.is_complete:.2f}")
         table.add_row("[yapp.dim]ends_dictation[/]", f"{d.ends_dictation:.2f}")
-        table.add_row("[yapp.dim]is_destructive[/]", f"{d.is_destructive:.2f}")
+        table.add_row("[yapp.dim]is_addressed[/]", f"{d.is_addressed:.2f}")
         if d.app:
             table.add_row("[yapp.dim]app[/]", f"{d.app.name} ({d.app_confidence or 0:.2f})")
         self.c.print(table)

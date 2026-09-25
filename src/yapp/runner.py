@@ -12,7 +12,8 @@ from yapp.catalog import installed_apps, search_files
 from yapp.config import Config
 from yapp.display import Display
 from yapp.executor import Executor
-from yapp.intent import Context
+from yapp.guard import Guard, Mode, jev_harm
+from yapp.intent import QUESTIONS, Context
 from yapp.jev import Jev, JevError
 from yapp.learning import Learning
 from yapp.policy import decide
@@ -51,8 +52,10 @@ class Runner:
         learning: LearningLike | None = None,
         display: Display | None = None,
         classify: Classifier | None = None,
+        guard: Guard | None = None,
     ) -> None:
         self.cfg = cfg
+        self.guard = guard
         self.executor = executor
         self.apps = apps
         self.learning = learning
@@ -131,19 +134,26 @@ class Runner:
             self._execute(d)
         return v
 
+    def _may(self, action: str) -> bool:
+        return self.guard is None or self.guard.check(action, self.executor.frontmost_app()).allowed
+
     def _execute(self, d: Decision) -> None:
         if self.stream.dictating:
             # The tail is the new instruction; held-back words belong to it, not the document.
             self.stream.exit_dictation()
         self.stream.mark_fired(d.consumed_words)
         r: Result
+        denied = Result(False, "not approved")
         match d.intent:
             case Intent.OPEN_APP if d.app is not None:
-                r = self.executor.open_app(d.app)
+                r = self.executor.open_app(d.app) if self._may(f"open {d.app.name}") else denied
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.TYPE_TEXT:
                 self.stream.consume(d.consumed_words)
+                if not self._may(f"dictate into {self.executor.frontmost_app()}"):
+                    self._report(denied)
+                    return
                 self.stream.enter_dictation()
                 r = Result(True, "dictating")
                 self.last = Executed(d, r, typed_chars=0)
@@ -151,11 +161,21 @@ class Runner:
                 return
             case Intent.OPEN_FILE if d.file_query:
                 hits = search_files(d.file_query)
-                r = self.executor.open_file(hits[0]) if hits else Result(False, "no file found")
+                if not hits:
+                    r = Result(False, "no file found")
+                elif self._may(f"open file {hits[0].name}"):
+                    r = self.executor.open_file(hits[0])
+                else:
+                    r = denied
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.PRESS_KEY if d.key_combo:
-                r = self.executor.press_key(d.key_combo)
+                where = self.executor.frontmost_app()
+                r = (
+                    self.executor.press_key(d.key_combo)
+                    if self._may(f"press {d.key_combo} in {where}")
+                    else denied
+                )
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.SCREEN:
@@ -190,22 +210,39 @@ class Runner:
             self.display.show_result(r)
 
 
-def build_runner(cfg: Config, display: Display | None) -> Runner:
+def build_guard(
+    jev: Jev, ask: Callable[[str], bool], mode: Mode, log: Callable[[str], None]
+) -> Guard:
+    q = QUESTIONS["is_harmful"]
+    return Guard(jev_harm(jev, q["criteria"], q["instructions"]), ask, mode=mode, log=log)
+
+
+def build_runner(
+    cfg: Config,
+    display: Display | None,
+    *,
+    ask: Callable[[str], bool] = lambda action: False,
+    mode: Mode = Mode.ASK,
+) -> Runner:
+    """The live pipeline. `ask` is how a harmful action gets its yes (voice in the bar)."""
     from yapp.ax import Screen
 
     jev = Jev(model=cfg.model)
     apps = installed_apps()
+    log = display.status if display else (lambda s: None)
     if display:
-        display.status(f"{len(apps)} apps in catalog · model {cfg.model}")
+        display.status(f"{len(apps)} apps in catalog · model {cfg.model} · mode {mode}")
     from yapp.native import leave_full_screen_if_needed
 
     executor = Executor(leave_full_screen=leave_full_screen_if_needed)
+    guard = build_guard(jev, ask, mode, log)
     screen = Screen(
         jev,
         type_text=executor.type_text,
         press_key=executor.press_key,
         threshold=cfg.thresholds.screen,
-        log=display.status if display else (lambda s: None),
+        log=log,
+        guard=lambda action, ctx: guard.check(action, ctx).allowed,
     )
     executor.screen_fn = screen.run
-    return Runner(cfg, jev, executor, apps, learning=Learning(cfg), display=display)
+    return Runner(cfg, jev, executor, apps, learning=Learning(cfg), display=display, guard=guard)

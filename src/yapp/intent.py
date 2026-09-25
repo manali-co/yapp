@@ -118,9 +118,9 @@ def build_questions(ctx: Context, tail: str = "", limit: int = 60) -> dict[str, 
             instructions=q["ends_dictation"]["instructions"],
             criteria=q["ends_dictation"]["criteria"],
         ),
-        "is_destructive": Noul(
-            instructions=q["is_destructive"]["instructions"],
-            criteria=q["is_destructive"]["criteria"],
+        "is_addressed": Noul(
+            instructions=q["is_addressed"]["instructions"],
+            criteria=q["is_addressed"]["criteria"],
         ),
     }
 
@@ -153,7 +153,7 @@ def classify(tail: str, ctx: Context, jev: Jev, cfg: Config) -> Decision:
         file_query=extract_file_query(tail) if intent == Intent.OPEN_FILE else None,
         is_complete=resp.noul("is_complete"),
         ends_dictation=resp.noul("ends_dictation"),
-        is_destructive=resp.noul("is_destructive"),
+        is_addressed=resp.noul("is_addressed"),
         consumed_words=consumed_for(tail, intent),
         latency_ms=resp.latency_ms,
         raw=resp.raw,

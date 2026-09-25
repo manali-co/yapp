@@ -37,7 +37,7 @@ class Decision:
     file_query: str | None = None
     is_complete: float = 0.0
     ends_dictation: float = 0.0
-    is_destructive: float = 0.0
+    is_addressed: float = 1.0
     consumed_words: int = 0
     latency_ms: int = 0
     raw: dict[str, Any] = field(default_factory=dict)
@@ -47,7 +47,6 @@ class Outcome(StrEnum):
     EXECUTE = "execute"
     WAIT = "wait"  # instruction not complete yet: keep the tail, next tick
     IGNORE = "ignore"  # below threshold or intent none: quiet
-    REFUSE = "refuse"  # destructive: quiet, with a reason shown
 
 
 @dataclass(frozen=True)

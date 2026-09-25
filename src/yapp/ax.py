@@ -433,8 +433,10 @@ class Screen:
         max_steps: int = 6,
         settle: Callable[[float], None] = time.sleep,
         log: Callable[[str], None] = lambda s: None,
+        guard: Callable[[str, str], bool] | None = None,
     ) -> None:
         self.jev = jev
+        self.guard = guard  # (action, screen) -> may act? see guard.py
         self.perceiver = perceiver or Perceiver()
         self.frontmost = frontmost
         self.summary = summary
@@ -489,6 +491,8 @@ class Screen:
                 # "continue" ("make it much bigger"); an unsure one would flip toggles back.
                 self.log(f"screen step {step}: unsure repeat of the last action → done")
                 return Result(True, f"done after {acted} step(s)")
+            if self.guard is not None and not self.guard(self._describe(d, app), before):
+                return Result(acted > 0, "not approved")
             r = self._act(d)
             if not r.ok:
                 return Result(acted > 0, r.message)
@@ -512,6 +516,16 @@ class Screen:
             if unchanged >= 2:
                 return Result(True, f"done after {acted} step(s)")
         return Result(acted > 0, f"stopped after {acted} step(s)")
+
+    @staticmethod
+    def _describe(d: ScreenDecision, app: str) -> str:
+        """The action as the guard should judge it: operation, target, text, app."""
+        assert d.target is not None
+        label = d.target.path if d.target.kind == "menu" else d.target.label
+        if d.operation == "type":
+            tail = " and submit" if d.submit >= 0.5 else ""
+            return f"type '{d.text}' into {label} in {app}{tail}"
+        return f"press {label} in {app}"
 
     def _act(self, d: ScreenDecision) -> Result:
         assert d.target is not None

@@ -2,6 +2,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from yapp.config import Config
+from yapp.guard import Guard
 from yapp.runner import Runner
 from yapp.types import App, Decision, Executed, Intent, Outcome, Result
 
@@ -89,9 +90,18 @@ class FakeExec:
         return Result(True, f"pressed menu: View › {words}")
 
 
-def make(classify: Callable[[str, bool], Decision]) -> tuple[Runner, FakeExec]:
+def make(
+    classify: Callable[[str, bool], Decision], guard: Guard | None = None
+) -> tuple[Runner, FakeExec]:
     ex = FakeExec()
-    r = Runner(Config(), None, ex, APPS, classify=lambda tail, ctx: classify(tail, ctx.dictating))
+    r = Runner(
+        Config(),
+        None,
+        ex,
+        APPS,
+        classify=lambda tail, ctx: classify(tail, ctx.dictating),
+        guard=guard,
+    )
     return r, ex
 
 
@@ -204,3 +214,32 @@ def test_screen_action_is_delegated_and_undoable() -> None:
     assert r.last is not None and r.last.decision.intent == Intent.SCREEN
     feed(r, "undo")
     assert ex.log[-1] == "undo"
+
+
+def test_guard_asks_before_direct_actions_and_denial_blocks_them() -> None:
+    asked: list[str] = []
+
+    def harm(action: str, context: str) -> tuple[float, int]:
+        return (0.9 if "safari" in action.lower() else 0.0), 1
+
+    def ask(action: str) -> bool:
+        asked.append(action)
+        return False
+
+    r, ex = make(canned, Guard(harm, ask))
+    feed(r, "open notes and open safari")
+    assert ex.log == ["open:Notes"]  # Safari was judged harmful, asked, denied
+    assert asked == ["open Safari"] and r.last is not None and r.last.decision.app is NOTES
+
+
+def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:
+    seen: list[str] = []
+
+    def harm(action: str, context: str) -> tuple[float, int]:
+        seen.append(f"{action} @ {context}")
+        return 0.5, 1
+
+    r, ex = make(canned, Guard(harm, lambda a: True))
+    feed(r, "type hello there")
+    assert seen == ["dictate into Finder @ Finder"]
+    assert ex.log == ["type:hello there "]

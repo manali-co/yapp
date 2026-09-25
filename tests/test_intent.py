@@ -61,7 +61,7 @@ def test_build_questions_has_unsure_and_learned_examples() -> None:
     assert isinstance(notes, dict)
     assert "open node" in notes["examples"]
     assert notes["not_for"] == "open nodes"
-    expected = {"intent", "app", "key_combo", "is_complete", "ends_dictation", "is_destructive"}
+    expected = {"intent", "app", "key_combo", "is_complete", "ends_dictation", "is_addressed"}
     assert set(q) == expected
     intent = q["intent"]
     assert isinstance(intent, Choice)

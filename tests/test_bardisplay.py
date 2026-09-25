@@ -43,11 +43,15 @@ def test_execute_pulses_toward_action_then_result_text() -> None:
     assert bd.acted
 
 
-def test_refuse_is_its_own_state_with_copy() -> None:
+def test_asking_shows_the_action_and_the_answer() -> None:
     bd, w = make()
-    bd.show_verdict(Verdict(Outcome.REFUSE, "won't do that: could delete, send, or spend"))
-    assert 'setState("refused"' in w.js[0]
-    assert "Won" in w.js[1] and "delete" in w.js[1]
+    bd.asking("press Empty Trash in Finder")
+    assert 'setState("listening"' in w.js[0]
+    assert "May I press Empty Trash in Finder?" in w.js[1] and "setHint" in w.js[2]
+    bd.answered(False)
+    assert "not doing that" in w.js[-2] and 'setState("unsure"' in w.js[-1]
+    bd.answered(True)
+    assert "going ahead" in w.js[-1]
 
 
 def test_wait_returns_to_listening_or_dictating() -> None:

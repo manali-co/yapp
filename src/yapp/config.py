@@ -15,7 +15,8 @@ class Thresholds:
     press_key: float = 0.70
     undo: float = 0.60
     screen: float = 0.60
-    destructive: float = 0.50
+    addressed: float = 0.35  # ignore only when Jev is fairly sure it was not for us
+    reply: float = 0.60
     ends_dictation: float = 0.70
 
 
@@ -34,5 +35,7 @@ class Config:
     silence_seconds: float = 4.0
     max_session_seconds: float = 60.0
     hide_after_seconds: float = 1.5
+    approval_seconds: float = 8.0
+    voice_match: float = 0.55  # cosine between the enrolled voiceprint and the reply
     thresholds: Thresholds = field(default_factory=Thresholds)
     learned_path: Path = field(default_factory=lambda: Path.home() / ".yapp" / "learned.jsonl")

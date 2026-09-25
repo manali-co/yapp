@@ -1,9 +1,11 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from yapp.ax import (
     Perceiver,
     Screen,
+    ScreenDecision,
     Target,
     decide,
     fits,
@@ -144,7 +146,11 @@ def test_decide_maps_answers() -> None:
     assert "none" in jev.seen["questions"]["target"].criteria
 
 
-def make_screen(*resps: FakeResp, summaries: list[str] | None = None) -> tuple[Screen, list[str]]:
+def make_screen(
+    *resps: FakeResp,
+    summaries: list[str] | None = None,
+    guard: Callable[[str, str], bool] | None = None,
+) -> tuple[Screen, list[str]]:
     log: list[str] = []
     seq = list(summaries or ["app Chrome"])
 
@@ -177,6 +183,7 @@ def make_screen(*resps: FakeResp, summaries: list[str] | None = None) -> tuple[S
         type_text=type_text,
         press_key=press_key,
         settle=lambda s: None,
+        guard=guard,
     )
     return s, log
 
@@ -321,3 +328,28 @@ def test_unsure_repeat_of_the_same_action_after_a_change_stops() -> None:
     )
     r = s.run("enter full screen")
     assert r.ok and log == ["m3"] and r.message == "done after 1 step(s)"
+
+
+def test_guard_sees_the_concrete_step_and_can_stop_the_loop() -> None:
+    judged: list[tuple[str, str]] = []
+
+    def guard(action: str, screen: str) -> bool:
+        judged.append((action, screen))
+        return "Zoom" not in action
+
+    s, log = make_screen(
+        FakeResp("m3", 0.95, "press", "s0", 0.1),
+        summaries=["app Chrome window 'a'"],
+        guard=guard,
+    )
+    r = s.run("zoom in")
+    assert not r.ok and r.message == "not approved" and log == []
+    assert judged == [("press View › Zoom In in Chrome", "app Chrome window 'a'")]
+
+
+def test_describe_typing_step_names_field_text_and_submit() -> None:
+    t = Target("c1", "control", "AXTextField", "Address and search bar", "Address and search bar")
+    d = ScreenDecision(t, "type", "cats", 0.9, 0.9, {}, 1)
+    assert Screen._describe(d, "Google Chrome") == (
+        "type 'cats' into Address and search bar in Google Chrome and submit"
+    )

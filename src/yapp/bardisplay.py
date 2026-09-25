@@ -10,7 +10,7 @@ from yapp.types import Decision, Outcome, Result, Verdict
 
 # radians the avatar stretches toward on execute: right, up-right, down, left
 DIRECTION = {"open": 0.0, "press": -1.2, "dictate": 1.4, "undo": math.pi}
-REFUSE_COPY = "Won't do that: could delete something"
+ASK_HINT = "say yes or no · ⏎ / esc"
 UNSURE_COPY = "Not sure what you meant"
 
 
@@ -109,9 +109,6 @@ class BarDisplay:
                 self.acted = True
                 self._state = "acting"
                 self.bar.set_state("acting", direction=DIRECTION.get(verb, 0.0))
-            case Outcome.REFUSE:
-                self._set("refused")
-                self.bar.decision(REFUSE_COPY)
             case _:
                 self._resting()
 
@@ -125,6 +122,20 @@ class BarDisplay:
                 self.dictating = True
         else:
             self.bar.decision(result_copy(r.message), muted=True)
+
+    def asking(self, action: str) -> None:
+        """Wait for a spoken yes: the pill shows the action and keeps listening."""
+        self._set("listening")
+        self.bar.decision(f"May I {action}?")
+        self.bar.hint(ASK_HINT)
+
+    def answered(self, approved: bool) -> None:
+        self.bar.hint(False)
+        self.bar.decision(
+            "Okay, going ahead" if approved else "Okay, not doing that", muted=not approved
+        )
+        if not approved:
+            self._set("unsure")
 
     def show_error(self, msg: str) -> None:
         self._set(error_kind(msg))
