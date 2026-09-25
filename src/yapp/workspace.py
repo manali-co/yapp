@@ -284,6 +284,8 @@ class Workspace:
         return f"pressed {title} in {w.app}" if self.press(el) else None
 
     def cleanup(self) -> list[str]:
+        if self.highlight is not None:
+            self.highlight.hide()  # the glow goes first, so nothing outlines a closing window
         done = self.ledger.cleanup(
             close=self.close_window,
             quit_app=self.quit_app,
@@ -293,6 +295,4 @@ class Workspace:
         )
         self.mode = None
         self.work_app = ""
-        if self.highlight is not None:
-            self.highlight.hide()
         return done

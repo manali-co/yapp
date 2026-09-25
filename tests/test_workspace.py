@@ -326,7 +326,38 @@ def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> N
     ws.reset()
     assert shown[-1] == "te-1"
     ws.cleanup()
-    assert shown[-1] == "hide"
+    assert shown[-1] == "hide" and w.quit == ["TextEdit"]
+
+
+def test_glow_is_hidden_before_anything_closes() -> None:
+    w = World()
+    ws = make(w)
+    trace: list[str] = []
+
+    class FakeHighlight:
+        def show(self, win: Any) -> bool:
+            return True
+
+        def done(self) -> None:
+            pass
+
+        def hide(self) -> None:
+            trace.append("hide")
+
+    ws.highlight = FakeHighlight()
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    ws.after_open("TextEdit")
+    orig_quit = ws.quit_app
+
+    def quit_app(app: str) -> bool:
+        trace.append(f"quit {app}")
+        return orig_quit(app)
+
+    ws.quit_app = quit_app
+    ws.cleanup()
+    assert trace == ["hide", "quit TextEdit"]
     clicks: list[tuple[float, float]] = []
 
     def real_click(x: float, y: float) -> bool:
