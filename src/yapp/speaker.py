@@ -16,6 +16,7 @@ Embedder = Callable[[np.ndarray], np.ndarray | None]  # 16 kHz float32 -> unit v
 
 HF_REPO = "Wespeaker/wespeaker-voxceleb-resnet34-LM"
 HF_FILE = "voxceleb_resnet34_LM.onnx"
+HF_REVISION = "f0c48c298fd835726c27956a5d617bad7115627e"  # pinned: the file we validated
 SAMPLE_RATE = 16_000
 MIN_SECONDS = 1.0
 DEFAULT_PATH = Path.home() / ".yapp" / "voice.npy"
@@ -71,7 +72,7 @@ def onnx_embedder(model_path: str | None = None) -> Embedder:
     if model_path is None:
         from huggingface_hub import hf_hub_download
 
-        model_path = hf_hub_download(HF_REPO, HF_FILE)
+        model_path = hf_hub_download(HF_REPO, HF_FILE, revision=HF_REVISION)
     session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
     name = session.get_inputs()[0].name
 

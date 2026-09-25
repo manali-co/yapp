@@ -1,0 +1,9 @@
+name: 14-cleanup
+# Yapp launches TextEdit, then is told to clean up: TextEdit must be gone again.
+instruction: open text edit and then clean up
+placement: hand_over
+quit_before: [TextEdit]
+discard_after: [TextEdit]
+check:
+  - app_not_running: TextEdit
+settle_seconds: 2

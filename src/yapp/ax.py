@@ -201,6 +201,25 @@ def ax_focus(t: Target) -> bool:
     return bool(AXUIElementSetAttributeValue(t.ref, "AXFocused", True) == 0)
 
 
+def ax_type(t: Target, text: str, *, append: bool) -> bool:
+    """Type without the keyboard: set the field's AXValue. Works on a background window.
+    Returns False when the app refuses or the value did not take (web pages often do)."""
+    from ApplicationServices import AXUIElementSetAttributeValue
+
+    current = _attr(t.ref, "AXValue")
+    wanted = (str(current or "") + text) if append else text
+    if AXUIElementSetAttributeValue(t.ref, "AXValue", wanted) != 0:
+        return False
+    return str(_attr(t.ref, "AXValue") or "") == wanted
+
+
+def ax_confirm(t: Target) -> bool:
+    """Submit a field without the keyboard (AXConfirm); not every app offers it."""
+    from ApplicationServices import AXUIElementPerformAction
+
+    return bool(AXUIElementPerformAction(t.ref, "AXConfirm") == 0)
+
+
 def ax_summary(app_name: str) -> str:
     """One line describing the front app's state, for the step history."""
     app, name = app_element(app_name)
@@ -477,9 +496,13 @@ class Screen:
         settle: Callable[[float], None] = time.sleep,
         log: Callable[[str], None] = lambda s: None,
         guard: Callable[[str, str], bool] | None = None,
+        ax_type: Callable[[Target, str], bool] | None = None,
+        borrow: Callable[[str, Callable[[], Result]], Result] | None = None,
     ) -> None:
         self.jev = jev
         self.guard = guard  # (action, screen) -> may act? see guard.py
+        self.ax_type = ax_type  # parallel mode: typing without the keyboard
+        self.borrow = borrow  # parallel mode: (app, keystrokes) -> run with focus borrowed
         self.perceiver = perceiver or Perceiver()
         self.frontmost = frontmost
         self.summary = summary
@@ -493,15 +516,21 @@ class Screen:
         self.log = log
         self.last: ScreenDecision | None = None
         self.history: list[str] = []
+        self.parallel = False
+        self.perceiver_app = ""
 
-    def run(self, words: str) -> Result:
+    def run(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result:
+        """`app` pins the target (parallel mode works on an app that is not in front)."""
         self.history = []
+        self.parallel = parallel
+        pinned = app
         acted = 0
         unchanged = 0
         last_action: tuple[str, str, str] | None = None
         last_changed = False
         for step in range(1, self.max_steps + 1):
-            app = self.frontmost()
+            app = pinned or self.frontmost()  # hand-over mode follows the front app each step
+            self.perceiver_app = app
             before = self.summary(app)
             t0 = time.perf_counter()
             targets = self.perceiver.targets(app, words)
@@ -542,7 +571,7 @@ class Screen:
             acted += 1
             last_action = action
             self.settle(0.35)
-            app_after = self.frontmost()
+            app_after = app if self.parallel else self.frontmost()
             after = self.summary(app_after)
             shot_after = self.perceiver.snapshot(app_after)
             delta = len(shot_before ^ shot_after)
@@ -577,16 +606,29 @@ class Screen:
             return Result(ok, f"pressed {d.target.describe()}" if ok else "couldn't press that")
         if self.type_text is None:
             return Result(False, "typing is not available")
-        if not self.focus(d.target):
-            return Result(False, "couldn't focus the field")
-        if self.press_key and d.target.role != "AXTextArea":
-            # Replace what a single-line field holds (an address, a query). A text area is a
-            # document body: select-all would wipe it, so there we append.
-            self.press_key("cmd+a")
-        r = self.type_text(d.text)
-        if r.ok and d.submit >= 0.5 and self.press_key:
-            self.press_key("enter")
-        return Result(r.ok, f"typed '{d.text}' into {d.target.label}" if r.ok else r.message)
+        target = d.target
+        replace = target.role != "AXTextArea"  # a text area is a document body: append
+
+        def keystrokes() -> Result:
+            assert self.type_text is not None
+            if not self.focus(target):
+                return Result(False, "couldn't focus the field")
+            if self.press_key and replace:
+                self.press_key("cmd+a")
+            r = self.type_text(d.text)
+            if r.ok and d.submit >= 0.5 and self.press_key:
+                self.press_key("enter")
+            return r
+
+        if getattr(self, "parallel", False) and self.ax_type is not None:
+            # Keep the user's keyboard: set the value through Accessibility first.
+            if self.ax_type(target, d.text) and (d.submit < 0.5 or ax_confirm(target)):
+                return Result(True, f"typed '{d.text}' into {target.label} on the side")
+            if self.borrow is not None:
+                r = self.borrow(self.perceiver_app, keystrokes)
+                return Result(r.ok, f"typed '{d.text}' into {target.label}" if r.ok else r.message)
+        r = keystrokes()
+        return Result(r.ok, f"typed '{d.text}' into {target.label}" if r.ok else r.message)
 
 
 # ---------------------------------------------------------------- spike CLI

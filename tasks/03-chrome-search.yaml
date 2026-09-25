@@ -1,4 +1,5 @@
 name: 03-chrome-search
+placement: hand_over
 instruction: open chrome and then new tab and then search for weather in toronto
 check:
   - frontmost: Google Chrome

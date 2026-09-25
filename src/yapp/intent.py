@@ -64,6 +64,8 @@ def consumed_for(tail: str, intent: Intent) -> int:
         lead += 1
     if intent == Intent.TYPE_TEXT:
         return lead + 1  # the verb only; dictation types the rest
+    if intent == Intent.CLEANUP:
+        return len(words)
     for i in range(lead + 1, len(words)):
         if words[i] in CONJUNCTIONS:
             return i

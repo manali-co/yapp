@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from typing import Any
 
@@ -42,15 +43,12 @@ def make_transparent(window: Any) -> None:
             CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY | STATIONARY | IGNORES_CYCLE
         )
         ns.setHidesOnDeactivate_(False)
+        # Private WebKit keys come and go across versions; a missing one is not an error.
         for key, value in (("drawsBackground", False), ("drawsTransparentBackground", True)):
-            try:
+            with contextlib.suppress(Exception):
                 wk.setValue_forKey_(value, key)
-            except Exception:  # noqa: BLE001 - private keys come and go across WebKit versions
-                pass
-        try:
+        with contextlib.suppress(Exception):
             wk.setUnderPageBackgroundColor_(NSColor.clearColor())
-        except Exception:  # noqa: BLE001
-            pass
 
     AppHelper.callAfter(apply)
 
@@ -383,3 +381,42 @@ def bring_to_front(app_name: str, timeout: float = 4.0) -> bool:
         time.sleep(0.15)
     front = ws.frontmostApplication()
     return front is not None and (front.localizedName() or "").lower() == app_name.lower()
+
+
+def _running_app(app_name: str) -> Any:
+    from AppKit import NSWorkspace
+
+    from yapp.ax import refresh_workspace
+
+    refresh_workspace()  # NSWorkspace only learns about launches and quits from the run loop
+    for app in NSWorkspace.sharedWorkspace().runningApplications():
+        if (app.localizedName() or "").lower() == app_name.lower():
+            return app
+    return None
+
+
+def app_is_running(app_name: str) -> bool:
+    app = _running_app(app_name)
+    return app is not None and not app.isTerminated()
+
+
+def quit_app(app_name: str, timeout: float = 6.0) -> bool:
+    """Ask the app to quit the polite way and wait for it to go. A Save sheet keeps it alive,
+    which is the right outcome: pressing Don't Save is the guard's decision, not ours."""
+    import time
+
+    app = _running_app(app_name)
+    if app is None:
+        return True
+    if not app.terminate():
+        return False
+    from yapp.ax import refresh_workspace
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        refresh_workspace()  # isTerminated only updates when the main run loop spins
+        if app.isTerminated():
+            return True
+        time.sleep(0.1)
+    refresh_workspace()
+    return bool(app.isTerminated())

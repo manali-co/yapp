@@ -45,12 +45,13 @@ def run_once(
     *,
     mode: Mode = Mode.ASK,
     approve: bool = False,
+    placement: str | None = None,
 ) -> int:
     def ask(action: str) -> bool:
         display.status(f"ASK: may I {action}? → {'yes (--approve)' if approve else 'no'}")
         return approve
 
-    runner = build_runner(cfg, display, ask=ask, mode=mode)
+    runner = build_runner(cfg, display, ask=ask, mode=mode, force_placement=placement)
     words = text.replace("+", " ").split()
     for i in range(per_tick, len(words) + per_tick, per_tick):
         runner.tick(words[:i], words[i : i + 1])
@@ -65,6 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--per-tick", type=int, default=2, help="words per tick in --once mode")
     p.add_argument("--mode", choices=["ask", "auto"], default="ask", help="permission mode")
     p.add_argument("--approve", action="store_true", help="answer yes to every ask (--once)")
+    p.add_argument("--placement", choices=["parallel", "hand_over"], default=None)
     sub = p.add_subparsers(dest="command")
     app = sub.add_parser("app", help="menu-bar app with the ⌥ Space bar (default)")
     app.add_argument("--log", action="store_true", help="also print the developer view")
@@ -73,6 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("keys", help="print what the hotkey listener sees")
     sub.add_parser("install-app", help="write ~/Applications/Yapp.app")
     sub.add_parser("enroll", help="record 10 s of your voice for spoken approvals")
+    disc = sub.add_parser("discard", help="test helper: close an app's windows, dropping changes")
+    disc.add_argument("app")
     tasks = sub.add_parser("tasks", help="run the task suite in tasks/ on this Mac")
     tasks.add_argument("--only", default="", help="substring of task names to run")
     tasks.add_argument("--dir", default="tasks", help="folder of task YAML files")
@@ -85,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     ax.add_argument("--phrases", default="new tab|find on page|zoom in|search for fable five")
     ax.add_argument("--out", default=str(Path.home() / ".yapp" / "ax.log"))
     ax.add_argument("--dump", action="store_true", help="write the app's on-screen text instead")
+    ax.add_argument("--windows", action="store_true", help="write the app's windows and sheets")
     p.set_defaults(command="app", log=False)
     return p
 
@@ -102,9 +107,16 @@ def main(argv: list[str] | None = None) -> int:
                 per_tick=args.per_tick,
                 mode=Mode(args.mode),
                 approve=args.approve,
+                placement=args.placement,
             )
         if args.command == "enroll":
             return run_enroll(cfg, display)
+        if args.command == "discard":
+            from yapp.tasks import discard_app
+
+            for note in discard_app(args.app):
+                display.status(note)
+            return 0
         if args.command == "tasks":
             from yapp.tasks import run_tasks
 
@@ -128,6 +140,11 @@ def main(argv: list[str] | None = None) -> int:
             from yapp.audio import debug_keys
 
             return debug_keys(display, seconds=10)
+        if args.command == "ax" and args.windows:
+            from yapp.windows import describe_windows
+
+            Path(args.out).write_text(describe_windows(args.app or ""))
+            return 0
         if args.command == "ax" and args.dump:
             from yapp.tasks import screen_text
 

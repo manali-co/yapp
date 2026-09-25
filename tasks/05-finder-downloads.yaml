@@ -1,4 +1,5 @@
 name: 05-finder-downloads
+placement: hand_over
 instruction: open finder and then go to downloads
 check:
   - frontmost: Finder

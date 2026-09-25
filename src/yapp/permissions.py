@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -14,6 +15,9 @@ PANES = {
     "input": _SECURITY + "Privacy_ListenEvent",
     "mic": _SECURITY + "Privacy_Microphone",
 }
+
+
+LOG = logging.getLogger(__name__)
 
 
 class Grant(StrEnum):
@@ -107,8 +111,8 @@ def request_accessibility() -> None:
         AXIsProcessTrustedWithOptions(
             NSDictionary.dictionaryWithObject_forKey_(True, "AXTrustedCheckOptionPrompt")
         )
-    except Exception:  # noqa: BLE001 - prompting is best effort
-        pass
+    except Exception as e:  # noqa: BLE001 - prompting is best effort
+        LOG.warning("accessibility prompt unavailable: %r", e)
 
 
 def request_missing(p: Permissions) -> None:
