@@ -39,6 +39,9 @@ def install_status_item(
     on_permissions: Callable[[], None],
     on_quit: Callable[[], None],
     glyphs: dict[str, str],
+    on_auto: Callable[[bool], None] = lambda on: None,
+    on_enroll: Callable[[], None] = lambda: None,
+    auto: bool = False,
 ) -> StatusHandle:
     """glyphs maps a variant name to an SVG path. Builds on the main thread via callAfter."""
     from PyObjCTools import AppHelper
@@ -74,6 +77,14 @@ def install_status_item(
             def permissions_(self, sender: Any) -> None:
                 on_permissions()
 
+            def auto_(self, sender: Any) -> None:
+                on_now = sender.state() != 1
+                sender.setState_(1 if on_now else 0)
+                on_auto(on_now)
+
+            def enroll_(self, sender: Any) -> None:
+                on_enroll()
+
             def quit_(self, sender: Any) -> None:
                 on_quit()
 
@@ -94,6 +105,9 @@ def install_status_item(
             ("Listen  (⌥ Space)", "listen:", ""),
             ("Pause hotkey", "pause:", ""),
             (None, None, None),
+            ("Auto mode (ask only above 85% harm)", "auto:", ""),
+            ("Enroll my voice…", "enroll:", ""),
+            (None, None, None),
             ("Show log", "showLog:", ""),
             ("Permissions…", "permissions:", ""),
             (None, None, None),
@@ -105,6 +119,8 @@ def install_status_item(
                 continue
             mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, sel, key)
             mi.setTarget_(target)
+            if sel == "auto:":
+                mi.setState_(1 if auto else 0)
             menu.addItem_(mi)
         item.setMenu_(menu)
         handle._item = item

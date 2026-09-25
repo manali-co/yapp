@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from yapp import intent as intent_mod
+from yapp.approval import Reply, classify_reply
 from yapp.catalog import installed_apps, search_files
 from yapp.config import Config
 from yapp.display import Display
@@ -55,6 +56,7 @@ class Runner:
         guard: Guard | None = None,
     ) -> None:
         self.cfg = cfg
+        self.jev = jev
         self.guard = guard
         self.executor = executor
         self.apps = apps
@@ -208,6 +210,14 @@ class Runner:
     def _report(self, r: Result) -> None:
         if self.display:
             self.display.show_result(r)
+
+
+def build_approver(runner: Runner) -> Callable[[str, str], Reply]:
+    """Spoken reply -> approve / deny / unrelated, using the runner's Jev client."""
+    jev = runner.jev
+    assert jev is not None
+    criteria = QUESTIONS["reply"]["criteria"]
+    return lambda reply, action: classify_reply(reply, action, jev, criteria)
 
 
 def build_guard(

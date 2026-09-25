@@ -9,12 +9,48 @@ from pathlib import Path
 
 from yapp.config import Config
 from yapp.display import Terminal
+from yapp.guard import Mode
 from yapp.jev import JevError
 from yapp.runner import build_runner
 
 
-def run_once(text: str, cfg: Config, display: Terminal, per_tick: int = 2) -> int:
-    runner = build_runner(cfg, display)
+def run_enroll(cfg: Config, display: Terminal) -> int:
+    """Terminal enrolment (needs the mic for this terminal; the menu bar item is easier)."""
+    from yapp.audio import Recorder
+    from yapp.speaker import Verifier
+
+    rec = Recorder(cfg.sample_rate, 15)
+    rec.start()
+    rec.arm()
+    display.status("read anything aloud for ten seconds …")
+    for i in range(10, 0, -1):
+        display.status(f"{i} …")
+        time.sleep(1.0)
+    samples = rec.snapshot()
+    rec.stop()
+    try:
+        lo, mean = Verifier(threshold=cfg.voice_match).enroll(samples)
+    except ValueError as e:
+        display.show_error(str(e))
+        return 1
+    display.status(f"voice enrolled · self-similarity min {lo:.2f} mean {mean:.2f}")
+    return 0
+
+
+def run_once(
+    text: str,
+    cfg: Config,
+    display: Terminal,
+    per_tick: int = 2,
+    *,
+    mode: Mode = Mode.ASK,
+    approve: bool = False,
+) -> int:
+    def ask(action: str) -> bool:
+        display.status(f"ASK: may I {action}? → {'yes (--approve)' if approve else 'no'}")
+        return approve
+
+    runner = build_runner(cfg, display, ask=ask, mode=mode)
     words = text.replace("+", " ").split()
     for i in range(per_tick, len(words) + per_tick, per_tick):
         runner.tick(words[:i], words[i : i + 1])
@@ -27,6 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="yapp")
     p.add_argument("--once", metavar="TEXT", help="run the pipeline on typed words, no audio")
     p.add_argument("--per-tick", type=int, default=2, help="words per tick in --once mode")
+    p.add_argument("--mode", choices=["ask", "auto"], default="ask", help="permission mode")
+    p.add_argument("--approve", action="store_true", help="answer yes to every ask (--once)")
     sub = p.add_subparsers(dest="command")
     app = sub.add_parser("app", help="menu-bar app with the ⌥ Space bar (default)")
     app.add_argument("--log", action="store_true", help="also print the developer view")
@@ -34,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("eval", help="accuracy per confidence bucket on tests/eval")
     sub.add_parser("keys", help="print what the hotkey listener sees")
     sub.add_parser("install-app", help="write ~/Applications/Yapp.app")
+    sub.add_parser("enroll", help="record 10 s of your voice for spoken approvals")
     sub.add_parser("toggle", help="show/hide the bar of the running Yapp.app")
     sub.add_parser("escape", help="dismiss the bar of the running Yapp.app")
     ax = sub.add_parser("ax", help="spike: read an app's UI via Accessibility and let Jev pick")
@@ -50,7 +89,16 @@ def main(argv: list[str] | None = None) -> int:
     display = Terminal()
     try:
         if args.once:
-            return run_once(args.once, cfg, display, per_tick=args.per_tick)
+            return run_once(
+                args.once,
+                cfg,
+                display,
+                per_tick=args.per_tick,
+                mode=Mode(args.mode),
+                approve=args.approve,
+            )
+        if args.command == "enroll":
+            return run_enroll(cfg, display)
         if args.command == "dev":
             from yapp.live import run_live
 

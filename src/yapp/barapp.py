@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from yapp.bar import BRIDGE_JS, Bar, Events, pill_size
 from yapp.bardisplay import BarDisplay
 from yapp.config import Config
 from yapp.display import Display, Terminal
+from yapp.guard import Mode
 from yapp.menubar import install_status_item
 from yapp.native import (
     INJECT_CSS_JS,
@@ -29,8 +31,9 @@ from yapp.native import (
     warm_text_services,
 )
 from yapp.permwindow import handle_event, poll_loop
-from yapp.runner import build_runner
+from yapp.runner import build_approver, build_runner
 from yapp.session import Session
+from yapp.speaker import Verifier
 from yapp.state import AppState
 from yapp.stt import StreamingTranscriber
 from yapp.types import Decision, Result, Verdict
@@ -147,13 +150,32 @@ def run_app(cfg: Config, log: bool = False) -> int:
     def session_main() -> None:
         display.status(f"loading whisper {cfg.whisper_model} …")
         stt = StreamingTranscriber(cfg.whisper_model)
-        runner = build_runner(cfg, display)
+        state = AppState(Path.home() / ".yapp" / "state.json")
+        asker: list[Callable[[str], bool]] = [lambda action: False]
+        runner = build_runner(
+            cfg, display, ask=lambda action: asker[0](action), mode=Mode(state.mode)
+        )
         rec = Recorder(cfg.sample_rate, cfg.max_hold_seconds)
         rec.start()
-        state = AppState(Path.home() / ".yapp" / "state.json")
-        session = Session(
-            cfg, runner, rec, stt, bar, bardisplay, screen=screen_under_mouse, state=state
+        verifier = Verifier(threshold=cfg.voice_match)
+        display.status(
+            "voiceprint: enrolled"
+            if verifier.enrolled
+            else "voiceprint: none (approvals are Jev-only)"
         )
+        session = Session(
+            cfg,
+            runner,
+            rec,
+            stt,
+            bar,
+            bardisplay,
+            screen=screen_under_mouse,
+            state=state,
+            approver=build_approver(runner),
+            verifier=verifier,
+        )
+        asker[0] = session.ask
         hot: list[Any] = [None]
         showing_for_perms = [False]
 
@@ -170,7 +192,7 @@ def run_app(cfg: Config, log: bool = False) -> int:
 
         def start_hotkeys() -> None:
             try:
-                hot[0] = Hotkeys(on_toggle=toggle, on_escape=escape)
+                hot[0] = Hotkeys(on_toggle=toggle, on_escape=escape, on_approve=session.approve)
                 hot[0].start()
                 time.sleep(0.5)
                 display.status(f"hotkey listener alive: {hot[0].is_alive()} ({cfg.hotkey_combo})")
@@ -196,6 +218,13 @@ def run_app(cfg: Config, log: bool = False) -> int:
 
         keep: list[Any] = []
         AppHelper.callAfter(lambda: keep.append(observe_control(control)))
+
+        def set_auto(on: bool) -> None:
+            mode = Mode.AUTO if on else Mode.ASK
+            state.set_mode(mode)
+            if runner.guard is not None:
+                runner.guard.mode = mode
+            display.status(f"mode: {mode}")
 
         def show_log() -> None:
             subprocess.run(["open", str(log_path)], check=False)
@@ -230,6 +259,9 @@ def run_app(cfg: Config, log: bool = False) -> int:
             on_show_log=show_log,
             on_permissions=lambda: show_permission_row(),
             on_quit=quit_app,
+            on_auto=set_auto,
+            on_enroll=session.request_enroll,
+            auto=state.mode == Mode.AUTO,
             glyphs={
                 "default": str(_ui_path("menubar-glyph.svg")),
                 "listening": str(_ui_path("menubar-glyph-listening.svg")),
