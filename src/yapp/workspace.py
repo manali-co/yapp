@@ -50,8 +50,10 @@ class Workspace:
         focused: Callable[[str], Any] = lambda app: None,
         real_click: Callable[[float, float], bool] = lambda x, y: False,
         typing_now: Callable[[], bool] = lambda: False,
+        now: Callable[[], float] = time.monotonic,
     ) -> None:
         self.typing_now = typing_now  # a hard rule above Jev: never raise while keys are down
+        self.now = now
         self.may = may  # the guard: (action) -> allowed?
         self.sheet_buttons = sheet_buttons
         self.press = press
@@ -79,6 +81,7 @@ class Workspace:
         self.work_app: str = ""
         # Dictation a field refused, in order, tagged with its app and dictation action.
         self.held: list[Held] = []
+        self._last_step_at: float = 0.0  # when Yapp last acted on the side (focus attribution)
 
     # ---- placement -------------------------------------------------------------------
     @property
@@ -152,6 +155,12 @@ class Workspace:
             self.log(f"focus: waited {waited:.1f}s for a pause in the user's typing")
         return not self.typing_now()
 
+    def after_step(self) -> bool:
+        """Called when a step on the side has finished: from now on, for a moment, a change
+        of the front app is Yapp's doing (a long step must not be misread as the user's)."""
+        self._last_step_at = self.now()
+        return self.guard_focus()
+
     def guard_focus(self) -> bool:
         """After a step on the side: if the work app took the front (a new window or sheet
         made it activate itself), give the user's app back at once. Returns whether it had
@@ -161,9 +170,11 @@ class Workspace:
         front = self.frontmost()
         if front == self.user_app or not front:
             return False
-        if self.typing_now():
-            # The user is active: this switch may be theirs. Follow them from now on.
-            self.log(f"focus: {front} is in front and the user is active; following them")
+        ours = self.now() - self._last_step_at < 2.0  # Yapp just acted: the switch is its doing
+        if not ours or (front != self.work_app and self.typing_now()):
+            # No step of ours explains it, or the user is active in some other app: the
+            # user switched themselves. Follow them; never yank a person back.
+            self.log(f"focus: the user moved to {front}; following them")
             self.user_app = front
             return False
         self.raise_app(self.user_app)

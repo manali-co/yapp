@@ -594,16 +594,21 @@ class Screen:
                 return Result(True, f"done after {acted} step(s)")
             if self.guard is not None and not self.guard(self._describe(d, app), before):
                 return Result(acted > 0, "not approved")
-            if self.parallel:
-                self.before_step()
-            r = self._act(d)
+            if self.parallel and not self.before_step():
+                # Not done: the caller must not take an interrupted task as complete.
+                return Result(False, f"paused after {acted} step(s): you were typing")
+            try:
+                r = self._act(d)
+            finally:
+                if self.parallel:
+                    self.after_step()  # the user's app comes back whatever the step did
             if not r.ok:
                 return Result(acted > 0, r.message)
             acted += 1
             last_action = action
             self.settle(0.35)
             if self.parallel:
-                self.after_step()
+                self.after_step()  # and once more after the app had time to react
             app_after = app if self.parallel else self.frontmost()
             after = self.summary(app_after)
             shot_after = self.perceiver.snapshot(app_after)

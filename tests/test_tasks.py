@@ -68,3 +68,32 @@ def test_expect_ask_tasks_never_get_a_yes(monkeypatch: object) -> None:
     plain = Task("u", "open notes", [], expect_ask=False, settle_seconds=0)
     o = tasks_mod.run_task(plain, Config(), Terminal(), Mode.ASK, approve=True)
     assert seen == [False, True] and not o.passed  # asked when it should not have
+
+
+def test_ownership_by_content() -> None:
+    from yapp.tasks import owned_by_task
+
+    instr = "open reminders and then new reminder and then type buy stamps"
+    assert owned_by_task("Buy stamps lonenta", instr)
+    assert owned_by_task("And then new reminder buy stamps", instr)
+    assert not owned_by_task("", instr)  # a blank item proves nothing: left alone
+    assert not owned_by_task("Call the dentist", instr)  # the user's own new reminder
+    assert not owned_by_task("stamps", instr)  # one word is not enough
+    assert not owned_by_task("New reminder", instr)  # a generic phrase, not task content
+    assert not owned_by_task(
+        "buy stamps", "open reminders and then new reminder"
+    )  # nothing dictated
+
+
+def test_osascript_timeout_is_a_failure(monkeypatch: object) -> None:
+    import subprocess
+    from typing import Any, cast
+
+    import yapp.tasks as tasks_mod
+
+    def hang(*a: object, **k: object) -> None:
+        raise subprocess.TimeoutExpired(cmd="osascript", timeout=k.get("timeout", 0))  # type: ignore[arg-type]
+
+    cast(Any, monkeypatch).setattr(subprocess, "run", hang)
+    ok, text = tasks_mod._osascript('tell application "Notes" to get id of every note')
+    assert not ok and "timed out" in text

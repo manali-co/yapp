@@ -475,9 +475,28 @@ def test_parallel_steps_call_the_focus_hooks() -> None:
     s.before_step = before
     s.after_step = after
     s.run("zoom in", app="Chrome", parallel=True)
-    assert calls == ["before", "after"]
+    assert calls == ["before", "after", "after"]  # right after the act, and after the settle
     calls.clear()
     s2, _ = make_screen(FakeResp("m3", 0.95, "press", "s0", 0.1), summaries=["a", "b"])
     s2.before_step = before
     s2.run("zoom in")
     assert calls == []  # hand-over mode: no hooks
+
+
+def test_a_step_is_skipped_when_the_user_keeps_typing_and_focus_is_restored_on_failure() -> None:
+    calls: list[str] = []
+    s, log = make_screen(FakeResp("m3", 0.95, "press", "s0", 0.1), summaries=["a", "b"])
+    s.before_step = lambda: False
+    r = s.run("zoom in", app="Chrome", parallel=True)
+    assert not r.ok and "paused after 0 step(s)" in r.message and log == []
+    s2, log2 = make_screen(FakeResp("m3", 0.95, "press", "s0", 0.1), summaries=["a", "b"])
+    s2.press = lambda t: False
+    s2.centre = lambda t: None
+
+    def after() -> bool:
+        calls.append("after")
+        return True
+
+    s2.after_step = after
+    r2 = s2.run("zoom in", app="Chrome", parallel=True)
+    assert not r2.ok and calls == ["after"]  # the failed press still gave focus back

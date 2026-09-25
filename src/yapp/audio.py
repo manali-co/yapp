@@ -207,6 +207,7 @@ class Hotkeys:
 
         self._matcher = HotkeyMatcher()
         self._peek = HotkeyMatcher()  # a second matcher, for the intercept decision only
+        self._space_consumed = False  # a consumed ⌥ Space key-down owes a consumed key-up
         self._on = {"toggle": on_toggle, "escape": on_escape, "approve": on_approve}
         self._bar_up = bar_up
         self._listener = keyboard.Listener(
@@ -226,9 +227,13 @@ class Hotkeys:
                 self._peek.option_down = option
                 action = self._peek.press(_FakeKey(vk))
                 if swallow(action, self._bar_up()):
+                    if vk == VK_SPACE:
+                        self._space_consumed = True
                     return None
-            elif event_type == Quartz.kCGEventKeyUp and vk == VK_SPACE and option:
-                return None  # the matching key-up of a swallowed ⌥ Space
+            elif event_type == Quartz.kCGEventKeyUp and vk == VK_SPACE:
+                if self._space_consumed:  # only the key-up of a key-down we swallowed
+                    self._space_consumed = False
+                    return None
         except Exception:  # noqa: BLE001 - never break the user's keyboard over a bug here
             return event
         return event
