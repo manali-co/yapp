@@ -75,6 +75,7 @@ class Highlight:
     window: Any = None
     misses: int = 0  # consecutive frame reads that failed (AX can blink)
     MISSES_TO_HIDE = 4
+    log: Callable[[str], None] = lambda s: None
 
     def show(self, window: Any) -> bool:
         """Glow around `window` (an AX window) while Yapp acts in it."""
@@ -83,6 +84,7 @@ class Highlight:
             return False
         self.window = window
         self.misses = 0
+        self.log(f"glow: on {frame}")
         self.drawer.place(frame)
         if self.state != "attention":
             self.state = "acting"
@@ -95,6 +97,7 @@ class Highlight:
             if frame is None:
                 self.misses += 1
                 if self.misses >= self.MISSES_TO_HIDE:  # the window is really gone
+                    self.log("glow: the window is gone; hiding")
                     self.hide()
             else:
                 self.misses = 0
@@ -329,18 +332,37 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
 
             AppHelper.callAfter(apply)
 
+    def debug() -> str:
+        w = st.window
+        if w is None:
+            return "no overlay window yet"
+        f = w.frame()
+        return (
+            f"overlay frame=({f.origin.x},{f.origin.y},{f.size.width},{f.size.height}) "
+            f"alpha={w.alphaValue()} visible={w.isVisible()} active_space={w.isOnActiveSpace()} "
+            f"level={w.level()} fading={st.fading} "
+            f"tracker={'on' if st.tracker is not None else 'off'}"
+        )
+
     _drawer = Native()
+    _drawer.debug = debug  # type: ignore[attr-defined]
     return _drawer
 
 
-def build_highlight(ui_dir: Any, frame_of: Callable[[Any], Rect | None]) -> Highlight:
+def debug_state() -> str:
+    return _drawer.debug() if _drawer is not None and hasattr(_drawer, "debug") else "no drawer"
+
+
+def build_highlight(
+    ui_dir: Any, frame_of: Callable[[Any], Rect | None], log: Callable[[str], None] = lambda s: None
+) -> Highlight:
     """Highlight wired to the design bundle's colour and timings."""
     avatar = ui_dir.joinpath("yapp-avatar.js").read_text()
     tokens = ui_dir.joinpath("tokens.css").read_text()
     L, C, h = acting_hue(avatar)
     d = durations(tokens)
     drawer = native_drawer(oklch_to_srgb(L, C, h), pulse_ms=d.get("pulse", 380))
-    highlight = Highlight(drawer, frame_of, settle_ms=d.get("settle", 1400))
+    highlight = Highlight(drawer, frame_of, settle_ms=d.get("settle", 1400), log=log)
     set_tracker = getattr(drawer, "set_tracker", None)
     if set_tracker is not None:
         set_tracker(highlight.track)
@@ -368,6 +390,14 @@ def glow_diagnostic(app_name: str, seconds: float = 3.0) -> str:
     lines.append(f"show={h.show(w)} state={h.state}")
     mine = os.getpid()
     for i in range(int(seconds / 0.25)):
+        if i == 4:  # the sequence a task goes through: hide, then show a smaller frame
+            h.hide()
+            refresh_workspace()
+            lines.append("hid; " + debug_state())
+            h.frame_of = lambda win: Rect(200, 100, 500, 400)
+            h.show(w)
+            refresh_workspace()
+            lines.append("shown smaller; " + debug_state())
         refresh_workspace()
         time.sleep(0.25)
         ours = [

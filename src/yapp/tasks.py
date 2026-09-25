@@ -119,6 +119,17 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
 # ---------------------------------------------------------------- live probes
 
 
+def settle(seconds: float) -> None:
+    """Wait like the real app does: with the main run loop turning, so overlay windows,
+    animations, and NSWorkspace notifications actually happen while we wait."""
+    from yapp.ax import refresh_workspace
+
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        refresh_workspace()
+        time.sleep(0.1)
+
+
 def _shell(cmd: str) -> str:
     """Run one task command. It is an argv line (shlex rules), not a shell: no pipes or &&."""
     argv = shlex.split(cmd)
@@ -226,6 +237,7 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
         frame = win.window_frame(w) if w is not None else None
         if frame is None:
             return False, f"no window for {arg}"
+        settle(0.5)  # the window server applies our ordering a beat after the run loop turns
         mine = os.getpid()
         for info in (
             Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, 0) or []
@@ -245,7 +257,9 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
             )
             if close:
                 return True, f"glow {glow} on {arg} {frame}"
-        return False, f"no glow window of ours around {arg} {frame}"
+        from yapp.highlight import debug_state
+
+        return False, f"no glow window of ours around {arg} {frame}; {debug_state()}"
     if kind == "app_not_running":
         from yapp.native import app_is_running
 
@@ -330,7 +344,7 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
             acted += [v.reason for v in verdicts if v.outcome.value == "execute"]
             time.sleep(cfg.tick_seconds)
         acted += [v.reason for v in runner.finish() if v.outcome.value == "execute"]
-        time.sleep(task.settle_seconds)
+        settle(task.settle_seconds)
         checks = [(json.dumps(c, ensure_ascii=False), *run_check(c, before)) for c in task.checks]
     except Exception as e:  # noqa: BLE001 - one broken task must not lose the others' results
         checks.append(("run", False, f"{type(e).__name__}: {e}"))

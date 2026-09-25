@@ -148,8 +148,10 @@ class Workspace:
         if win is None:
             return
         if self.parallel and self.user_window is not None and win == self.user_window:
+            self.log(f"glow: skipped, that is the user's own {app} window")
             return  # Yapp works on the side; the user's own window is never marked
-        self.highlight.show(win)
+        if not self.highlight.show(win):
+            self.log(f"glow: no frame for the {app} window")
 
     def glow_done(self) -> None:
         if self.highlight is not None:
