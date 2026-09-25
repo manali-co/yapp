@@ -173,7 +173,8 @@ def close_window(win: Any) -> bool:
 
 
 def sheet_buttons(win: Any) -> list[tuple[str, Any]]:
-    """Buttons of the sheet attached to a window (the 'Do you want to save?' kind)."""
+    """Buttons of the 'Do you want to save?' sheet on a window. Some apps expose the sheet
+    through AXSheets, others (TextEdit on macOS 26) inline its buttons in the window tree."""
     out: list[tuple[str, Any]] = []
     for sheet in list(_attr(win, "AXSheets") or []):
         stack = list(_attr(sheet, "AXChildren") or [])
@@ -182,6 +183,11 @@ def sheet_buttons(win: Any) -> list[tuple[str, Any]]:
             if _attr(el, "AXRole") == "AXButton":
                 out.append((str(_attr(el, "AXTitle") or _attr(el, "AXDescription") or ""), el))
             stack.extend(list(_attr(el, "AXChildren") or []))
+    if not out:
+        buttons = window_buttons(win)
+        titles = {t.strip().lower() for t, _ in buttons}
+        if titles & set(DISCARD_TITLES) and "cancel" in titles:  # looks like a save sheet
+            out = buttons
     return out
 
 
@@ -325,3 +331,18 @@ class WindowManager:
         self.layout = None
         self.placed = 0
         return ok
+
+
+def describe_windows(app_name: str) -> str:
+    """Diagnostic: every window with its role, sheets, and buttons."""
+    lines = []
+    for w in app_windows(app_name):
+        lines.append(
+            f"window title={_attr(w, 'AXTitle')!r} role={_attr(w, 'AXRole')} "
+            f"subrole={_attr(w, 'AXSubrole')} close={_attr(w, 'AXCloseButton') is not None} "
+            f"modal={_attr(w, 'AXModal')} frame={window_frame(w)}"
+        )
+        for sheet in list(_attr(w, "AXSheets") or []):
+            lines.append(f"  sheet: {[t for t, _ in window_buttons(sheet)]}")
+        lines.append(f"  buttons: {[t for t, _ in window_buttons(w)][:12]}")
+    return "\n".join(lines)
