@@ -121,14 +121,25 @@ def window_title(app: str = "") -> str:
     return normalize_label(str(_attr(win, "AXTitle") or "")) if win is not None else ""
 
 
-def screen_text(app: str = "") -> str:
-    """Focused element value + every control label/value the perceiver can see."""
-    from yapp.ax import _attr, app_element, ax_controls
+def screen_text(app: str = "", max_nodes: int = 6000, max_seconds: float = 1.5) -> str:
+    """Every title, description and value in the app's accessibility tree (checker only;
+    deeper and slower than the perceiver's walk, so it can see text in rows and fields)."""
+    from yapp.ax import _attr, app_element
 
-    el, name = app_element(app or None)
-    focused = _attr(el, "AXFocusedUIElement")
-    parts = [str(_attr(focused, "AXValue") or "")] if focused is not None else []
-    parts += [t.label for t in ax_controls(name)]
+    el, _ = app_element(app or None)
+    parts: list[str] = []
+    stack = [el]
+    seen = 0
+    deadline = time.monotonic() + max_seconds
+    while stack and seen < max_nodes and time.monotonic() < deadline:
+        node = stack.pop()
+        seen += 1
+        for attr in ("AXTitle", "AXDescription", "AXValue"):
+            v = _attr(node, attr)
+            if isinstance(v, str) and v:
+                parts.append(v)
+        children = _attr(node, "AXChildren") or []
+        stack.extend(reversed(list(children)))
     return "\n".join(parts)
 
 
