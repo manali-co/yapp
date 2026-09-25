@@ -118,29 +118,20 @@ class Highlight:
 # ---------------------------------------------------------------- AppKit
 
 
-def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawer:
-    """The real overlay: borderless, click-through, on every Space, above normal windows."""
-    from AppKit import (
-        NSAnimationContext,
-        NSBezierPath,
-        NSColor,
-        NSFloatingWindowLevel,
-        NSMakeRect,
-        NSScreen,
-        NSShadow,
-        NSView,
-        NSWindow,
-    )
-    from Foundation import NSObject, NSTimer
-    from PyObjCTools import AppHelper
+_classes: dict[str, Any] = {}  # Objective-C classes may be defined only once per process
+_drawer: Drawer | None = None
 
-    from yapp.native import CAN_JOIN_ALL_SPACES, FULL_SCREEN_AUXILIARY, IGNORES_CYCLE, STATIONARY
 
-    r, g, b = rgb
-    colour = NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, 1.0)
+def _objc_classes(colour: Any) -> tuple[Any, Any]:
+    """GlowView and the timer target, defined once (PyObjC refuses a second definition)."""
+    if "GlowView" in _classes:
+        return _classes["GlowView"], _classes["State"]
+    from AppKit import NSBezierPath, NSColor, NSMakeRect, NSShadow, NSView
+    from Foundation import NSObject
 
     class GlowView(NSView):  # type: ignore[misc]
         dot: Any = None
+        colour: Any = None
 
         def isFlipped(self) -> bool:
             return True
@@ -157,14 +148,14 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
             )
             path.setLineWidth_(3.0)
             shadow = NSShadow.alloc().init()
-            shadow.setShadowColor_(colour.colorWithAlphaComponent_(0.9))
+            shadow.setShadowColor_(self.colour.colorWithAlphaComponent_(0.9))
             shadow.setShadowBlurRadius_(16.0)
             shadow.set()
-            colour.colorWithAlphaComponent_(0.95).setStroke()
+            self.colour.colorWithAlphaComponent_(0.95).setStroke()
             path.stroke()
             if self.dot is not None:
                 x, y = self.dot
-                colour.setFill()
+                self.colour.setFill()
                 NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(x - 5, y - 5, 10, 10)).fill()
                 NSColor.whiteColor().colorWithAlphaComponent_(0.9).setFill()
                 NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(x - 2, y - 2, 4, 4)).fill()
@@ -181,6 +172,32 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
             self.up = not self.up
             self.window.animator().setAlphaValue_(1.0 if self.up else 0.45)
 
+    _classes["GlowView"], _classes["State"] = GlowView, State
+    return GlowView, State
+
+
+def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawer:
+    """The real overlay: borderless, click-through, on every Space, above normal windows.
+    One per process: the same window is reused by every runner built later."""
+    global _drawer
+    if _drawer is not None:
+        return _drawer
+    from AppKit import (
+        NSAnimationContext,
+        NSColor,
+        NSFloatingWindowLevel,
+        NSMakeRect,
+        NSScreen,
+        NSWindow,
+    )
+    from Foundation import NSTimer
+    from PyObjCTools import AppHelper
+
+    from yapp.native import CAN_JOIN_ALL_SPACES, FULL_SCREEN_AUXILIARY, IGNORES_CYCLE, STATIONARY
+
+    r, g, b = rgb
+    colour = NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, 1.0)
+    GlowView, State = _objc_classes(colour)
     st = State.alloc().init()
 
     def ensure() -> Any:
@@ -198,6 +215,7 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
             )
             w.setReleasedWhenClosed_(False)
             st.view = GlowView.alloc().initWithFrame_(NSMakeRect(0, 0, 10, 10))
+            st.view.colour = colour
             w.setContentView_(st.view)
             st.window = w
         return st.window
@@ -273,7 +291,8 @@ def native_drawer(rgb: tuple[float, float, float], pulse_ms: int = 380) -> Drawe
 
             AppHelper.callAfter(apply)
 
-    return Native()
+    _drawer = Native()
+    return _drawer
 
 
 def build_highlight(ui_dir: Any, frame_of: Callable[[Any], Rect | None]) -> Highlight:
