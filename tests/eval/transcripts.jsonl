@@ -1,0 +1,14 @@
+{"tail": "open notes", "intent": "open_app", "app": "notes"}
+{"tail": "launch safari", "intent": "open_app", "app": "safari"}
+{"tail": "switch to slack", "intent": "open_app", "app": "slack"}
+{"tail": "open node", "intent": "open_app", "app": "notes"}
+{"tail": "open", "intent": "open_app", "app": null, "complete": false}
+{"tail": "type hello there", "intent": "type_text", "app": null}
+{"tail": "write dear sam", "intent": "type_text", "app": null}
+{"tail": "open my resume", "intent": "open_file", "app": null}
+{"tail": "save", "intent": "press_key", "app": null}
+{"tail": "copy that", "intent": "press_key", "app": null}
+{"tail": "undo", "intent": "undo", "app": null}
+{"tail": "no not that", "intent": "undo", "app": null}
+{"tail": "um so", "intent": "none", "app": null}
+{"tail": "what was i doing", "intent": "none", "app": null}
