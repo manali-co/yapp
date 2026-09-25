@@ -59,3 +59,12 @@ def test_hotkey_matcher_handles_key_enums() -> None:
     m.press(keyboard.Key.alt)
     assert m.press(keyboard.Key.space) == "toggle"
     assert m.press(keyboard.Key.esc) == "escape"
+
+
+def test_hotkey_matcher_return_approves() -> None:
+    from yapp.audio import HotkeyMatcher
+
+    m = HotkeyMatcher()
+    assert m.press(K(vk=36)) == "approve"
+    m.press(K(name="alt_r"))
+    assert m.press(K(vk=36)) is None  # option-return is not an answer

@@ -134,6 +134,7 @@ def debug_keys(display: Any, seconds: int) -> int:
 
 VK_SPACE = 49
 VK_ESCAPE = 53
+VK_RETURN = 36
 
 
 def _vk(key: Any) -> int | None:
@@ -164,6 +165,8 @@ class HotkeyMatcher:
         vk = _vk(key)
         if vk == VK_ESCAPE:
             return "escape"
+        if vk == VK_RETURN and not self.option_down:
+            return "approve"  # only means something while the bar is asking
         if vk == VK_SPACE and self.option_down:
             return "toggle"
         return None
@@ -176,11 +179,16 @@ class HotkeyMatcher:
 class Hotkeys:
     """Global ⌥ Space / Escape listener built on pynput's raw listener."""
 
-    def __init__(self, on_toggle: Callable[[], None], on_escape: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        on_toggle: Callable[[], None],
+        on_escape: Callable[[], None],
+        on_approve: Callable[[], None] = lambda: None,
+    ) -> None:
         from pynput import keyboard
 
         self._matcher = HotkeyMatcher()
-        self._on = {"toggle": on_toggle, "escape": on_escape}
+        self._on = {"toggle": on_toggle, "escape": on_escape, "approve": on_approve}
         self._listener = keyboard.Listener(on_press=self._press, on_release=self._release)
 
     def _press(self, key: Any) -> None:
