@@ -407,3 +407,41 @@ def test_hand_over_loop_follows_the_front_app_each_step() -> None:
     s.summary = summary
     s.run("zoom in")
     assert targeted[0] == "Chrome" and "Notes" in targeted[1:]  # a later step targets Notes
+
+
+def test_press_falls_back_to_the_virtual_pointer_then_the_real_one() -> None:
+
+    pid_clicks: list[tuple[str, tuple[float, float]]] = []
+    real_clicks: list[str] = []
+    s, log = make_screen(
+        FakeResp("m3", 0.95, "press", "s0", 0.1),
+        FakeResp("m3", 0.95, "press", "s0", 0.1, status="continue", status_conf=0.9),
+        FakeResp("none", 0.1, "none", "s0", 0.1, status="done"),
+        summaries=["same"] * 8,
+    )
+    s.press = lambda t: False  # AXPress refused (a drawn control)
+    s.centre = lambda t: (10.0, 20.0)
+
+    def click_pid(t: Target, p: tuple[float, float]) -> bool:
+        pid_clicks.append((t.key, p))
+        return True
+
+    def click_real(t: Target, p: tuple[float, float]) -> bool:
+        real_clicks.append(t.key)
+        return True
+
+    s.click_pid = click_pid
+    s.click_real = click_real
+    r = s.run("zoom in")
+    assert pid_clicks == [("m3", (10.0, 20.0))]  # tier 2 first
+    assert real_clicks == ["m3"]  # same target, no change: tier 3 once
+    assert r.ok and "virtual pointer" in s.history[0] and "with the pointer" in s.history[1]
+
+
+def test_press_without_a_frame_just_fails() -> None:
+    s, log = make_screen(FakeResp("m3", 0.95, "press", "s0", 0.1), summaries=["a", "b"])
+    s.press = lambda t: False
+    s.centre = lambda t: None
+    s.click_pid = lambda t, p: True
+    r = s.run("zoom in")
+    assert not r.ok and r.message == "couldn't press that"

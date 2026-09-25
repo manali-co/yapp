@@ -46,10 +46,16 @@ class Workspace:
         may: Callable[[str], bool] = lambda action: False,
         sheet_buttons: Callable[[Any], list[tuple[str, Any]]] = lambda win: [],
         press: Callable[[Any], bool] = lambda el: False,
+        highlight: Any = None,
+        focused: Callable[[str], Any] = lambda app: None,
+        real_click: Callable[[float, float], bool] = lambda x, y: False,
     ) -> None:
         self.may = may  # the guard: (action) -> allowed?
         self.sheet_buttons = sheet_buttons
         self.press = press
+        self.highlight = highlight  # the glow around the window Yapp works in (highlight.py)
+        self.focused = focused
+        self.real_click = real_click
         self._decide = decide
         self.windows = windows
         self.frontmost = frontmost
@@ -94,6 +100,7 @@ class Workspace:
     def reset(self) -> None:
         """Session over: forget the placement; the ledger survives until clean-up."""
         self.mode = None
+        self.glow_done()
 
     # ---- opening apps ----------------------------------------------------------------
     def before_open(self, app: str) -> bool:
@@ -103,6 +110,7 @@ class Workspace:
 
     def after_open(self, app: str) -> None:
         self.work_app = app
+        self.glow(app)
         if self.parallel:
             self.sleep(0.6)  # let the window appear before placing it
             if app in self.ledger.launched_apps:
@@ -114,7 +122,31 @@ class Workspace:
             if self.user_app and self.user_app != app:
                 self.raise_app(self.user_app)  # the user keeps the keyboard
 
+    # ---- the glow ----------------------------------------------------------------------
+    def glow(self, app: str, window: Any = None) -> None:
+        """Show the acting glow around the window Yapp works in (both modes)."""
+        if self.highlight is None:
+            return
+        win = window if window is not None else self.focused(app)
+        if win is not None:
+            self.highlight.show(win)
+
+    def glow_done(self) -> None:
+        if self.highlight is not None:
+            self.highlight.done()
+
     # ---- typing while the user works -----------------------------------------------
+    def borrow_pointer(self, x: float, y: float) -> bool:
+        """Tier 3 pointer: the real cursor, for a moment, under the attention state."""
+        self.attention("Borrowing your mouse for a moment")
+        try:
+            ok = self.real_click(x, y)
+            if not ok:
+                self.log("pointer: the user is holding a button; not touching the cursor")
+            return ok
+        finally:
+            self.attention_done()
+
     def borrow_focus(self, app: str, act: Callable[[], Any]) -> Any:
         """Run `act` (keystrokes) with `app` in front, then give the user's app back.
         If the app cannot be brought to the front, nothing is typed: keystrokes would land
@@ -151,6 +183,7 @@ class Workspace:
                         self.log(f"windows: new {app} window placed in the work area")
                 if self.user_app and self.user_app != app:
                     self.raise_app(self.user_app)
+            self.glow(app, self.ledger.windows[-1].ref)
 
     def type_on_side(self, text: str, type_ax: Callable[[str, str], bool], action: int = 0) -> bool:
         """Dictation in parallel mode: append through Accessibility. When the field refuses,
@@ -222,4 +255,6 @@ class Workspace:
         )
         self.mode = None
         self.work_app = ""
+        if self.highlight is not None:
+            self.highlight.hide()
         return done

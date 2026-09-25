@@ -198,6 +198,28 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
         home = win.display_of(frame, win.displays()).frame
         half = home.left_half() if kind == "window_in_left_half" else home.right_half()
         return half.contains_centre(frame) and frame.w <= half.w + 2, f"{arg} at {frame}"
+    if kind == "highlight_around":
+        import os
+
+        import Quartz
+
+        from yapp import windows as win
+
+        w = win.focused_window(str(arg))
+        frame = win.window_frame(w) if w is not None else None
+        if frame is None:
+            return False, f"no window for {arg}"
+        mine = os.getpid()
+        for info in (
+            Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, 0) or []
+        ):
+            if info.get("kCGWindowOwnerPID") != mine:
+                continue
+            b = info.get("kCGWindowBounds", {})
+            glow = win.Rect(b.get("X", 0), b.get("Y", 0), b.get("Width", 0), b.get("Height", 0))
+            if glow.x <= frame.x and glow.y <= frame.y and glow.w >= frame.w and glow.h >= frame.h:
+                return True, f"glow {glow} around {arg} {frame}"
+        return False, f"no glow window of ours around {arg} {frame}"
     if kind == "app_not_running":
         from yapp.native import app_is_running
 

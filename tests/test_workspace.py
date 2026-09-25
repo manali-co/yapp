@@ -287,3 +287,45 @@ def test_borrow_gives_back_the_app_the_user_is_in_now() -> None:
     w.front = "Mail"  # the user moved on before a retried flush
     ws.borrow_focus("TextEdit", lambda: None)
     assert w.raised[-2:] == ["TextEdit", "Mail"] and w.front == "Mail"
+
+
+def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> None:
+    w = World()
+    ws = make(w)
+    shown: list[str] = []
+
+    class FakeHighlight:
+        def show(self, win: Any) -> bool:
+            shown.append(str(win))
+            return True
+
+        def done(self) -> None:
+            shown.append("done")
+
+        def hide(self) -> None:
+            shown.append("hide")
+
+    ws.highlight = FakeHighlight()
+
+    def focused(app: str) -> Any:
+        wins = w.wins.get(app)
+        return wins[0] if wins else None
+
+    ws.focused = focused
+    ws.decide("open notes", "Notes")
+    ws.before_open("Notes")
+    ws.after_open("Notes")
+    assert shown == ["notes-1"]
+    ws.reset()
+    assert shown[-1] == "done"
+    clicks: list[tuple[float, float]] = []
+
+    def real_click(x: float, y: float) -> bool:
+        clicks.append((x, y))
+        return True
+
+    ws.real_click = real_click
+    assert ws.borrow_pointer(5.0, 6.0) and clicks == [(5.0, 6.0)]
+    assert w.log[-2:] == ["attention: Borrowing your mouse for a moment", "attention done"]
+    ws.real_click = lambda x, y: False
+    assert not ws.borrow_pointer(1.0, 1.0)
