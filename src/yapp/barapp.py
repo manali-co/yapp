@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import threading
 import time
@@ -138,6 +139,10 @@ def run_app(cfg: Config, log: bool = False) -> int:
     log_path = Path.home() / ".yapp" / "app.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     file_log = Terminal(Console(file=log_path.open("a"), width=120, force_terminal=False))
+    handler = logging.FileHandler(log_path)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s: %(message)s"))
+    logging.getLogger("yapp").addHandler(handler)
+    logging.getLogger("yapp").setLevel(logging.INFO)
     file_log.status(f"--- yapp app started {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
     bar = Bar(OverlayWindow(bar_window, log=file_log.status), width, height)
     bardisplay = BarDisplay(bar, silence_total=cfg.silence_seconds)

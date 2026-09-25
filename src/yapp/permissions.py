@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -14,6 +15,9 @@ PANES = {
     "input": _SECURITY + "Privacy_ListenEvent",
     "mic": _SECURITY + "Privacy_Microphone",
 }
+
+
+LOG = logging.getLogger(__name__)
 
 
 class Grant(StrEnum):
@@ -96,7 +100,7 @@ def request_input_monitoring() -> None:
         pass
 
 
-def request_accessibility(log: Callable[[str], None] = lambda s: None) -> None:
+def request_accessibility() -> None:
     """Ask macOS for Accessibility: shows the system prompt and adds the app's row."""
     try:
         from ApplicationServices import (
@@ -108,7 +112,7 @@ def request_accessibility(log: Callable[[str], None] = lambda s: None) -> None:
             NSDictionary.dictionaryWithObject_forKey_(True, "AXTrustedCheckOptionPrompt")
         )
     except Exception as e:  # noqa: BLE001 - prompting is best effort
-        log(f"accessibility prompt unavailable: {e!r}")
+        LOG.warning("accessibility prompt unavailable: %r", e)
 
 
 def request_missing(p: Permissions) -> None:
