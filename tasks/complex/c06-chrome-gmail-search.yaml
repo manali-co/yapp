@@ -1,0 +1,10 @@
+name: c06-chrome-gmail-search
+# A web app with its own search box, inside a browser that also has one.
+placement: hand_over
+instruction: open chrome and then new tab and then go to gmail dot com and then search my mail for github
+check:
+  - frontmost: Google Chrome
+  - window_title_contains: github
+settle_seconds: 6
+per_tick: 3
+close_tab_after: [Google Chrome]

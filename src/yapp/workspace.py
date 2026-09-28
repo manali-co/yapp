@@ -51,11 +51,17 @@ class Workspace:
         focused: Callable[[str], Any] = lambda app: None,
         real_click: Callable[[float, float], bool] = lambda x, y: False,
         typing_now: Callable[[], bool] = lambda: False,
+        seconds_since_click: Callable[[], float] = lambda: float("inf"),
+        seconds_since_key: Callable[[], float] = lambda: float("inf"),
+        click_at: Callable[[], tuple[float, float] | None] = lambda: None,
         now: Callable[[], float] = time.monotonic,
         purpose: PurposeDecider | None = None,
     ) -> None:
         self._purpose = purpose  # None: everything Yapp opens is a hand-off (kept)
         self.typing_now = typing_now  # a hard rule above Jev: never raise while keys are down
+        self.seconds_since_click = seconds_since_click  # the user's own app switches are clicks
+        self.seconds_since_key = seconds_since_key  # ... or keys, in an app Yapp never touched
+        self.click_at = click_at  # where the user's latest mouse-down landed (None: unknown)
         self.now = now
         self.may = may  # the guard: (action) -> allowed?
         self.sheet_buttons = sheet_buttons
@@ -158,6 +164,7 @@ class Workspace:
                     self.log(f"windows: {app} placed in the work area")
             if self.user_app and self.user_app != app:
                 self.raise_app(self.user_app)  # the user keeps the keyboard
+                self._acted()  # the launch is Yapp's doing: a front change now is not the user's
                 self.guard_focus()
 
     # ---- keeping the user's focus while working on the side ----------------------------
@@ -175,25 +182,37 @@ class Workspace:
             self.log(f"focus: waited {waited:.1f}s for a pause in the user's typing")
         return not self.typing_now()
 
-    def after_step(self) -> bool:
-        """Called when a step on the side has finished: from now on, for a moment, a change
-        of the front app is Yapp's doing (a long step must not be misread as the user's)."""
+    def _acted(self) -> None:
+        """Yapp just did something on the side. From now on, for a moment, a change of the
+        front app is Yapp's doing unless the user clicked after this instant."""
         self._last_step_at = self.now()
+
+    def after_step(self) -> bool:
+        """Called when a step on the side has finished (a long step must not be misread as
+        the user's switch)."""
+        self._acted()
         return self.guard_focus()
 
     def guard_focus(self) -> bool:
-        """After a step on the side: if the work app took the front (a new window or sheet
-        made it activate itself), give the user's app back at once. Returns whether it had
-        to. Never fights the user: if they themselves just switched apps, leave it."""
+        """After a step on the side: if an app took the front because of the step (a new
+        window or sheet made it activate itself), give the user's app back at once. Returns
+        whether it had to. Never fights the user: a click of theirs since the step, or a
+        switch long after it, is their own move, and Yapp follows them."""
         if not self.parallel or not self.user_app:
             return False
         front = self.frontmost()
         if front == self.user_app or not front:
             return False
-        ours = self.now() - self._last_step_at < 2.0  # Yapp just acted: the switch is its doing
-        if not ours or (front != self.work_app and self.typing_now()):
-            # No step of ours explains it, or the user is active in some other app: the
-            # user switched themselves. Follow them; never yank a person back.
+        since_step = self.now() - self._last_step_at
+        # A click after the step is the user's switch only if it landed in the app now in
+        # front. A click in their own window while the work app activates itself late is
+        # not a switch, and they get their app back.
+        clicked = self.seconds_since_click() < since_step and self._clicked_in(front)
+        # Keys after the step in an app Yapp never acted in: the user switched by keyboard
+        # (Cmd-Tab) and is typing there. Keys while the work app is in front prove nothing:
+        # a sheet may have stolen them.
+        typed_elsewhere = front != self.work_app and self.seconds_since_key() < since_step
+        if since_step >= 2.0 or clicked or typed_elsewhere:
             self.log(f"focus: the user moved to {front}; following them")
             self.user_app = front
             return False
@@ -201,12 +220,34 @@ class Workspace:
         self.log(f"focus: {front} took the front during a step; gave {self.user_app} back")
         return True
 
+    def _clicked_in(self, app: str) -> bool:
+        """Whether the user's latest mouse-down landed on one of the app's windows.
+
+        A click that is known to have landed elsewhere (in the user's own window, say) is
+        not a switch, and the user gets their app back. A click whose position is unknown
+        (the event tap missed it) or whose target app reports no window frames counts as
+        the user's switch: a real click did happen after Yapp's step, and moving a person
+        out of an app they may have chosen is the one thing this guard must never do."""
+        pt = self.click_at()
+        if pt is None:
+            self.log(f"focus: a click after the step, position unknown; following to {app}")
+            return True
+        frames = [self.windows.frame_of(w) for w in self.windows_of(app)]
+        known = [f for f in frames if f is not None]
+        if not known:
+            return True
+        return any(f.contains_point(*pt) for f in known)
+
     # ---- the glow ----------------------------------------------------------------------
     def glow(self, app: str, window: Any = None) -> None:
-        """Show the acting glow, but only on a window Yapp itself opened (an app it launched,
-        or a window it created). A window that was already the user's is never marked, even
-        while Yapp acts in it: the glow answers "which windows are Yapp's?", nothing else."""
+        """Show the acting glow on the window Yapp acts in: an app it launched, a window it
+        created, or the window it is working in right now (the front window it was handed,
+        or its work window on the side). The user's own window, beside which Yapp works in
+        parallel mode, is never marked: the glow says "Yapp is here", never "you are here".
+        At session end the glow fades from windows that are the user's (see reset)."""
         if self.highlight is None:
+            return
+        if self.parallel and app == self.user_app:
             return
         win = window if window is not None else self.focused(app)
         if win is None:  # a background app may report no focused window: take its first
@@ -216,7 +257,8 @@ class Workspace:
             return
         launched = app in self.ledger.launched_apps
         created = any(w.ref == win for w in self.ledger.windows)
-        if not (launched or created):
+        acting = app == self.work_app or (self.mode is not None and not self.parallel)
+        if not (launched or created or acting):
             return
         if not self.highlight.show(win):
             self.log(f"glow: no frame for the {app} window")
@@ -286,6 +328,7 @@ class Workspace:
                         self.log(f"windows: new {app} window placed in the work area")
                 if self.user_app and self.user_app != app:
                     self.raise_app(self.user_app)
+                    self._acted()
             self.glow(app, self.ledger.windows[-1].ref)
 
     def type_on_side(self, text: str, type_ax: Callable[[str, str], bool], action: int = 0) -> bool:

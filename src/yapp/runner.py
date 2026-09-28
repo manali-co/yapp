@@ -160,7 +160,9 @@ class Runner:
             case Intent.OPEN_APP if d.app is not None:
                 r = self._open(d.tail, d.app) if self._may(f"open {d.app.name}") else denied
                 if r.ok:
-                    self.last = Executed(d, r)
+                    # Whether this very launch started the app decides what undo may do.
+                    launched = bool(getattr(self.executor, "last_launched", False))
+                    self.last = Executed(d, r, launched=launched)
             case Intent.TYPE_TEXT:
                 self.stream.consume(d.consumed_words)
                 ws = self.workspace
@@ -246,16 +248,32 @@ class Runner:
 
     def _screen(self, words: str) -> Result:
         ws = self.workspace
-        if ws is None:
-            return self.executor.screen(words)
-        ws.decide(words)
-        app = ws.work_app if ws.parallel else ws.frontmost()
-        before = ws.snapshot_windows(app)
-        ws.glow(app)  # the glow says which windows are Yapp's
-        r = self.executor.screen(words, app=app if ws.parallel else None, parallel=ws.parallel)
-        ws.note_new_windows(app, before)
-        ws.track_glow()
-        return r
+        if ws is not None:
+            ws.decide(words)
+            # The app the steps will act in, resolved once so the up-front question and
+            # the execution use the same one (no work app yet: the one in front).
+            app = (ws.work_app or ws.frontmost()) if ws.parallel else ws.frontmost()
+        else:
+            app = self.executor.frontmost_app()
+        if self.guard is not None:
+            # The instruction as a whole, before its first step: "delete all my notes" is
+            # asked about now, with the screen as it is, not only once a Delete button is
+            # found (see Guard.check_instruction). Without the connective it was said with.
+            said = _without_connective(words)
+            if not self.guard.check_instruction(f"{said} in {app}", app).allowed:
+                return Result(False, "not approved")
+        try:
+            if ws is None:
+                return self.executor.screen(words)
+            before = ws.snapshot_windows(app)
+            ws.glow(app)  # the glow says where Yapp acts
+            r = self.executor.screen(words, app=app if ws.parallel else None, parallel=ws.parallel)
+            ws.note_new_windows(app, before)
+            ws.track_glow()
+            return r
+        finally:
+            if self.guard is not None:
+                self.guard.steps_done()
 
     def _cleanup(self) -> Result:
         ws = self.workspace
@@ -316,6 +334,17 @@ class Runner:
             self.display.show_result(r)
 
 
+CONNECTIVES = ("and", "then", "now", "also", "next")
+
+
+def _without_connective(words: str) -> str:
+    """'and then empty the trash' -> 'empty the trash': how the question should read."""
+    parts = words.split()
+    while parts and parts[0].lower() in CONNECTIVES:
+        parts.pop(0)
+    return " ".join(parts) or words
+
+
 def build_approver(runner: Runner) -> Callable[[str, str], Reply]:
     """Spoken reply -> approve / deny / unrelated, using the runner's Jev client."""
     jev = runner.jev
@@ -344,8 +373,18 @@ def build_workspace(
     from yapp import windows as win
     from yapp.ax import frontmost_app_name
     from yapp.native import app_is_running, bring_to_front, quit_app
-    from yapp.placement import decide_placement, decide_purpose, seconds_since_input, typing_now
-    from yapp.pointer import borrow_pointer
+    from yapp.placement import (
+        decide_placement,
+        decide_purpose,
+        seconds_since_click,
+        seconds_since_input,
+        seconds_since_key,
+        typing_now,
+    )
+    from yapp.pointer import ClickLog, borrow_pointer
+
+    clicks = ClickLog()
+    clicks.start()
 
     def decide(instruction: str, front: str, target: str) -> Placement:
         return decide_placement(
@@ -378,6 +417,9 @@ def build_workspace(
         focused=win.focused_window,
         real_click=lambda x, y: borrow_pointer(x, y),
         typing_now=typing_now,
+        seconds_since_click=seconds_since_click,
+        seconds_since_key=seconds_since_key,
+        click_at=lambda: clicks.at_age(seconds_since_click()),
         purpose=lambda instruction, app: decide_purpose(jev, instruction, app),
     )
 
@@ -403,9 +445,13 @@ def build_runner(
     log = display.status if display else (lambda s: None)
     if display:
         display.status(f"{len(apps)} apps in catalog · model {cfg.model} · mode {mode}")
-    from yapp.native import bring_to_front, leave_full_screen_if_needed
+    from yapp.native import app_is_running, bring_to_front, leave_full_screen_if_needed
 
-    executor = Executor(leave_full_screen=leave_full_screen_if_needed, raise_app=bring_to_front)
+    executor = Executor(
+        leave_full_screen=leave_full_screen_if_needed,
+        raise_app=bring_to_front,
+        is_running=app_is_running,
+    )
     guard = build_guard(jev, ask, mode, log)
     if highlight is None:
         from yapp import windows as win
@@ -452,6 +498,7 @@ def build_runner(
         click_real=lambda t, point: workspace.borrow_pointer(*point),
         before_step=workspace.wait_for_typing_pause,
         after_step=workspace.after_step,
+        recheck_focus=workspace.guard_focus,
     )
     executor.screen_fn = screen.run
     return Runner(

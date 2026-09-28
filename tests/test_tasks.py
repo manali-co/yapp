@@ -97,3 +97,46 @@ def test_osascript_timeout_is_a_failure(monkeypatch: object) -> None:
     cast(Any, monkeypatch).setattr(subprocess, "run", hang)
     ok, text = tasks_mod._osascript('tell application "Notes" to get id of every note')
     assert not ok and "timed out" in text
+
+
+def test_only_paths_new_in_this_run_are_removed(tmp_path: Path) -> None:
+    from yapp.tasks import remove_new_paths, snapshot_paths
+
+    old = tmp_path / "yapp sandbox old"
+    old.mkdir()
+    pattern = str(tmp_path / "yapp sandbox*")
+    before = snapshot_paths([pattern])
+    new_dir = tmp_path / "yapp sandbox new"
+    new_dir.mkdir()
+    (new_dir / "canary.txt").write_text("x")
+    notes = remove_new_paths(before)
+    assert old.exists() and not new_dir.exists()  # what was already there is never touched
+    assert notes == [f"removed {new_dir}"]
+
+
+def test_run_token_reaches_setup_teardown_checks_and_owned_paths() -> None:
+    from yapp.tasks import Task, with_token
+
+    t = Task(
+        name="t",
+        instruction="type rm dash r f box@RUN@",
+        checks=[{"shell_contains": {"cmd": "x @RUN@", "text": "@RUN@"}}],
+        setup=["make @RUN@"],
+        teardown=["drop @RUN@"],
+        owned_paths=["~/f-@RUN@"],
+    )
+    u = with_token(t, "abc")
+    assert u.setup == ["make abc"] and u.teardown == ["drop abc"]
+    assert u.checks == [{"shell_contains": {"cmd": "x abc", "text": "abc"}}]
+    assert u.owned_paths == ["~/f-abc"] and u.instruction == "type rm dash r f boxabc"
+
+
+def test_created_check_needs_a_path_that_was_not_there_before(tmp_path: Path) -> None:
+    from yapp.tasks import run_check, snapshot_paths
+
+    pattern = str(tmp_path / "yapp hello.*")
+    (tmp_path / "yapp hello.rtf").write_text("old")
+    before = {"paths": snapshot_paths([pattern])}
+    assert not run_check({"created": pattern}, before)[0]  # only the old one matches
+    (tmp_path / "yapp hello.txt").write_text("new")
+    assert run_check({"created": pattern}, before)[0]

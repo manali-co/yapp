@@ -1,0 +1,13 @@
+name: c05-textedit-save-as
+# Dictation, then a Save sheet: a file name field, and the sheet's own Save button. The
+# document must be new in this run (TextEdit saves to iCloud Drive or Documents); only a
+# document this run created is removed afterwards.
+placement: hand_over
+instruction: open text edit and then new document and then type hello from yapp and then save it and then type yapp hello and then press enter
+check:
+  - created: ~/Library/Mobile Documents/com~apple~TextEdit/Documents/yapp hello.*
+owned_paths:
+  - ~/Documents/yapp hello.*
+  - ~/Desktop/yapp hello.*
+settle_seconds: 4
+discard_after: [TextEdit]

@@ -516,9 +516,13 @@ class Screen:
         centre: Callable[[Target], tuple[float, float] | None] = target_centre,
         before_step: Callable[[], bool] = lambda: True,
         after_step: Callable[[], bool] = lambda: False,
+        recheck_focus: Callable[[], bool] | None = None,
     ) -> None:
         self.before_step = before_step  # parallel mode: wait for the user's typing to pause
         self.after_step = after_step  # parallel mode: give the user's app back if it was taken
+        # The same check a moment later, without restarting the "Yapp just acted" clock: a
+        # click of the user's while the app settles must count as theirs.
+        self.recheck_focus = recheck_focus
         self.jev = jev
         self.guard = guard  # (action, screen) -> may act? see guard.py
         self.ax_type = ax_type  # parallel mode: typing without the keyboard
@@ -608,7 +612,7 @@ class Screen:
             last_action = action
             self.settle(0.35)
             if self.parallel:
-                self.after_step()  # and once more after the app had time to react
+                (self.recheck_focus or self.after_step)()  # once more after the app reacted
             app_after = app if self.parallel else self.frontmost()
             after = self.summary(app_after)
             shot_after = self.perceiver.snapshot(app_after)

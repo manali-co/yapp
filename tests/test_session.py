@@ -183,6 +183,15 @@ class MultiStt:
         return Transcript(words[: self.i], words[self.i : self.i + 1])
 
 
+class BurstStt(MultiStt):
+    """Like MultiStt, but a whole sentence lands in one tick (the user spoke quickly)."""
+
+    def update(self, samples: np.ndarray) -> Transcript:
+        words = self.scripts[self.n]
+        self.i = len(words)
+        return Transcript(words, [])
+
+
 class FakeVerifier:
     def __init__(self, ok: bool = True, enrolled: bool = True) -> None:
         self.ok = ok
@@ -252,6 +261,41 @@ def test_spoken_yes_from_the_enrolled_voice_approves() -> None:
     assert any("approved" in line for line in log)
     assert any("May I open Safari?" in j for j in w.js)
     assert any("going ahead" in j for j in w.js)
+
+
+def test_words_after_an_asked_action_are_still_carried_out() -> None:
+    s, ex, w, log = make_asking("open safari and open notes", "yes", "")
+    s.stt = BurstStt("open safari and open notes", "yes", "")
+    s.run_one()
+    # The question about Safari must not swallow "and open notes", said in the same breath.
+    assert ex.log == ["open:Safari", "open:Notes"]
+
+
+def test_words_before_a_question_still_count_after_it() -> None:
+    # "open safari and open" was heard before the question; "notes" arrives after it. The
+    # runner must see "open safari and open notes", not just "notes".
+    s, ex, w, log = make_asking("open safari and open", "yes", "notes")
+    s.stt = BurstStt("open safari and open", "yes", "notes")
+    s.run_one()
+    assert ex.log == ["open:Safari", "open:Notes"]
+
+
+class PendingStt(MultiStt):
+    """The command commits at once; its follow-up is still pending when the question comes."""
+
+    def update(self, samples: np.ndarray) -> Transcript:
+        words = self.scripts[self.n]
+        if self.n == 0:
+            return Transcript(words[:4], words[4:])
+        self.i = len(words)
+        return Transcript(words, [])
+
+
+def test_pending_words_at_a_question_are_kept() -> None:
+    s, ex, w, log = make_asking("open safari and open notes", "yes", "")
+    s.stt = PendingStt("open safari and open notes", "yes", "")
+    s.run_one()
+    assert ex.log == ["open:Safari", "open:Notes"]  # "notes" was only pending at the ask
 
 
 def test_spoken_no_denies_and_the_session_goes_on() -> None:

@@ -71,3 +71,4 @@ class Executed:
     typed_chars: int = 0  # for dictation undo
     app: str = ""  # the app acted on when it was not the one in front (parallel mode)
     action: int = 0  # dictation action id, ties held words to the action undo reverses
+    launched: bool = False  # open_app started the app (it was not running): undo may quit it

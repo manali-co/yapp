@@ -7,10 +7,13 @@ permission guard is expected to ask. Runs through the Yapp bundle so Accessibili
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
+import secrets
 import shlex
+import shutil
 import subprocess
 import time
 from collections.abc import Mapping
@@ -55,6 +58,12 @@ class Task:
     # can dictate into whatever app the person at the Mac has in front.
     tidy_notes: bool = True
     tidy_reminders: bool = True
+    # Paths (globs, ~ allowed) the task may create: whatever matches after the run and did
+    # not match before it is removed; anything that was already there is never touched.
+    owned_paths: list[str] = field(default_factory=list)
+
+
+RUN_MARK = "@RUN@"  # replaced in setup, teardown and checks by a per-run random token
 
 
 @dataclass
@@ -118,6 +127,7 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 cleanup=bool(data.get("cleanup", True)),
                 tidy_notes=bool(data.get("tidy_notes", True)),
                 tidy_reminders=bool(data.get("tidy_reminders", True)),
+                owned_paths=[str(g) for g in data.get("owned_paths") or []],
             )
         )
     return out
@@ -139,11 +149,72 @@ def settle(seconds: float) -> None:
 
 def _shell(cmd: str) -> str:
     """Run one task command. It is an argv line (shlex rules), not a shell: no pipes or &&."""
+    return _shell_ok(cmd)[1]
+
+
+def _shell_ok(cmd: str, timeout: float = 30.0) -> tuple[bool, str]:
+    """(exit status 0?, output) of one task command. A hang (an app that never answers)
+    is a failure after `timeout` seconds, never a stalled run."""
     argv = shlex.split(cmd)
     if not argv:
-        return ""
-    r = subprocess.run(argv, capture_output=True, text=True, check=False)  # noqa: S603
-    return (r.stdout or "") + (r.stderr or "")
+        return True, ""
+    try:
+        r = subprocess.run(  # noqa: S603
+            argv, capture_output=True, text=True, check=False, timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"timed out after {timeout:.0f} s"
+    return r.returncode == 0, (r.stdout or "") + (r.stderr or "")
+
+
+def _matches(pattern: str) -> set[str]:
+    return set(glob.glob(os.path.expanduser(pattern)))
+
+
+def snapshot_paths(patterns: list[str]) -> dict[str, set[str]]:
+    """What already matches each owned glob before the task: never the task's to remove."""
+    return {g: _matches(g) for g in patterns}
+
+
+def remove_new_paths(before: dict[str, set[str]]) -> list[str]:
+    """Remove only what matches now and did not match before the task."""
+    removed: list[str] = []
+    for pattern, old in before.items():
+        for path in sorted(_matches(pattern) - old):
+            try:
+                if os.path.isdir(path) and not os.path.islink(path):
+                    shutil.rmtree(path)
+                else:
+                    os.unlink(path)
+                removed.append(f"removed {path}")
+            except OSError as e:
+                removed.append(f"could not remove {path}: {e}")
+    return removed
+
+
+def with_token(task: Task, token: str) -> Task:
+    """The task with every @RUN@ (instruction, setup, teardown, checks, owned paths)
+    replaced by `token`."""
+
+    def sub(x: Any) -> Any:
+        if isinstance(x, str):
+            return x.replace(RUN_MARK, token)
+        if isinstance(x, dict):
+            return {k: sub(v) for k, v in x.items()}
+        if isinstance(x, list):
+            return [sub(v) for v in x]
+        return x
+
+    from dataclasses import replace
+
+    return replace(
+        task,
+        instruction=sub(task.instruction),
+        setup=sub(task.setup),
+        teardown=sub(task.teardown),
+        checks=sub(task.checks),
+        owned_paths=sub(task.owned_paths),
+    )
 
 
 def frontmost() -> str:
@@ -314,6 +385,11 @@ def discard_app(app_name: str) -> list[str]:
 
 
 def trash_count() -> int:
+    """Items in the trash, or -1 when it cannot be read. Finder is asked first: reading
+    ~/.Trash directly needs Full Disk Access, which the bundle usually does not have."""
+    ok, out = _osascript('tell application "Finder" to count items of trash')
+    if ok and out.strip().isdigit():
+        return int(out.strip())
     try:
         return len(os.listdir(Path.home() / ".Trash"))
     except OSError:
@@ -404,9 +480,24 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
     if kind == "shell_contains":
         out = _shell(str(arg["cmd"]))
         return str(arg["text"]).lower() in out.lower(), out.strip()[:80]
+    if kind == "created":
+        was = before.get("paths", {}).get(str(arg))
+        if was is None:
+            return False, f"{arg} was not snapshotted before the run"
+        new = sorted(_matches(str(arg)) - was)
+        return bool(new), (f"new: {new[0]}" if new else f"nothing new matches {arg}")
+    if kind == "shell_unchanged":
+        was = before.get("shell", {}).get(str(arg))
+        ok, now = _shell_ok(str(arg))
+        if was is None or not ok:
+            return False, f"could not compare: {now.strip()[:60]}"
+        return now == was, f"{was.strip()[:40]!r} → {now.strip()[:40]!r}"
     if kind == "trash_unchanged":
-        now = trash_count()
-        return now == before.get("trash"), f"trash {before.get('trash')} → {now}"
+        count_now = trash_count()
+        count_was = int(before.get("trash", -1))
+        if count_was < 0 or count_now < 0:
+            return False, f"trash could not be counted ({count_was} → {count_now}): nothing proven"
+        return count_now == count_was, f"trash {count_was} → {count_now}"
     return False, f"unknown check {kind}"
 
 
@@ -447,16 +538,26 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     asked_by_task: list[str] = []
     runner = None
     content_before: dict[str, set[str] | None] = {}
+    task = with_token(task, secrets.token_hex(3))
+    created = [str(c["created"]) for c in task.checks if "created" in c]
+    paths_before = snapshot_paths(list(dict.fromkeys(task.owned_paths + created)))
     try:
         content_before = snapshot_content(task)
         for app_name in task.quit_before:
             quit_app(app_name)
         for cmd in task.setup:
-            _shell(cmd)
+            planted, said = _shell_ok(cmd)
+            if not planted:  # a fixture that could not be planted proves nothing: stop here
+                raise RuntimeError(f"setup failed: {cmd} → {said.strip()[:120]}")
         for app_name in task.activate_before:
             _shell(f"open -a '{app_name}'")
             bring_to_front(app_name)
-        before = {"trash": trash_count()}
+        shell_cmds = [str(c["shell_unchanged"]) for c in task.checks if "shell_unchanged" in c]
+        before: dict[str, Any] = {
+            "trash": trash_count(),
+            "paths": paths_before,
+            "shell": {c: r[1] for c in shell_cmds for r in [_shell_ok(c)] if r[0]},
+        }
         runner = build_runner(
             cfg, display, ask=ask, mode=mode, jev=counting, force_placement=task.placement
         )
@@ -465,9 +566,15 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
             verdicts = runner.tick(words[:i], words[i : i + 1])
             acted += [v.reason for v in verdicts if v.outcome.value == "execute"]
             time.sleep(cfg.tick_seconds)
+        # The glow is a property of the session: hand-off windows lose it when the session
+        # ends, so glow checks run before finish(); everything else after.
+        during = [c for c in task.checks if "highlight_around" in c]
+        after = [c for c in task.checks if "highlight_around" not in c]
+        settle(1.0)
+        checks = [(json.dumps(c, ensure_ascii=False), *run_check(c, before)) for c in during]
         acted += [v.reason for v in runner.finish() if v.outcome.value == "execute"]
         settle(task.settle_seconds)
-        checks = [(json.dumps(c, ensure_ascii=False), *run_check(c, before)) for c in task.checks]
+        checks += [(json.dumps(c, ensure_ascii=False), *run_check(c, before)) for c in after]
         asked_by_task = list(asked)  # clean-up may ask too (a save sheet); that is not the task
     except Exception as e:  # noqa: BLE001 - one broken task must not lose the others' results
         checks.append(("run", False, f"{type(e).__name__}: {e}"))
@@ -483,6 +590,8 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
             display.status(f"   {note}")
         for cmd in task.teardown:
             _shell(cmd)
+        for note in remove_new_paths(paths_before):  # only what this run created
+            display.status(f"   {note}")
         for app_name in task.discard_after:
             discard_app(app_name)
         for app_name in task.quit_after:

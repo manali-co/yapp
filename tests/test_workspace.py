@@ -134,6 +134,45 @@ def test_cleanup_closes_windows_quits_launched_apps_and_restores() -> None:
     assert ws.ledger.empty and ws.mode is None
 
 
+def test_cleanup_keeps_what_would_not_close_for_the_next_try() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+    ws.after_open("TextEdit")
+    before = ws.snapshot_windows("Notes")
+    w.wins["Notes"].append("notes-2")
+    ws.note_new_windows("Notes", before)
+    ws.close_window = lambda win: False  # a sheet keeps the window open
+    ws.quit_app = lambda app: False  # and the app will not quit either
+    done = ws.cleanup()
+    assert "asked TextEdit to quit" in done and not ws.ledger.empty
+    assert [x.title for x in ws.ledger.windows] == ["notes-2"]
+    assert ws.ledger.launched_apps == ["TextEdit"]
+    ws.close_window = w.close
+    ws.quit_app = w.quit_app
+    ws.cleanup()  # the second "clean up" finishes the job
+    assert w.closed == ["notes-2"] and w.quit == ["TextEdit"] and ws.ledger.empty
+
+
+def test_cleanup_tells_two_windows_with_the_same_title_apart() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")
+    before = ws.snapshot_windows("Notes")
+    w.wins["Notes"] += ["untitled-a", "untitled-b"]
+    ws.note_new_windows("Notes", before)
+    ws.window_title = lambda win: "Untitled"
+    ws.ledger.windows = [
+        OpenedWindow("Notes", "Untitled", x.ref, x.purpose) for x in ws.ledger.windows
+    ]
+    ws.close_window = lambda win: str(win) == "untitled-a"  # b keeps a sheet open
+    ws.cleanup()
+    assert [str(x.ref) for x in ws.ledger.windows] == ["untitled-b"]
+
+
 def test_cleanup_discards_a_save_sheet_only_with_the_guards_yes() -> None:
     w = World()
     asked: list[str] = []
@@ -316,11 +355,11 @@ def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> N
 
     ws.focused = focused
     ws.decide("open notes", "Notes")
-    ws.before_open("Notes")  # Notes was already running: its window is the user's
+    ws.before_open("Notes")  # Notes was already running; Yapp works in it beside the user
     ws.after_open("Notes")
-    assert shown == []  # never marked, even though Yapp acts in it
+    assert shown == ["notes-1"]  # marked while Yapp acts there: "Yapp is here"
     ws.reset()
-    assert shown[-1] == "done"  # nothing of Yapp's: whatever glowed fades at session end
+    assert shown[-1] == "done"  # nothing of Yapp's own: the glow fades at session end
     ws.decide("open text edit", "TextEdit")
     ws.before_open("TextEdit")  # launched by Yapp: stays marked until clean-up
     w.running.add("TextEdit")
@@ -416,14 +455,17 @@ def test_glow_never_marks_the_users_own_window_in_parallel_mode() -> None:
 
     ws.focused = focused
     ws.decide("open notes", "Notes")  # parallel; the user is in Slack (slack-1)
-    ws.glow("Slack")
+    ws.glow("Slack")  # the user's own window: never marked
     assert shown == []
-    ws.glow("Notes")  # Notes was already running: not Yapp's window either
+    ws.glow("Notes")  # not the app Yapp works in (yet): nothing to mark
     assert shown == []
+    ws.work_app = "Notes"
+    ws.glow("Notes")  # the window Yapp acts in beside the user: marked, though the user's app
+    assert shown == ["notes-1"]
     before = ws.snapshot_windows("Notes")
     w.wins["Notes"].append("notes-2")
     ws.note_new_windows("Notes", before)  # a window Yapp created: marked
-    assert shown == ["notes-2"]
+    assert shown[-1] == "notes-2"
 
 
 def test_focus_is_given_back_when_the_work_app_takes_the_front() -> None:
@@ -435,13 +477,68 @@ def test_focus_is_given_back_when_the_work_app_takes_the_front() -> None:
     w.front = "TextEdit"  # a new window made TextEdit activate itself as the step finished
     assert ws.after_step() and w.front == "Slack" and w.raised[-1] == "Slack"
     assert not ws.guard_focus()  # nothing to do now
+    clock[0] += 0.5
     w.front = "Mail"
-    ws.typing_now = lambda: True  # the user switched to Mail themselves
+    ws.seconds_since_click = lambda: 0.1  # the user clicked into Mail themselves
     assert not ws.guard_focus() and ws.user_app == "Mail" and w.front == "Mail"
+    ws.seconds_since_click = lambda: float("inf")
     clock[0] += 10.0  # long after Yapp's last step: a switch to the work app is the user's
-    ws.typing_now = lambda: False
     w.front = "TextEdit"
     assert not ws.guard_focus() and ws.user_app == "TextEdit" and w.front == "TextEdit"
+
+
+def test_a_click_into_the_work_app_right_after_a_step_is_the_users_move() -> None:
+    w = World()
+    ws = make(w)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.decide("open text edit", "TextEdit")
+    ws.work_app = "TextEdit"
+    ws.typing_now = lambda: True  # they keep typing: typing never explains an app switch
+    assert not ws.after_step()  # Slack still in front: nothing to do
+    clock[0] += 0.5
+    w.front = "TextEdit"
+    ws.seconds_since_click = lambda: 0.2  # a click after the step ...
+    w.frames["te-1"] = Rect(900, 0, 900, 1000)
+    w.wins["TextEdit"] = ["te-1"]
+    ws.click_at = lambda: (100.0, 100.0)  # ... but it landed in Slack: not a switch
+    assert ws.guard_focus() and w.front == "Slack"
+    w.front = "TextEdit"
+    ws.click_at = lambda: (1000.0, 100.0)  # a click in TextEdit itself: the user went there
+    assert not ws.guard_focus() and ws.user_app == "TextEdit"
+    ws.seconds_since_click = lambda: 1.0  # a click from before the step explains nothing
+    ws.user_app = "Slack"
+    assert ws.guard_focus() and w.front == "Slack"
+    ws.seconds_since_key = lambda: 0.2  # keys after the step, with the work app in front:
+    w.front = "TextEdit"  # a sheet may be eating them; the user gets Slack back
+    assert ws.guard_focus() and w.front == "Slack"
+    w.front = "Terminal"  # keys after the step in an app Yapp never touched: Cmd-Tab
+    assert not ws.guard_focus() and ws.user_app == "Terminal"
+    ws.user_app = "Slack"
+    ws.seconds_since_key = lambda: float("inf")  # a mouse move is not a keyboard switch
+    ws.seconds_since_click = lambda: float("inf")
+    w.front = "Terminal"
+    assert ws.guard_focus() and w.front == "Slack"
+
+
+def test_a_launch_that_activates_itself_is_given_back_even_before_any_step() -> None:
+    w = World()
+    ws = make(w)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+
+    def raise_app(app: str) -> bool:  # the first raise is lost: the launch is still activating
+        w.raised.append(app)
+        w.front = app if len(w.raised) > 1 else "TextEdit"
+        return True
+
+    ws.raise_app = raise_app
+    ws.after_open("TextEdit")
+    assert ws.user_app == "Slack" and w.front == "Slack" and w.raised == ["Slack", "Slack"]
 
 
 def test_steps_wait_for_a_pause_in_typing() -> None:
@@ -537,3 +634,15 @@ def test_the_purpose_is_decided_once_from_the_whole_utterance() -> None:
     ws.reset("open reminders and then new reminder and then type buy stamps")
     assert seen == ["open reminders and then new reminder and then type buy stamps"]
     assert ws.ledger.app_purpose["Reminders"] == "tool" and ws.ledger.launched_apps == ["Reminders"]
+
+
+def test_click_log_answers_only_for_the_click_quartz_reports() -> None:
+    from yapp.pointer import ClickLog
+
+    clock = [10.0]
+    log = ClickLog(now=lambda: clock[0])
+    assert log.at_age(0.1) is None  # nothing recorded: unknown, not the pointer
+    log.record(5.0, 6.0)
+    clock[0] += 0.2
+    assert log.at_age(0.2) == (5.0, 6.0)  # the very click Quartz reports
+    assert log.at_age(4.0) is None  # Quartz reports a later click this log missed: unknown

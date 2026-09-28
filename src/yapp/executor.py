@@ -34,11 +34,14 @@ class Executor:
         screen: ScreenFn | None = None,
         leave_full_screen: Callable[[], bool] | None = None,
         raise_app: Callable[[str], bool] | None = None,
+        is_running: Callable[[str], bool] | None = None,
     ) -> None:
         self._run = run
         self.screen_fn = screen
         self.leave_full_screen = leave_full_screen
         self.raise_app = raise_app
+        self.is_running = is_running
+        self.last_launched = False  # the last open_app started the app (it was not running)
 
     def screen(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result:
         """A screen action: the app (in front, or the one Yapp works in) is read live and Jev
@@ -64,10 +67,15 @@ class Executor:
     def open_app(self, app: App, *, activate: bool = True) -> Result:
         """Launch or switch to the app. `activate=False` (parallel mode) leaves the user's
         window and keyboard alone: `open -g` and no raise."""
+        was_running = bool(self.is_running and self.is_running(app.name))
+        self.last_launched = False
         if not activate:
-            return self._attempt(["open", "-g", "-a", app.name], f"opened {app.name} on the side")
+            r = self._attempt(["open", "-g", "-a", app.name], f"opened {app.name} on the side")
+            self.last_launched = r.ok and not was_running
+            return r
         left = bool(self.leave_full_screen and self.leave_full_screen())
         r = self._attempt(["open", "-a", app.name], f"opened {app.name}")
+        self.last_launched = r.ok and not was_running
         if r.ok and self.raise_app is not None and not self.raise_app(app.name):
             r = Result(True, f"opened {app.name} (could not bring it to the front)")
         return Result(r.ok, f"left full screen, {r.message}") if left and r.ok else r
@@ -123,8 +131,18 @@ class Executor:
         d = last.decision
         match d.intent:
             case Intent.OPEN_APP if d.app is not None:
-                self._osa(f'quit app "{applescript_escape(d.app.name)}"')
-                return Result(True, f"quit {d.app.name}")
+                name = applescript_escape(d.app.name)
+                if last.launched:
+                    # Yapp started it: undo quits it (a Save sheet, if any, stays the user's).
+                    self._osa(f'quit app "{name}"')
+                    return Result(True, f"quit {d.app.name}")
+                # It was already running with the user's documents: undo only puts it out
+                # of the way. Quitting would take the user's own work with it, and an app
+                # the user is in right now is left exactly as it is.
+                if self.frontmost_app() == d.app.name:
+                    return Result(True, f"left {d.app.name} as it was (you are in it)")
+                self._osa(f'{SE}set visible of process "{name}" to false')
+                return Result(True, f"hid {d.app.name} (it was already running)")
             case Intent.TYPE_TEXT:
                 n = max(last.typed_chars, 0)
                 if n:
