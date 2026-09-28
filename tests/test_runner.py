@@ -256,6 +256,8 @@ def test_guard_judges_a_screen_instruction_as_a_whole_before_any_step() -> None:
     r, ex = make(canned, Guard(harm, ask))
     feed(r, "zoom in")
     assert asked == ["zoom in in Finder"] and ex.log == []  # denied up front: no step ran
+    feed(r, "open notes and then zoom in")
+    assert asked[-1] == "zoom in in Finder"  # the question reads without the connective
 
 
 def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:

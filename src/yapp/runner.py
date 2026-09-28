@@ -256,8 +256,9 @@ class Runner:
         if self.guard is not None:
             # The instruction as a whole, before its first step: "delete all my notes" is
             # asked about now, with the screen as it is, not only once a Delete button is
-            # found (see Guard.check_instruction).
-            if not self.guard.check_instruction(f"{words} in {app}", app).allowed:
+            # found (see Guard.check_instruction). Without the connective it was said with.
+            said = _without_connective(words)
+            if not self.guard.check_instruction(f"{said} in {app}", app).allowed:
                 return Result(False, "not approved")
         try:
             if ws is None:
@@ -329,6 +330,17 @@ class Runner:
     def _report(self, r: Result) -> None:
         if self.display:
             self.display.show_result(r)
+
+
+CONNECTIVES = ("and", "then", "now", "also", "next")
+
+
+def _without_connective(words: str) -> str:
+    """'and then empty the trash' -> 'empty the trash': how the question should read."""
+    parts = words.split()
+    while parts and parts[0].lower() in CONNECTIVES:
+        parts.pop(0)
+    return " ".join(parts) or words
 
 
 def build_approver(runner: Runner) -> Callable[[str, str], Reply]:
