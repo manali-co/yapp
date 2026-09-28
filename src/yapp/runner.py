@@ -344,7 +344,13 @@ def build_workspace(
     from yapp import windows as win
     from yapp.ax import frontmost_app_name
     from yapp.native import app_is_running, bring_to_front, quit_app
-    from yapp.placement import decide_placement, decide_purpose, seconds_since_input, typing_now
+    from yapp.placement import (
+        decide_placement,
+        decide_purpose,
+        seconds_since_click,
+        seconds_since_input,
+        typing_now,
+    )
     from yapp.pointer import borrow_pointer
 
     def decide(instruction: str, front: str, target: str) -> Placement:
@@ -378,6 +384,7 @@ def build_workspace(
         focused=win.focused_window,
         real_click=lambda x, y: borrow_pointer(x, y),
         typing_now=typing_now,
+        seconds_since_click=seconds_since_click,
         purpose=lambda instruction, app: decide_purpose(jev, instruction, app),
     )
 
@@ -403,9 +410,13 @@ def build_runner(
     log = display.status if display else (lambda s: None)
     if display:
         display.status(f"{len(apps)} apps in catalog · model {cfg.model} · mode {mode}")
-    from yapp.native import bring_to_front, leave_full_screen_if_needed
+    from yapp.native import app_is_running, bring_to_front, leave_full_screen_if_needed
 
-    executor = Executor(leave_full_screen=leave_full_screen_if_needed, raise_app=bring_to_front)
+    executor = Executor(
+        leave_full_screen=leave_full_screen_if_needed,
+        raise_app=bring_to_front,
+        is_running=app_is_running,
+    )
     guard = build_guard(jev, ask, mode, log)
     if highlight is None:
         from yapp import windows as win
@@ -452,6 +463,7 @@ def build_runner(
         click_real=lambda t, point: workspace.borrow_pointer(*point),
         before_step=workspace.wait_for_typing_pause,
         after_step=workspace.after_step,
+        recheck_focus=workspace.guard_focus,
     )
     executor.screen_fn = screen.run
     return Runner(

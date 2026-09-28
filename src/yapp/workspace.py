@@ -51,11 +51,13 @@ class Workspace:
         focused: Callable[[str], Any] = lambda app: None,
         real_click: Callable[[float, float], bool] = lambda x, y: False,
         typing_now: Callable[[], bool] = lambda: False,
+        seconds_since_click: Callable[[], float] = lambda: float("inf"),
         now: Callable[[], float] = time.monotonic,
         purpose: PurposeDecider | None = None,
     ) -> None:
         self._purpose = purpose  # None: everything Yapp opens is a hand-off (kept)
         self.typing_now = typing_now  # a hard rule above Jev: never raise while keys are down
+        self.seconds_since_click = seconds_since_click  # the user's own app switches are clicks
         self.now = now
         self.may = may  # the guard: (action) -> allowed?
         self.sheet_buttons = sheet_buttons
@@ -158,6 +160,7 @@ class Workspace:
                     self.log(f"windows: {app} placed in the work area")
             if self.user_app and self.user_app != app:
                 self.raise_app(self.user_app)  # the user keeps the keyboard
+                self._acted()  # the launch is Yapp's doing: a front change now is not the user's
                 self.guard_focus()
 
     # ---- keeping the user's focus while working on the side ----------------------------
@@ -175,25 +178,30 @@ class Workspace:
             self.log(f"focus: waited {waited:.1f}s for a pause in the user's typing")
         return not self.typing_now()
 
-    def after_step(self) -> bool:
-        """Called when a step on the side has finished: from now on, for a moment, a change
-        of the front app is Yapp's doing (a long step must not be misread as the user's)."""
+    def _acted(self) -> None:
+        """Yapp just did something on the side. From now on, for a moment, a change of the
+        front app is Yapp's doing unless the user clicked after this instant."""
         self._last_step_at = self.now()
+
+    def after_step(self) -> bool:
+        """Called when a step on the side has finished (a long step must not be misread as
+        the user's switch)."""
+        self._acted()
         return self.guard_focus()
 
     def guard_focus(self) -> bool:
-        """After a step on the side: if the work app took the front (a new window or sheet
-        made it activate itself), give the user's app back at once. Returns whether it had
-        to. Never fights the user: if they themselves just switched apps, leave it."""
+        """After a step on the side: if an app took the front because of the step (a new
+        window or sheet made it activate itself), give the user's app back at once. Returns
+        whether it had to. Never fights the user: a click of theirs since the step, or a
+        switch long after it, is their own move, and Yapp follows them."""
         if not self.parallel or not self.user_app:
             return False
         front = self.frontmost()
         if front == self.user_app or not front:
             return False
-        ours = self.now() - self._last_step_at < 2.0  # Yapp just acted: the switch is its doing
-        if not ours or (front != self.work_app and self.typing_now()):
-            # No step of ours explains it, or the user is active in some other app: the
-            # user switched themselves. Follow them; never yank a person back.
+        since_step = self.now() - self._last_step_at
+        clicked = self.seconds_since_click() < since_step  # the user clicked after the step
+        if since_step >= 2.0 or clicked:
             self.log(f"focus: the user moved to {front}; following them")
             self.user_app = front
             return False
@@ -286,6 +294,7 @@ class Workspace:
                         self.log(f"windows: new {app} window placed in the work area")
                 if self.user_app and self.user_app != app:
                     self.raise_app(self.user_app)
+                    self._acted()
             self.glow(app, self.ledger.windows[-1].ref)
 
     def type_on_side(self, text: str, type_ax: Callable[[str, str], bool], action: int = 0) -> bool:

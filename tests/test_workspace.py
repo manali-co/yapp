@@ -134,6 +134,29 @@ def test_cleanup_closes_windows_quits_launched_apps_and_restores() -> None:
     assert ws.ledger.empty and ws.mode is None
 
 
+def test_cleanup_keeps_what_would_not_close_for_the_next_try() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+    ws.after_open("TextEdit")
+    before = ws.snapshot_windows("Notes")
+    w.wins["Notes"].append("notes-2")
+    ws.note_new_windows("Notes", before)
+    ws.close_window = lambda win: False  # a sheet keeps the window open
+    ws.quit_app = lambda app: False  # and the app will not quit either
+    done = ws.cleanup()
+    assert "asked TextEdit to quit" in done and not ws.ledger.empty
+    assert [x.title for x in ws.ledger.windows] == ["notes-2"]
+    assert ws.ledger.launched_apps == ["TextEdit"]
+    ws.close_window = w.close
+    ws.quit_app = w.quit_app
+    ws.cleanup()  # the second "clean up" finishes the job
+    assert w.closed == ["notes-2"] and w.quit == ["TextEdit"] and ws.ledger.empty
+
+
 def test_cleanup_discards_a_save_sheet_only_with_the_guards_yes() -> None:
     w = World()
     asked: list[str] = []
@@ -435,13 +458,52 @@ def test_focus_is_given_back_when_the_work_app_takes_the_front() -> None:
     w.front = "TextEdit"  # a new window made TextEdit activate itself as the step finished
     assert ws.after_step() and w.front == "Slack" and w.raised[-1] == "Slack"
     assert not ws.guard_focus()  # nothing to do now
+    clock[0] += 0.5
     w.front = "Mail"
-    ws.typing_now = lambda: True  # the user switched to Mail themselves
+    ws.seconds_since_click = lambda: 0.1  # the user clicked into Mail themselves
     assert not ws.guard_focus() and ws.user_app == "Mail" and w.front == "Mail"
+    ws.seconds_since_click = lambda: float("inf")
     clock[0] += 10.0  # long after Yapp's last step: a switch to the work app is the user's
-    ws.typing_now = lambda: False
     w.front = "TextEdit"
     assert not ws.guard_focus() and ws.user_app == "TextEdit" and w.front == "TextEdit"
+
+
+def test_a_click_into_the_work_app_right_after_a_step_is_the_users_move() -> None:
+    w = World()
+    ws = make(w)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.decide("open text edit", "TextEdit")
+    ws.work_app = "TextEdit"
+    ws.typing_now = lambda: True  # they keep typing: typing never explains an app switch
+    assert not ws.after_step()  # Slack still in front: nothing to do
+    clock[0] += 0.5
+    w.front = "TextEdit"
+    ws.seconds_since_click = lambda: 0.2  # a click after the step: the user went there
+    assert not ws.guard_focus() and ws.user_app == "TextEdit" and w.raised == []
+    ws.seconds_since_click = lambda: 1.0  # a click from before the step explains nothing
+    ws.user_app = "Slack"
+    assert ws.guard_focus() and w.front == "Slack"
+
+
+def test_a_launch_that_activates_itself_is_given_back_even_before_any_step() -> None:
+    w = World()
+    ws = make(w)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+
+    def raise_app(app: str) -> bool:  # the first raise is lost: the launch is still activating
+        w.raised.append(app)
+        w.front = app if len(w.raised) > 1 else "TextEdit"
+        return True
+
+    ws.raise_app = raise_app
+    ws.after_open("TextEdit")
+    assert ws.user_app == "Slack" and w.front == "Slack" and w.raised == ["Slack", "Slack"]
 
 
 def test_steps_wait_for_a_pause_in_typing() -> None:

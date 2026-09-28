@@ -183,6 +183,15 @@ class MultiStt:
         return Transcript(words[: self.i], words[self.i : self.i + 1])
 
 
+class BurstStt(MultiStt):
+    """Like MultiStt, but a whole sentence lands in one tick (the user spoke quickly)."""
+
+    def update(self, samples: np.ndarray) -> Transcript:
+        words = self.scripts[self.n]
+        self.i = len(words)
+        return Transcript(words, [])
+
+
 class FakeVerifier:
     def __init__(self, ok: bool = True, enrolled: bool = True) -> None:
         self.ok = ok
@@ -252,6 +261,14 @@ def test_spoken_yes_from_the_enrolled_voice_approves() -> None:
     assert any("approved" in line for line in log)
     assert any("May I open Safari?" in j for j in w.js)
     assert any("going ahead" in j for j in w.js)
+
+
+def test_words_after_an_asked_action_are_still_carried_out() -> None:
+    s, ex, w, log = make_asking("open safari and open notes", "yes", "")
+    s.stt = BurstStt("open safari and open notes", "yes", "")
+    s.run_one()
+    # The question about Safari must not swallow "and open notes", said in the same breath.
+    assert ex.log == ["open:Safari", "open:Notes"]
 
 
 def test_spoken_no_denies_and_the_session_goes_on() -> None:

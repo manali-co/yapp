@@ -46,7 +46,7 @@ def test_frontmost() -> None:
     assert Executor(Fake()).frontmost_app() == "Safari"
 
 
-def test_undo_open_app_quits() -> None:
+def test_undo_open_app_quits_only_what_yapp_started() -> None:
     f = Fake()
     d = Decision(
         tail="open notes",
@@ -55,8 +55,18 @@ def test_undo_open_app_quits() -> None:
         intent_probabilities={},
         app=NOTES,
     )
-    Executor(f).undo(Executed(d, Result(True, "")))
-    assert 'quit app "Notes"' in f.calls[0][2]
+    ex = Executor(f, is_running=lambda name: False)
+    ex.open_app(NOTES)
+    r = ex.undo(Executed(d, Result(True, "")))
+    assert r.ok and 'quit app "Notes"' in f.calls[-1][2] and "Notes" not in ex.launched
+
+    f2 = Fake()
+    ex2 = Executor(f2, is_running=lambda name: True)  # the user already had Notes open
+    ex2.open_app(NOTES)
+    r = ex2.undo(Executed(d, Result(True, "")))
+    assert r.ok and "already running" in r.message
+    assert not any("quit" in c[2] for c in f2.calls if c[:2] == ["osascript", "-e"])
+    assert 'set visible of process "Notes" to false' in f2.calls[-1][2]
 
 
 def test_undo_dictation_backspaces() -> None:

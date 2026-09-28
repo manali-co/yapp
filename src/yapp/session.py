@@ -84,6 +84,7 @@ class Session:
         self._enroll = threading.Event()
         self.asking = False
         self._after_ask = False
+        self._prefix: list[str] = []  # committed words from before a mid-session question
 
     # ---- signals from other threads (hotkeys, menu) ----
     def toggle(self) -> None:
@@ -190,7 +191,10 @@ class Session:
             self.bardisplay.answered(result)
             self.rec.arm()
             self.stt.reset()
-            self.runner.stream.reset()
+            # The transcript starts over so the reply is not read as an instruction, but the
+            # runner keeps what was said before the question: words after the action it asked
+            # about ("... and then type hello") are still owed to it.
+            self._prefix = list(self.runner.stream.committed)
             self._after_ask = True
         return result
 
@@ -248,11 +252,12 @@ class Session:
             words = 0
             spoke = False
             self._after_ask = False
+            self._prefix = []
             while not self.stop_requested:
                 t = self.stt.update(self.rec.snapshot())
                 self.bardisplay.listening(self.rec.level())
                 self.bardisplay.dictating = self.runner.stream.dictating
-                self.runner.tick(t.committed, t.pending)
+                self.runner.tick(self._prefix + t.committed, t.pending)
                 if self._after_ask:
                     # The reply was consumed; the transcript starts over from here.
                     self._after_ask = False

@@ -60,6 +60,26 @@ def seconds_since_input() -> float:
     )
 
 
+def seconds_since_click() -> float:
+    """Seconds since the user last pressed a mouse button. Typing never switches apps; a
+    click does, so this is the signal that tells the user's switch from an app taking the
+    front on its own."""
+    import Quartz
+
+    return min(
+        float(
+            Quartz.CGEventSourceSecondsSinceLastEventType(
+                Quartz.kCGEventSourceStateHIDSystemState, kind
+            )
+        )
+        for kind in (
+            Quartz.kCGEventLeftMouseDown,
+            Quartz.kCGEventRightMouseDown,
+            Quartz.kCGEventOtherMouseDown,
+        )
+    )
+
+
 TYPING_WINDOW = 1.5  # s since the last key or click that still counts as "typing now"
 
 
