@@ -193,7 +193,8 @@ def remove_new_paths(before: dict[str, set[str]]) -> list[str]:
 
 
 def with_token(task: Task, token: str) -> Task:
-    """The task with every @RUN@ in its setup, teardown and checks replaced by `token`."""
+    """The task with every @RUN@ (instruction, setup, teardown, checks, owned paths)
+    replaced by `token`."""
 
     def sub(x: Any) -> Any:
         if isinstance(x, str):
@@ -208,6 +209,7 @@ def with_token(task: Task, token: str) -> Task:
 
     return replace(
         task,
+        instruction=sub(task.instruction),
         setup=sub(task.setup),
         teardown=sub(task.teardown),
         checks=sub(task.checks),

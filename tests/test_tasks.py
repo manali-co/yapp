@@ -119,7 +119,7 @@ def test_run_token_reaches_setup_teardown_checks_and_owned_paths() -> None:
 
     t = Task(
         name="t",
-        instruction="open notes",
+        instruction="type rm dash r f box@RUN@",
         checks=[{"shell_contains": {"cmd": "x @RUN@", "text": "@RUN@"}}],
         setup=["make @RUN@"],
         teardown=["drop @RUN@"],
@@ -128,7 +128,7 @@ def test_run_token_reaches_setup_teardown_checks_and_owned_paths() -> None:
     u = with_token(t, "abc")
     assert u.setup == ["make abc"] and u.teardown == ["drop abc"]
     assert u.checks == [{"shell_contains": {"cmd": "x abc", "text": "abc"}}]
-    assert u.owned_paths == ["~/f-abc"] and u.instruction == "open notes"
+    assert u.owned_paths == ["~/f-abc"] and u.instruction == "type rm dash r f boxabc"
 
 
 def test_created_check_needs_a_path_that_was_not_there_before(tmp_path: Path) -> None:
