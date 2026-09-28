@@ -63,7 +63,7 @@ class Task:
     owned_paths: list[str] = field(default_factory=list)
 
 
-RUN_TOKEN = "@RUN@"  # replaced in setup, teardown and checks by a per-run random token
+RUN_MARK = "@RUN@"  # replaced in setup, teardown and checks by a per-run random token
 
 
 @dataclass
@@ -197,7 +197,7 @@ def with_token(task: Task, token: str) -> Task:
 
     def sub(x: Any) -> Any:
         if isinstance(x, str):
-            return x.replace(RUN_TOKEN, token)
+            return x.replace(RUN_MARK, token)
         if isinstance(x, dict):
             return {k: sub(v) for k, v in x.items()}
         if isinstance(x, list):
