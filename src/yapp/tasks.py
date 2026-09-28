@@ -314,6 +314,11 @@ def discard_app(app_name: str) -> list[str]:
 
 
 def trash_count() -> int:
+    """Items in the trash, or -1 when it cannot be read. Finder is asked first: reading
+    ~/.Trash directly needs Full Disk Access, which the bundle usually does not have."""
+    ok, out = _osascript('tell application "Finder" to count items of trash')
+    if ok and out.strip().isdigit():
+        return int(out.strip())
     try:
         return len(os.listdir(Path.home() / ".Trash"))
     except OSError:
@@ -406,7 +411,10 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
         return str(arg["text"]).lower() in out.lower(), out.strip()[:80]
     if kind == "trash_unchanged":
         now = trash_count()
-        return now == before.get("trash"), f"trash {before.get('trash')} → {now}"
+        was = before.get("trash", -1)
+        if was < 0 or now < 0:
+            return False, f"trash could not be counted ({was} → {now}): nothing proven"
+        return now == was, f"trash {was} → {now}"
     return False, f"unknown check {kind}"
 
 

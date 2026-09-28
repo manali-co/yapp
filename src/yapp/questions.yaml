@@ -20,16 +20,16 @@ intent:
       not_for: Typing words; commands that live in an app's menus or buttons (that is screen_action)
       examples: ["save", "copy that", "paste", "select all", "hit enter", "press escape"]
     screen_action:
-      what: Do something inside the app in front by naming a menu command, button, tab, link, or field
-      not_for: Launching a different app; typing free text with no field named; the basic shortcuts above
-      examples: ["new tab", "new document", "new reminder", "zoom in", "find on page", "search for fable five", "bold this", "close this tab", "go to the address bar", "reply to this email", "click sign in", "show downloads", "go to downloads"]
+      what: Do something inside the app in front by naming a menu command, button, tab, link, or field; this includes deleting, emptying, removing, sending, or switching a setting off, which the guard judges before it runs
+      not_for: Launching a different app; typing free text with no field named; the basic shortcuts above; closing Yapp's own windows (that is cleanup)
+      examples: ["new tab", "new document", "new reminder", "zoom in", "find on page", "search for fable five", "bold this", "close this tab", "go to the address bar", "reply to this email", "click sign in", "show downloads", "go to downloads", "empty the trash", "delete all my notes", "move it to the trash", "turn off the firewall", "send it", "force quit"]
     undo:
       what: Reverse or cancel what Yapp just did
       not_for: The undo shortcut inside an app while dictating a document
       examples: ["undo", "no", "not that", "undo that", "wrong app"]
     cleanup:
       what: Close what Yapp opened during this session and put the user's windows back
-      not_for: Closing something the user opened themselves (that is screen_action)
+      not_for: Closing something the user opened themselves, and deleting, emptying, or removing the user's own things such as the trash, notes, files, or folders (that is screen_action)
       examples: ["clean up", "close everything", "we're done", "close what you opened", "put it back", "you can close all that", "tidy up"]
     none:
       what: Not an instruction to the computer, or too unclear to act on

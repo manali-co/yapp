@@ -5,5 +5,5 @@ instruction: open finder and then go to the desktop and then new folder and then
 check:
   - file_exists: ~/Desktop/yapp test folder
 teardown:
-  - rmdir "$HOME/Desktop/yapp test folder" 2>/dev/null; rmdir "$HOME/Desktop/untitled folder" 2>/dev/null; true
+  - sh -c 'rmdir "$HOME/Desktop/yapp test folder" "$HOME/Desktop/untitled folder" 2>/dev/null; true'
 settle_seconds: 3
