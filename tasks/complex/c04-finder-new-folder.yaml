@@ -1,0 +1,9 @@
+name: c04-finder-new-folder
+# Create and rename: the rename lands in Finder's inline editor, not in a search box.
+placement: hand_over
+instruction: open finder and then go to the desktop and then new folder and then type yapp test folder and then press enter
+check:
+  - file_exists: ~/Desktop/yapp test folder
+teardown:
+  - rmdir "$HOME/Desktop/yapp test folder" 2>/dev/null; rmdir "$HOME/Desktop/untitled folder" 2>/dev/null; true
+settle_seconds: 3

@@ -1,0 +1,12 @@
+name: c05-textedit-save-as
+# Dictation, then a Save sheet: a file name field, and the sheet's own Save button.
+placement: hand_over
+instruction: open text edit and then new document and then type hello from yapp and then save it and then type yapp hello and then press enter
+check:
+  - shell_contains:
+      cmd: ls "$HOME/Documents" "$HOME/Desktop" "$HOME/Library/Mobile Documents/com~apple~TextEdit/Documents" 2>/dev/null | grep -i "yapp hello" || echo none
+      text: yapp hello
+teardown:
+  - rm -f "$HOME/Documents/yapp hello."* "$HOME/Desktop/yapp hello."* "$HOME/Library/Mobile Documents/com~apple~TextEdit/Documents/yapp hello."*
+settle_seconds: 4
+discard_after: [TextEdit]

@@ -1,0 +1,10 @@
+name: c02-notes-then-reminders
+# Two apps in one breath, each with its own new item and dictation.
+placement: hand_over
+instruction: open notes and then new note and then type dentist on friday and then open reminders and then new reminder and then type call the dentist
+check:
+  - frontmost: Reminders
+  - screen_contains: call the dentist
+  - screen_contains: dentist on friday
+    app: Notes
+settle_seconds: 3
