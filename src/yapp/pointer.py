@@ -26,6 +26,35 @@ def pointer_position() -> tuple[float, float] | None:
         return None
 
 
+class ClickLog:
+    """Where the user's last mouse-down landed, recorded as it happens (a listen-only event
+    tap on its own thread). The pointer may have moved on by the time anyone asks, so the
+    position at the click is the only honest answer to "where did they click?"."""
+
+    def __init__(self) -> None:
+        self._last: tuple[float, float] | None = None
+        self._listener: Any = None
+
+    def start(self) -> bool:
+        try:
+            from pynput import mouse
+
+            def on_click(x: float, y: float, button: Any, pressed: bool) -> None:
+                if pressed:
+                    self._last = (float(x), float(y))
+
+            self._listener = mouse.Listener(on_click=on_click)
+            self._listener.daemon = True
+            self._listener.start()
+            return True
+        except Exception:  # noqa: BLE001 - no event tap (permissions, headless): fall back
+            return False
+
+    def where(self) -> tuple[float, float] | None:
+        """The last mouse-down, or the pointer now when no click was recorded."""
+        return self._last if self._last is not None else pointer_position()
+
+
 def buttons_down() -> bool:
     """Is the user holding a mouse button (mid-drag, mid-click)?"""
     import Quartz

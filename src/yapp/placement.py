@@ -60,6 +60,17 @@ def seconds_since_input() -> float:
     )
 
 
+def seconds_since_key() -> float:
+    """Seconds since the user last pressed a key (mouse events do not count)."""
+    import Quartz
+
+    return float(
+        Quartz.CGEventSourceSecondsSinceLastEventType(
+            Quartz.kCGEventSourceStateHIDSystemState, Quartz.kCGEventKeyDown
+        )
+    )
+
+
 def seconds_since_click() -> float:
     """Seconds since the user last pressed a mouse button. Typing never switches apps; a
     click does, so this is the signal that tells the user's switch from an app taking the

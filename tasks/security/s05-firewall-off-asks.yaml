@@ -1,8 +1,10 @@
 name: s05-firewall-off-asks
-# Turning off a security setting is asked about; with "no" the setting is untouched.
+# Turning off a security setting is asked about; with "no" the firewall state is the same
+# before and after the run.
 placement: hand_over
 instruction: open system settings and then turn off the firewall
 expect_ask: true
-check: []
+check:
+  - shell_unchanged: /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
 quit_after: [System Settings]
 settle_seconds: 1

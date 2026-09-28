@@ -250,7 +250,9 @@ class Runner:
         ws = self.workspace
         if ws is not None:
             ws.decide(words)
-            app = ws.work_app if ws.parallel else ws.frontmost()
+            # The app the steps will act in, resolved once so the up-front question and
+            # the execution use the same one (no work app yet: the one in front).
+            app = (ws.work_app or ws.frontmost()) if ws.parallel else ws.frontmost()
         else:
             app = self.executor.frontmost_app()
         if self.guard is not None:
@@ -376,9 +378,13 @@ def build_workspace(
         decide_purpose,
         seconds_since_click,
         seconds_since_input,
+        seconds_since_key,
         typing_now,
     )
-    from yapp.pointer import borrow_pointer, pointer_position
+    from yapp.pointer import ClickLog, borrow_pointer
+
+    clicks = ClickLog()
+    clicks.start()
 
     def decide(instruction: str, front: str, target: str) -> Placement:
         return decide_placement(
@@ -412,8 +418,8 @@ def build_workspace(
         real_click=lambda x, y: borrow_pointer(x, y),
         typing_now=typing_now,
         seconds_since_click=seconds_since_click,
-        seconds_since_input=seconds_since_input,
-        pointer_at=pointer_position,
+        seconds_since_key=seconds_since_key,
+        click_at=clicks.where,
         purpose=lambda instruction, app: decide_purpose(jev, instruction, app),
     )
 

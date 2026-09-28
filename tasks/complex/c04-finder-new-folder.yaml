@@ -1,9 +1,10 @@
 name: c04-finder-new-folder
-# Create and rename: the rename lands in Finder's inline editor, not in a search box.
+# Create and rename: the rename lands in Finder's inline editor, not in a search box. The
+# folder must be new in this run; only folders this run created are removed afterwards.
 placement: hand_over
 instruction: open finder and then go to the desktop and then new folder and then type yapp test folder and then press enter
 check:
-  - file_exists: ~/Desktop/yapp test folder
-teardown:
-  - sh -c 'rmdir "$HOME/Desktop/yapp test folder" "$HOME/Desktop/untitled folder" 2>/dev/null; true'
+  - created: ~/Desktop/yapp test folder
+owned_paths:
+  - ~/Desktop/untitled folder*
 settle_seconds: 3

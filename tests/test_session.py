@@ -280,6 +280,24 @@ def test_words_before_a_question_still_count_after_it() -> None:
     assert ex.log == ["open:Safari", "open:Notes"]
 
 
+class PendingStt(MultiStt):
+    """The command commits at once; its follow-up is still pending when the question comes."""
+
+    def update(self, samples: np.ndarray) -> Transcript:
+        words = self.scripts[self.n]
+        if self.n == 0:
+            return Transcript(words[:4], words[4:])
+        self.i = len(words)
+        return Transcript(words, [])
+
+
+def test_pending_words_at_a_question_are_kept() -> None:
+    s, ex, w, log = make_asking("open safari and open notes", "yes", "")
+    s.stt = PendingStt("open safari and open notes", "yes", "")
+    s.run_one()
+    assert ex.log == ["open:Safari", "open:Notes"]  # "notes" was only pending at the ask
+
+
 def test_spoken_no_denies_and_the_session_goes_on() -> None:
     s, ex, w, log = make_asking("open safari", "no", "open notes")
     s.run_one()

@@ -52,16 +52,16 @@ class Workspace:
         real_click: Callable[[float, float], bool] = lambda x, y: False,
         typing_now: Callable[[], bool] = lambda: False,
         seconds_since_click: Callable[[], float] = lambda: float("inf"),
-        seconds_since_input: Callable[[], float] = lambda: float("inf"),
-        pointer_at: Callable[[], tuple[float, float] | None] = lambda: None,
+        seconds_since_key: Callable[[], float] = lambda: float("inf"),
+        click_at: Callable[[], tuple[float, float] | None] = lambda: None,
         now: Callable[[], float] = time.monotonic,
         purpose: PurposeDecider | None = None,
     ) -> None:
         self._purpose = purpose  # None: everything Yapp opens is a hand-off (kept)
         self.typing_now = typing_now  # a hard rule above Jev: never raise while keys are down
         self.seconds_since_click = seconds_since_click  # the user's own app switches are clicks
-        self.seconds_since_input = seconds_since_input  # ... or keys, in an app Yapp never touched
-        self.pointer_at = pointer_at  # where the last click landed (the pointer is still there)
+        self.seconds_since_key = seconds_since_key  # ... or keys, in an app Yapp never touched
+        self.click_at = click_at  # where the user's last mouse-down landed
         self.now = now
         self.may = may  # the guard: (action) -> allowed?
         self.sheet_buttons = sheet_buttons
@@ -207,11 +207,11 @@ class Workspace:
         # A click after the step is the user's switch only if it landed in the app now in
         # front. A click in their own window while the work app activates itself late is
         # not a switch, and they get their app back.
-        clicked = self.seconds_since_click() < since_step and self._pointer_in(front)
+        clicked = self.seconds_since_click() < since_step and self._clicked_in(front)
         # Keys after the step in an app Yapp never acted in: the user switched by keyboard
         # (Cmd-Tab) and is typing there. Keys while the work app is in front prove nothing:
         # a sheet may have stolen them.
-        typed_elsewhere = front != self.work_app and self.seconds_since_input() < since_step
+        typed_elsewhere = front != self.work_app and self.seconds_since_key() < since_step
         if since_step >= 2.0 or clicked or typed_elsewhere:
             self.log(f"focus: the user moved to {front}; following them")
             self.user_app = front
@@ -220,10 +220,10 @@ class Workspace:
         self.log(f"focus: {front} took the front during a step; gave {self.user_app} back")
         return True
 
-    def _pointer_in(self, app: str) -> bool:
-        """Whether the pointer is over one of the app's windows. Unknown (no pointer, no
-        frames) counts as yes: when in doubt, follow the user rather than move them."""
-        pt = self.pointer_at()
+    def _clicked_in(self, app: str) -> bool:
+        """Whether the user's last mouse-down landed on one of the app's windows. Unknown
+        (no click recorded, no frames) counts as yes: when in doubt, follow the user."""
+        pt = self.click_at()
         if pt is None:
             return True
         frames = [self.windows.frame_of(w) for w in self.windows_of(app)]

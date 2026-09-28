@@ -36,7 +36,7 @@ def mk(
 
 def canned(tail: str, dictating: bool) -> Decision:
     words = tail.split()
-    if words and words[0] in {"and", "then"}:
+    while words and words[0] in {"and", "then"}:
         words = words[1:]
     ends = 0.95 if dictating and words and words[0] in COMMANDS else 0.05
     if dictating and words[:1] == ["stop"]:
@@ -257,7 +257,7 @@ def test_guard_judges_a_screen_instruction_as_a_whole_before_any_step() -> None:
     feed(r, "zoom in")
     assert asked == ["zoom in in Finder"] and ex.log == []  # denied up front: no step ran
     feed(r, "open notes and then zoom in")
-    assert asked[-1] == "zoom in in Finder"  # the question reads without the connective
+    assert len(asked) == 2 and asked[-1] == "zoom in in Finder"  # read without "and then"
 
 
 def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:

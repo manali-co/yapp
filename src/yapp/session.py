@@ -84,7 +84,8 @@ class Session:
         self._enroll = threading.Event()
         self.asking = False
         self._after_ask = False
-        self._prefix: list[str] = []  # committed words from before a mid-session question
+        self._prefix: list[str] = []  # words heard before a mid-session question
+        self._pending: list[str] = []  # the latest not-yet-committed words (see ask)
 
     # ---- signals from other threads (hotkeys, menu) ----
     def toggle(self) -> None:
@@ -194,7 +195,10 @@ class Session:
             # The transcript starts over so the reply is not read as an instruction, but the
             # runner keeps what was said before the question: words after the action it asked
             # about ("... and then type hello") are still owed to it.
-            self._prefix = list(self.runner.stream.committed)
+            # Words still pending when the question came (a follow-up said in the same
+            # breath) are kept too: the transcriber reset below would otherwise drop them.
+            self._prefix = list(self.runner.stream.committed) + list(self._pending)
+            self._pending = []
             self._after_ask = True
         return result
 
@@ -253,10 +257,12 @@ class Session:
             spoke = False
             self._after_ask = False
             self._prefix = []
+            self._pending = []
             while not self.stop_requested:
                 t = self.stt.update(self.rec.snapshot())
                 self.bardisplay.listening(self.rec.level())
                 self.bardisplay.dictating = self.runner.stream.dictating
+                self._pending = list(t.pending)
                 self.runner.tick(self._prefix + t.committed, t.pending)
                 if self._after_ask:
                     # The reply was consumed; the transcript starts over from here.
