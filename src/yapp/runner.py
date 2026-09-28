@@ -419,7 +419,7 @@ def build_workspace(
         typing_now=typing_now,
         seconds_since_click=seconds_since_click,
         seconds_since_key=seconds_since_key,
-        click_at=clicks.where,
+        click_at=lambda: clicks.at_age(seconds_since_click()),
         purpose=lambda instruction, app: decide_purpose(jev, instruction, app),
     )
 

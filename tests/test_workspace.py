@@ -634,3 +634,15 @@ def test_the_purpose_is_decided_once_from_the_whole_utterance() -> None:
     ws.reset("open reminders and then new reminder and then type buy stamps")
     assert seen == ["open reminders and then new reminder and then type buy stamps"]
     assert ws.ledger.app_purpose["Reminders"] == "tool" and ws.ledger.launched_apps == ["Reminders"]
+
+
+def test_click_log_answers_only_for_the_click_quartz_reports() -> None:
+    from yapp.pointer import ClickLog
+
+    clock = [10.0]
+    log = ClickLog(now=lambda: clock[0])
+    assert log.at_age(0.1) is None  # nothing recorded: unknown, not the pointer
+    log.record(5.0, 6.0)
+    clock[0] += 0.2
+    assert log.at_age(0.2) == (5.0, 6.0)  # the very click Quartz reports
+    assert log.at_age(4.0) is None  # Quartz reports a later click this log missed: unknown

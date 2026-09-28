@@ -27,13 +27,19 @@ def pointer_position() -> tuple[float, float] | None:
 
 
 class ClickLog:
-    """Where the user's last mouse-down landed, recorded as it happens (a listen-only event
-    tap on its own thread). The pointer may have moved on by the time anyone asks, so the
-    position at the click is the only honest answer to "where did they click?"."""
+    """Where the user's mouse-downs landed and when, recorded as they happen (a listen-only
+    event tap on its own thread). The pointer may have moved on by the time anyone asks,
+    so the position at the click is the only honest answer to "where did they click?"."""
 
-    def __init__(self) -> None:
-        self._last: tuple[float, float] | None = None
+    def __init__(self, now: Callable[[], float] | None = None) -> None:
+        import time
+
+        self.now = now or time.monotonic
+        self._last: tuple[float, float, float] | None = None  # x, y, when
         self._listener: Any = None
+
+    def record(self, x: float, y: float) -> None:
+        self._last = (float(x), float(y), self.now())
 
     def start(self) -> bool:
         try:
@@ -41,18 +47,25 @@ class ClickLog:
 
             def on_click(x: float, y: float, button: Any, pressed: bool) -> None:
                 if pressed:
-                    self._last = (float(x), float(y))
+                    self.record(x, y)
 
             self._listener = mouse.Listener(on_click=on_click)
             self._listener.daemon = True
             self._listener.start()
             return True
-        except Exception:  # noqa: BLE001 - no event tap (permissions, headless): fall back
+        except Exception:  # noqa: BLE001 - no event tap (permissions, headless): unknown
             return False
 
-    def where(self) -> tuple[float, float] | None:
-        """The last mouse-down, or the pointer now when no click was recorded."""
-        return self._last if self._last is not None else pointer_position()
+    def at_age(self, age: float, slack: float = 0.3) -> tuple[float, float] | None:
+        """Where the click that happened `age` seconds ago landed, if this log saw that very
+        click (its time matches within `slack`). A missed click is unknown (None), never
+        an older click or the pointer's current position."""
+        if self._last is None:
+            return None
+        x, y, when = self._last
+        if abs((self.now() - when) - age) > slack:
+            return None
+        return x, y
 
 
 def buttons_down() -> bool:

@@ -61,7 +61,7 @@ class Workspace:
         self.typing_now = typing_now  # a hard rule above Jev: never raise while keys are down
         self.seconds_since_click = seconds_since_click  # the user's own app switches are clicks
         self.seconds_since_key = seconds_since_key  # ... or keys, in an app Yapp never touched
-        self.click_at = click_at  # where the user's last mouse-down landed
+        self.click_at = click_at  # where the user's latest mouse-down landed (None: unknown)
         self.now = now
         self.may = may  # the guard: (action) -> allowed?
         self.sheet_buttons = sheet_buttons
@@ -221,10 +221,16 @@ class Workspace:
         return True
 
     def _clicked_in(self, app: str) -> bool:
-        """Whether the user's last mouse-down landed on one of the app's windows. Unknown
-        (no click recorded, no frames) counts as yes: when in doubt, follow the user."""
+        """Whether the user's latest mouse-down landed on one of the app's windows.
+
+        A click that is known to have landed elsewhere (in the user's own window, say) is
+        not a switch, and the user gets their app back. A click whose position is unknown
+        (the event tap missed it) or whose target app reports no window frames counts as
+        the user's switch: a real click did happen after Yapp's step, and moving a person
+        out of an app they may have chosen is the one thing this guard must never do."""
         pt = self.click_at()
         if pt is None:
+            self.log(f"focus: a click after the step, position unknown; following to {app}")
             return True
         frames = [self.windows.frame_of(w) for w in self.windows_of(app)]
         known = [f for f in frames if f is not None]
