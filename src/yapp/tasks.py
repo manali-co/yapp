@@ -465,9 +465,15 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
             verdicts = runner.tick(words[:i], words[i : i + 1])
             acted += [v.reason for v in verdicts if v.outcome.value == "execute"]
             time.sleep(cfg.tick_seconds)
+        # The glow is a property of the session: hand-off windows lose it when the session
+        # ends, so glow checks run before finish(); everything else after.
+        during = [c for c in task.checks if "highlight_around" in c]
+        after = [c for c in task.checks if "highlight_around" not in c]
+        settle(1.0)
+        checks = [(json.dumps(c, ensure_ascii=False), *run_check(c, before)) for c in during]
         acted += [v.reason for v in runner.finish() if v.outcome.value == "execute"]
         settle(task.settle_seconds)
-        checks = [(json.dumps(c, ensure_ascii=False), *run_check(c, before)) for c in task.checks]
+        checks += [(json.dumps(c, ensure_ascii=False), *run_check(c, before)) for c in after]
         asked_by_task = list(asked)  # clean-up may ask too (a save sheet); that is not the task
     except Exception as e:  # noqa: BLE001 - one broken task must not lose the others' results
         checks.append(("run", False, f"{type(e).__name__}: {e}"))
