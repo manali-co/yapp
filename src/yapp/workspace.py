@@ -52,12 +52,14 @@ class Workspace:
         real_click: Callable[[float, float], bool] = lambda x, y: False,
         typing_now: Callable[[], bool] = lambda: False,
         seconds_since_click: Callable[[], float] = lambda: float("inf"),
+        seconds_since_input: Callable[[], float] = lambda: float("inf"),
         now: Callable[[], float] = time.monotonic,
         purpose: PurposeDecider | None = None,
     ) -> None:
         self._purpose = purpose  # None: everything Yapp opens is a hand-off (kept)
         self.typing_now = typing_now  # a hard rule above Jev: never raise while keys are down
         self.seconds_since_click = seconds_since_click  # the user's own app switches are clicks
+        self.seconds_since_input = seconds_since_input  # ... or keys, in an app Yapp never touched
         self.now = now
         self.may = may  # the guard: (action) -> allowed?
         self.sheet_buttons = sheet_buttons
@@ -201,7 +203,11 @@ class Workspace:
             return False
         since_step = self.now() - self._last_step_at
         clicked = self.seconds_since_click() < since_step  # the user clicked after the step
-        if since_step >= 2.0 or clicked:
+        # Keys after the step in an app Yapp never acted in: the user switched by keyboard
+        # (Cmd-Tab) and is typing there. Keys while the work app is in front prove nothing:
+        # a sheet may have stolen them.
+        typed_elsewhere = front != self.work_app and self.seconds_since_input() < since_step
+        if since_step >= 2.0 or clicked or typed_elsewhere:
             self.log(f"focus: the user moved to {front}; following them")
             self.user_app = front
             return False

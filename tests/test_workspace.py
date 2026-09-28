@@ -484,6 +484,11 @@ def test_a_click_into_the_work_app_right_after_a_step_is_the_users_move() -> Non
     ws.seconds_since_click = lambda: 1.0  # a click from before the step explains nothing
     ws.user_app = "Slack"
     assert ws.guard_focus() and w.front == "Slack"
+    ws.seconds_since_input = lambda: 0.2  # keys after the step, with the work app in front:
+    w.front = "TextEdit"  # a sheet may be eating them; the user gets Slack back
+    assert ws.guard_focus() and w.front == "Slack"
+    w.front = "Terminal"  # keys after the step in an app Yapp never touched: Cmd-Tab
+    assert not ws.guard_focus() and ws.user_app == "Terminal"
 
 
 def test_a_launch_that_activates_itself_is_given_back_even_before_any_step() -> None:

@@ -385,6 +385,7 @@ def build_workspace(
         real_click=lambda x, y: borrow_pointer(x, y),
         typing_now=typing_now,
         seconds_since_click=seconds_since_click,
+        seconds_since_input=seconds_since_input,
         purpose=lambda instruction, app: decide_purpose(jev, instruction, app),
     )
 
