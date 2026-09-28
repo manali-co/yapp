@@ -271,6 +271,15 @@ def test_words_after_an_asked_action_are_still_carried_out() -> None:
     assert ex.log == ["open:Safari", "open:Notes"]
 
 
+def test_words_before_a_question_still_count_after_it() -> None:
+    # "open safari and open" was heard before the question; "notes" arrives after it. The
+    # runner must see "open safari and open notes", not just "notes".
+    s, ex, w, log = make_asking("open safari and open", "yes", "notes")
+    s.stt = BurstStt("open safari and open", "yes", "notes")
+    s.run_one()
+    assert ex.log == ["open:Safari", "open:Notes"]
+
+
 def test_spoken_no_denies_and_the_session_goes_on() -> None:
     s, ex, w, log = make_asking("open safari", "no", "open notes")
     s.run_one()

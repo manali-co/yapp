@@ -15,6 +15,17 @@ from typing import Any
 LEFT, RIGHT = 0, 1
 
 
+def pointer_position() -> tuple[float, float] | None:
+    """Where the pointer is, in the same top-left coordinates the Accessibility API uses."""
+    try:
+        import Quartz
+
+        here = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+        return float(here.x), float(here.y)
+    except Exception:  # noqa: BLE001 - no pointer to read (headless): unknown
+        return None
+
+
 def buttons_down() -> bool:
     """Is the user holding a mouse button (mid-drag, mid-click)?"""
     import Quartz

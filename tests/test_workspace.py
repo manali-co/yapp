@@ -157,6 +157,22 @@ def test_cleanup_keeps_what_would_not_close_for_the_next_try() -> None:
     assert w.closed == ["notes-2"] and w.quit == ["TextEdit"] and ws.ledger.empty
 
 
+def test_cleanup_tells_two_windows_with_the_same_title_apart() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")
+    before = ws.snapshot_windows("Notes")
+    w.wins["Notes"] += ["untitled-a", "untitled-b"]
+    ws.note_new_windows("Notes", before)
+    ws.window_title = lambda win: "Untitled"
+    ws.ledger.windows = [
+        OpenedWindow("Notes", "Untitled", x.ref, x.purpose) for x in ws.ledger.windows
+    ]
+    ws.close_window = lambda win: str(win) == "untitled-a"  # b keeps a sheet open
+    ws.cleanup()
+    assert [str(x.ref) for x in ws.ledger.windows] == ["untitled-b"]
+
+
 def test_cleanup_discards_a_save_sheet_only_with_the_guards_yes() -> None:
     w = World()
     asked: list[str] = []
@@ -339,11 +355,11 @@ def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> N
 
     ws.focused = focused
     ws.decide("open notes", "Notes")
-    ws.before_open("Notes")  # Notes was already running: its window is the user's
+    ws.before_open("Notes")  # Notes was already running; Yapp works in it beside the user
     ws.after_open("Notes")
-    assert shown == []  # never marked, even though Yapp acts in it
+    assert shown == ["notes-1"]  # marked while Yapp acts there: "Yapp is here"
     ws.reset()
-    assert shown[-1] == "done"  # nothing of Yapp's: whatever glowed fades at session end
+    assert shown[-1] == "done"  # nothing of Yapp's own: the glow fades at session end
     ws.decide("open text edit", "TextEdit")
     ws.before_open("TextEdit")  # launched by Yapp: stays marked until clean-up
     w.running.add("TextEdit")
@@ -439,14 +455,17 @@ def test_glow_never_marks_the_users_own_window_in_parallel_mode() -> None:
 
     ws.focused = focused
     ws.decide("open notes", "Notes")  # parallel; the user is in Slack (slack-1)
-    ws.glow("Slack")
+    ws.glow("Slack")  # the user's own window: never marked
     assert shown == []
-    ws.glow("Notes")  # Notes was already running: not Yapp's window either
+    ws.glow("Notes")  # not the app Yapp works in (yet): nothing to mark
     assert shown == []
+    ws.work_app = "Notes"
+    ws.glow("Notes")  # the window Yapp acts in beside the user: marked, though the user's app
+    assert shown == ["notes-1"]
     before = ws.snapshot_windows("Notes")
     w.wins["Notes"].append("notes-2")
     ws.note_new_windows("Notes", before)  # a window Yapp created: marked
-    assert shown == ["notes-2"]
+    assert shown[-1] == "notes-2"
 
 
 def test_focus_is_given_back_when_the_work_app_takes_the_front() -> None:
@@ -479,8 +498,14 @@ def test_a_click_into_the_work_app_right_after_a_step_is_the_users_move() -> Non
     assert not ws.after_step()  # Slack still in front: nothing to do
     clock[0] += 0.5
     w.front = "TextEdit"
-    ws.seconds_since_click = lambda: 0.2  # a click after the step: the user went there
-    assert not ws.guard_focus() and ws.user_app == "TextEdit" and w.raised == []
+    ws.seconds_since_click = lambda: 0.2  # a click after the step ...
+    w.frames["te-1"] = Rect(900, 0, 900, 1000)
+    w.wins["TextEdit"] = ["te-1"]
+    ws.pointer_at = lambda: (100.0, 100.0)  # ... but it landed in Slack: not a switch
+    assert ws.guard_focus() and w.front == "Slack"
+    w.front = "TextEdit"
+    ws.pointer_at = lambda: (1000.0, 100.0)  # a click in TextEdit itself: the user went there
+    assert not ws.guard_focus() and ws.user_app == "TextEdit"
     ws.seconds_since_click = lambda: 1.0  # a click from before the step explains nothing
     ws.user_app = "Slack"
     assert ws.guard_focus() and w.front == "Slack"

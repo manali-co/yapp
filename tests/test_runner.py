@@ -243,6 +243,21 @@ def test_guard_asks_before_direct_actions_and_denial_blocks_them() -> None:
     assert asked == ["open Safari"] and r.last is not None and r.last.decision.app is NOTES
 
 
+def test_guard_judges_a_screen_instruction_as_a_whole_before_any_step() -> None:
+    asked: list[str] = []
+
+    def harm(action: str, context: str) -> tuple[float, int]:
+        return (0.9 if "zoom" in action else 0.0), 1
+
+    def ask(action: str) -> bool:
+        asked.append(action)
+        return False
+
+    r, ex = make(canned, Guard(harm, ask))
+    feed(r, "zoom in")
+    assert asked == ["zoom in in Finder"] and ex.log == []  # denied up front: no step ran
+
+
 def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:
     seen: list[str] = []
 

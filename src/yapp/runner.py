@@ -160,7 +160,9 @@ class Runner:
             case Intent.OPEN_APP if d.app is not None:
                 r = self._open(d.tail, d.app) if self._may(f"open {d.app.name}") else denied
                 if r.ok:
-                    self.last = Executed(d, r)
+                    # Whether this very launch started the app decides what undo may do.
+                    launched = bool(getattr(self.executor, "last_launched", False))
+                    self.last = Executed(d, r, launched=launched)
             case Intent.TYPE_TEXT:
                 self.stream.consume(d.consumed_words)
                 ws = self.workspace
@@ -246,16 +248,29 @@ class Runner:
 
     def _screen(self, words: str) -> Result:
         ws = self.workspace
-        if ws is None:
-            return self.executor.screen(words)
-        ws.decide(words)
-        app = ws.work_app if ws.parallel else ws.frontmost()
-        before = ws.snapshot_windows(app)
-        ws.glow(app)  # the glow says which windows are Yapp's
-        r = self.executor.screen(words, app=app if ws.parallel else None, parallel=ws.parallel)
-        ws.note_new_windows(app, before)
-        ws.track_glow()
-        return r
+        if ws is not None:
+            ws.decide(words)
+            app = ws.work_app if ws.parallel else ws.frontmost()
+        else:
+            app = self.executor.frontmost_app()
+        if self.guard is not None:
+            # The instruction as a whole, before its first step: "delete all my notes" is
+            # asked about now, with the screen as it is, not only once a Delete button is
+            # found (see Guard.check_instruction).
+            if not self.guard.check_instruction(f"{words} in {app}", app).allowed:
+                return Result(False, "not approved")
+        try:
+            if ws is None:
+                return self.executor.screen(words)
+            before = ws.snapshot_windows(app)
+            ws.glow(app)  # the glow says where Yapp acts
+            r = self.executor.screen(words, app=app if ws.parallel else None, parallel=ws.parallel)
+            ws.note_new_windows(app, before)
+            ws.track_glow()
+            return r
+        finally:
+            if self.guard is not None:
+                self.guard.steps_done()
 
     def _cleanup(self) -> Result:
         ws = self.workspace
@@ -351,7 +366,7 @@ def build_workspace(
         seconds_since_input,
         typing_now,
     )
-    from yapp.pointer import borrow_pointer
+    from yapp.pointer import borrow_pointer, pointer_position
 
     def decide(instruction: str, front: str, target: str) -> Placement:
         return decide_placement(
@@ -386,6 +401,7 @@ def build_workspace(
         typing_now=typing_now,
         seconds_since_click=seconds_since_click,
         seconds_since_input=seconds_since_input,
+        pointer_at=pointer_position,
         purpose=lambda instruction, app: decide_purpose(jev, instruction, app),
     )
 

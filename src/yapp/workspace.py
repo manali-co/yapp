@@ -53,6 +53,7 @@ class Workspace:
         typing_now: Callable[[], bool] = lambda: False,
         seconds_since_click: Callable[[], float] = lambda: float("inf"),
         seconds_since_input: Callable[[], float] = lambda: float("inf"),
+        pointer_at: Callable[[], tuple[float, float] | None] = lambda: None,
         now: Callable[[], float] = time.monotonic,
         purpose: PurposeDecider | None = None,
     ) -> None:
@@ -60,6 +61,7 @@ class Workspace:
         self.typing_now = typing_now  # a hard rule above Jev: never raise while keys are down
         self.seconds_since_click = seconds_since_click  # the user's own app switches are clicks
         self.seconds_since_input = seconds_since_input  # ... or keys, in an app Yapp never touched
+        self.pointer_at = pointer_at  # where the last click landed (the pointer is still there)
         self.now = now
         self.may = may  # the guard: (action) -> allowed?
         self.sheet_buttons = sheet_buttons
@@ -202,7 +204,10 @@ class Workspace:
         if front == self.user_app or not front:
             return False
         since_step = self.now() - self._last_step_at
-        clicked = self.seconds_since_click() < since_step  # the user clicked after the step
+        # A click after the step is the user's switch only if it landed in the app now in
+        # front. A click in their own window while the work app activates itself late is
+        # not a switch, and they get their app back.
+        clicked = self.seconds_since_click() < since_step and self._pointer_in(front)
         # Keys after the step in an app Yapp never acted in: the user switched by keyboard
         # (Cmd-Tab) and is typing there. Keys while the work app is in front prove nothing:
         # a sheet may have stolen them.
@@ -215,12 +220,28 @@ class Workspace:
         self.log(f"focus: {front} took the front during a step; gave {self.user_app} back")
         return True
 
+    def _pointer_in(self, app: str) -> bool:
+        """Whether the pointer is over one of the app's windows. Unknown (no pointer, no
+        frames) counts as yes: when in doubt, follow the user rather than move them."""
+        pt = self.pointer_at()
+        if pt is None:
+            return True
+        frames = [self.windows.frame_of(w) for w in self.windows_of(app)]
+        known = [f for f in frames if f is not None]
+        if not known:
+            return True
+        return any(f.contains_point(*pt) for f in known)
+
     # ---- the glow ----------------------------------------------------------------------
     def glow(self, app: str, window: Any = None) -> None:
-        """Show the acting glow, but only on a window Yapp itself opened (an app it launched,
-        or a window it created). A window that was already the user's is never marked, even
-        while Yapp acts in it: the glow answers "which windows are Yapp's?", nothing else."""
+        """Show the acting glow on the window Yapp acts in: an app it launched, a window it
+        created, or the window it is working in right now (the front window it was handed,
+        or its work window on the side). The user's own window, beside which Yapp works in
+        parallel mode, is never marked: the glow says "Yapp is here", never "you are here".
+        At session end the glow fades from windows that are the user's (see reset)."""
         if self.highlight is None:
+            return
+        if self.parallel and app == self.user_app:
             return
         win = window if window is not None else self.focused(app)
         if win is None:  # a background app may report no focused window: take its first
@@ -230,7 +251,8 @@ class Workspace:
             return
         launched = app in self.ledger.launched_apps
         created = any(w.ref == win for w in self.ledger.windows)
-        if not (launched or created):
+        acting = app == self.work_app or (self.mode is not None and not self.parallel)
+        if not (launched or created or acting):
             return
         if not self.highlight.show(win):
             self.log(f"glow: no frame for the {app} window")

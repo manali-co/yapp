@@ -104,7 +104,8 @@ class Ledger:
                 log(f"cleanup: {app} did not quit in time")
         if restore():
             done.append("put your window back")
-        self.windows = [w for w in self.windows if w in left and w.app not in gone]
+        left_ids = {id(w) for w in left}  # by identity: two windows may share app and title
+        self.windows = [w for w in self.windows if id(w) in left_ids and w.app not in gone]
         self.launched_apps = [a for a in self.launched_apps if a not in gone]
         for app in gone:
             self.app_purpose.pop(app, None)

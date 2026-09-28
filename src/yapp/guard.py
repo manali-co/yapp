@@ -73,10 +73,24 @@ class Guard:
         self.mode = mode
         self.log = log
         self.history: list[GuardVerdict] = []
+        self._cleared = False  # the current instruction was asked about and got a yes
 
     @property
     def threshold(self) -> float:
         return THRESHOLD[self.mode]
+
+    def check_instruction(self, instruction: str, context: str = "") -> GuardVerdict:
+        """The whole instruction, judged before its first step, with the screen as it is now:
+        a request that sounds destructive gets its "are you sure?" up front, whether or not
+        the steps that follow ever reach the destructive control. A yes clears the ordinary
+        steps that carry it out until `steps_done`; a no stops the instruction."""
+        v = self.check(instruction, context)
+        self._cleared = v.asked and v.approved
+        return v
+
+    def steps_done(self) -> None:
+        """The instruction's steps are over: the next one is judged on its own again."""
+        self._cleared = False
 
     def check(self, action: str, context: str = "") -> GuardVerdict:
         try:
@@ -86,6 +100,11 @@ class Guard:
             self.log(f"guard: jev error ({e}); treating '{action}' as harmful")
             harm, ms = 1.0, 0
         asked = harm >= self.threshold
+        if asked and self._cleared and harm < THRESHOLD[Mode.AUTO]:
+            # An ordinary step of an instruction the user already said yes to. A step
+            # that is near-certain harm on its own still gets its own question.
+            self.log(f"guard: '{action}' is covered by the yes to the instruction")
+            asked = False
         approved = self.ask(action) if asked else False
         v = GuardVerdict(action, harm, self.threshold, asked, approved, ms)
         self.history.append(v)
