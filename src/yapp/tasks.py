@@ -441,17 +441,26 @@ def close_tab(app_name: str) -> bool:
     return False
 
 
+def _window_key(w: Any) -> int:
+    """A window's Accessibility identity (CFHash of the AX element, as the ledger uses):
+    stable for as long as the window exists, whatever it is moved or resized to."""
+    try:
+        return hash(w)
+    except TypeError:
+        return id(w)
+
+
 def window_ids(app_name: str) -> set[int]:
-    """Window-server ids of the app's windows now (windows without one are left out)."""
+    """Accessibility identities of the app's windows now."""
     from yapp import windows as win
 
-    return {n for w in win.app_windows(app_name) if (n := win.window_number(w)) is not None}
+    return {_window_key(w) for w in win.app_windows(app_name)}
 
 
 def discard_app(app_name: str, keep: set[int] | None = None, quit_it: bool = True) -> list[str]:
     """Harness only: close the windows this task created, discarding their unsaved changes,
     then quit the app if the task started it. A window that was open before the task
-    (`keep`), or that cannot be identified, is never touched: it may hold the user's work."""
+    (`keep`) is never touched: it may hold the user's work."""
     from yapp import windows as win
     from yapp.native import app_is_running
 
@@ -460,8 +469,7 @@ def discard_app(app_name: str, keep: set[int] | None = None, quit_it: bool = Tru
     keep = keep or set()
 
     def the_tasks(w: Any) -> bool:
-        n = win.window_number(w)
-        return n is not None and n not in keep
+        return _window_key(w) not in keep
 
     notes = [
         "dismissed alert"
