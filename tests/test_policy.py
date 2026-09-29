@@ -84,3 +84,11 @@ def test_screen_action_gate() -> None:
     assert decide(d_ok, T).outcome == Outcome.EXECUTE
     d_low = d(intent=Intent.SCREEN, app=None, intent_confidence=0.5)
     assert decide(d_low, T).outcome == Outcome.IGNORE
+
+
+def test_a_clause_the_speaker_moved_on_from_needs_a_lower_completeness_bar() -> None:
+    maybe = d(is_complete=0.55)  # "forward it", said before "and then open notes"
+    assert decide(maybe, T).outcome == Outcome.WAIT  # still being said: wait for more
+    assert decide(maybe, T, bounded=True).outcome == Outcome.EXECUTE  # it cannot grow
+    fragment = d(is_complete=0.1)  # "search for", "go to the"
+    assert decide(fragment, T, bounded=True).outcome == Outcome.WAIT

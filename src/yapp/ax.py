@@ -54,6 +54,10 @@ class Target:
     path: str  # "File › New Tab" for menus, window title for controls
     shortcut: str = ""
     ref: Any = field(default=None, compare=False, repr=False)
+    # A menu item the app reported as disabled when it was read. A background app reports
+    # every window-dependent command as disabled (it has no key window), so for an app that
+    # is not in front this says nothing (see Perceiver.targets and Screen._press).
+    enabled: bool = True
 
     @property
     def typeable(self) -> bool:
@@ -147,12 +151,15 @@ def ax_menus(app_name: str) -> list[Target]:
             kids = _attr(child, "AXChildren") or []
             if kids and depth < 3:
                 walk(child, [*trail, title], depth + 1)
-            elif role == "AXMenuItem" and _attr(child, "AXEnabled") is not False:
+            elif role == "AXMenuItem":
+                enabled = _attr(child, "AXEnabled") is not False
                 cmd = _attr(child, "AXMenuItemCmdChar") or ""
                 mods = _attr(child, "AXMenuItemCmdModifiers")
                 shortcut = f"{MOD_NAMES.get(int(mods or 0), '⌘')}{cmd}" if cmd else ""
                 path = " › ".join([*trail, title])
-                out.append(Target(f"m{len(out)}", "menu", role, title, path, shortcut, child))
+                out.append(
+                    Target(f"m{len(out)}", "menu", role, title, path, shortcut, child, enabled)
+                )
 
     walk(bar, [], 0)
     return out
@@ -297,6 +304,43 @@ def narrow(
     return sorted(keep, key=lambda t: (t.kind, int(t.key[1:])))
 
 
+def needs_leading_space(app: str) -> bool:
+    """Would new words run into text already in the app's focused field? True when the
+    insertion point sits right after a non-space character and nothing is selected (a
+    selection, like a Save sheet's "Untitled", is replaced, so no space). Unknown: False."""
+    try:
+        from ApplicationServices import AXValueGetValue, kAXValueCFRangeType
+
+        el, _ = app_element(app)
+        f = _attr(el, "AXFocusedUIElement")
+        value = _attr(f, "AXValue") if f is not None else None
+        if not isinstance(value, str) or not value:
+            return False
+        if _attr(f, "AXSelectedText"):
+            return False
+        rng = _attr(f, "AXSelectedTextRange")
+        if rng is None:
+            return False  # insertion point unknown: a caret at the start needs no space
+        ok, r = AXValueGetValue(rng, kAXValueCFRangeType, None)
+        if not ok or r.length:
+            return False
+        at = int(r.location)
+        return 0 < at <= len(value) and not value[at - 1].isspace()
+    except Exception:  # noqa: BLE001 - any doubt: no space
+        return False
+
+
+def _enabled_now(t: Target) -> bool:
+    return t.ref is not None and _attr(t.ref, "AXEnabled") is not False
+
+
+def _front_or_unknown() -> str:
+    try:
+        return frontmost_app_name()
+    except Exception:  # noqa: BLE001 - no window server: treat every app as background
+        return ""
+
+
 class Perceiver:
     def __init__(
         self,
@@ -305,7 +349,11 @@ class Perceiver:
         clock: Callable[[], float] = time.monotonic,
         ttl: float = MENU_TTL,
         embed: Embedder | None = None,
+        front: Callable[[], str] | None = None,
+        enabled_now: Callable[[Target], bool] | None = None,
     ) -> None:
+        self._front = front or _front_or_unknown
+        self._enabled_now = enabled_now or _enabled_now
         self._menus = read_menus
         self._controls = read_controls
         self._clock = clock
@@ -329,7 +377,12 @@ class Perceiver:
     def targets(self, app: str, words: str, limit: int = 40) -> list[Target]:
         controls = self._controls(app)
         self.last_controls = controls
-        return narrow(self.menus(app) + controls, words, limit, self.embeddings)
+        menus = self.menus(app)
+        if self._front() == app:
+            # In front, "disabled" is real, but the cached flag may date from a read while
+            # the app was in the background: an item cached as disabled is checked live.
+            menus = [m for m in menus if m.enabled or self._enabled_now(m)]
+        return narrow(menus + controls, words, limit, self.embeddings)
 
     def snapshot(self, app: str) -> set[str]:
         """Fingerprint of what is on screen now: control labels, roles and values."""
@@ -518,6 +571,7 @@ class Screen:
         after_step: Callable[[], bool] = lambda: False,
         recheck_focus: Callable[[], bool] | None = None,
     ) -> None:
+        self.enabled_now: Callable[[Target], bool] = _enabled_now  # a menu item's live state
         self.before_step = before_step  # parallel mode: wait for the user's typing to pause
         self.after_step = after_step  # parallel mode: give the user's app back if it was taken
         # The same check a moment later, without restarting the "Yapp just acted" clock: a
@@ -632,9 +686,30 @@ class Screen:
         return Result(acted > 0, f"stopped after {acted} step(s)")
 
     def _press(self, t: Target) -> Result:
-        """Tier 1 AXPress; tier 2 a click posted to the app; tier 3 the borrowed cursor."""
+        """Tier 1 AXPress; tier 2 a click posted to the app; tier 3 the borrowed cursor.
+        A menu command of an app that is not in front is pressed with the app brought
+        forward for that one press: menu commands act on the key window, which a
+        background app does not have, so pressed in the background they do nothing (or
+        report themselves disabled). The borrow waits for a pause in typing and gives the
+        user's app straight back."""
+        app = getattr(self, "perceiver_app", "")
+        on_the_side = getattr(self, "parallel", False) and t.kind == "menu" and bool(app)
+        if on_the_side and self.borrow is not None and self.frontmost() != app:
+
+            def press_in_front() -> Result:
+                if not self.enabled_now(t):  # really off, even with the app in front
+                    return Result(False, f"{t.label} isn't available right now")
+                return self._press_now(t)
+
+            out = self.borrow(app, press_in_front)
+            return out if isinstance(out, Result) else Result(False, "couldn't press that")
+        return self._press_now(t)
+
+    def _press_now(self, t: Target) -> Result:
         if self.press(t):
             return Result(True, f"pressed {t.describe()}")
+        if t.kind == "menu":  # a closed menu item has no place on screen to click
+            return Result(False, "couldn't press that")
         point = self.centre(t)
         if point is None:
             return Result(False, "couldn't press that")

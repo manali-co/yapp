@@ -1,13 +1,19 @@
 name: c05-textedit-save-as
-# Dictation, then a Save sheet: a file name field, and the sheet's own Save button. The
-# document must be new in this run (TextEdit saves to iCloud Drive or Documents); only a
-# document this run created is removed afterwards.
+# Dictation, then a Save sheet: a file name field, and the sheet's own Save button. The name
+# carries a per-run token, so a file left by another run never turns Save into "Replace?".
+# The saved file is found through the window (the Save sheet picks the folder) and removed
+# because its name carries this run's token; an untitled document TextEdit autosaves to
+# iCloud when the harness closes it is removed only if this run created it.
 placement: hand_over
-instruction: open text edit and then new document and then type hello from yapp and then save it and then type yapp hello and then press enter
+instruction: open text edit and then new document and then type hello from yapp and then save it and then type yapp hello @RUN@ and then press enter
 check:
-  - created: ~/Library/Mobile Documents/com~apple~TextEdit/Documents/yapp hello.*
+  - saved_as:
+      app: TextEdit
+      name: yapp hello @RUN@
+saved_in: [TextEdit]
 owned_paths:
-  - ~/Documents/yapp hello.*
-  - ~/Desktop/yapp hello.*
+  # iCloud-synced: a new untitled document is removed only if it holds this task's words
+  - glob: ~/Library/Mobile Documents/com~apple~TextEdit/Documents/Untitled*
+    containing: hello from yapp
 settle_seconds: 4
 discard_after: [TextEdit]

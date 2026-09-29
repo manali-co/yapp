@@ -29,7 +29,7 @@ from yapp.config import Config
 from yapp.display import Terminal
 from yapp.guard import Mode
 from yapp.jev import Jev, JevLike, JevResponse
-from yapp.native import bring_to_front, quit_app
+from yapp.native import app_is_running, bring_to_front, quit_app
 from yapp.runner import build_runner
 
 DEFAULT_DIR = Path("tasks")
@@ -61,6 +61,12 @@ class Task:
     # Paths (globs, ~ allowed) the task may create: whatever matches after the run and did
     # not match before it is removed; anything that was already there is never touched.
     owned_paths: list[str] = field(default_factory=list)
+    # glob -> text a new match must contain to be removed (for folders other things also
+    # write into, like an iCloud-synced one: a name alone never proves the file is ours)
+    owned_containing: dict[str, str] = field(default_factory=dict)
+    # Apps whose open documents are checked at the end: a document saved under a name that
+    # carries this run's token is this run's, and its file is removed.
+    saved_in: list[str] = field(default_factory=list)
 
 
 RUN_MARK = "@RUN@"  # replaced in setup, teardown and checks by a per-run random token
@@ -127,7 +133,16 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 cleanup=bool(data.get("cleanup", True)),
                 tidy_notes=bool(data.get("tidy_notes", True)),
                 tidy_reminders=bool(data.get("tidy_reminders", True)),
-                owned_paths=[str(g) for g in data.get("owned_paths") or []],
+                owned_paths=[
+                    str(g["glob"]) if isinstance(g, dict) else str(g)
+                    for g in data.get("owned_paths") or []
+                ],
+                owned_containing={
+                    str(g["glob"]): str(g["containing"])
+                    for g in data.get("owned_paths") or []
+                    if isinstance(g, dict) and g.get("containing")
+                },
+                saved_in=[str(a) for a in data.get("saved_in") or []],
             )
         )
     return out
@@ -176,11 +191,66 @@ def snapshot_paths(patterns: list[str]) -> dict[str, set[str]]:
     return {g: _matches(g) for g in patterns}
 
 
-def remove_new_paths(before: dict[str, set[str]]) -> list[str]:
-    """Remove only what matches now and did not match before the task."""
+def document_paths(app: str) -> list[str]:
+    """Files behind the app's open windows (Accessibility AXDocument), for any folder the
+    Save sheet picked, including ones this process cannot list."""
+    from urllib.parse import unquote, urlparse
+
+    from yapp import windows as win
+    from yapp.ax import _attr
+
+    out: list[str] = []
+    for w in win.app_windows(app):
+        url = _attr(w, "AXDocument")
+        if isinstance(url, str) and url.startswith("file://"):
+            out.append(unquote(urlparse(url).path))
+    return out
+
+
+def remove_saved(apps: list[str], names: list[str]) -> list[str]:
+    """Remove files the run saved: open documents named exactly as the task's `saved_as`
+    checks expect (names carry the run's token), plus any extension."""
+    notes: list[str] = []
+    wanted = {n.lower() for n in names if n}
+    for app in apps:
+        for path in document_paths(app):
+            stem = os.path.splitext(os.path.basename(path))[0].lower()
+            if stem in wanted and os.path.isfile(path):
+                try:
+                    os.unlink(path)
+                    notes.append(f"removed {path}")
+                except OSError as e:
+                    notes.append(f"could not remove {path}: {e}")
+    return notes
+
+
+def _contains(path: str, text: str) -> bool:
+    """Does the file (or any file inside a document package) contain `text`?"""
+    files = [path]
+    if os.path.isdir(path):
+        files = [os.path.join(r, f) for r, _, fs in os.walk(path) for f in fs]
+    for f in files:
+        try:
+            with open(f, "rb") as fh:
+                if text.lower() in fh.read(1_000_000).decode("utf-8", "ignore").lower():
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def remove_new_paths(
+    before: dict[str, set[str]], containing: dict[str, str] | None = None
+) -> list[str]:
+    """Remove only what matches now and did not match before the task, and, where the
+    task names the text, only files that contain it."""
     removed: list[str] = []
     for pattern, old in before.items():
+        needle = (containing or {}).get(pattern)
         for path in sorted(_matches(pattern) - old):
+            if needle and not _contains(path, needle):
+                removed.append(f"left {path}: new, but not the task's (no '{needle}')")
+                continue
             try:
                 if os.path.isdir(path) and not os.path.islink(path):
                     shutil.rmtree(path)
@@ -214,6 +284,7 @@ def with_token(task: Task, token: str) -> Task:
         teardown=sub(task.teardown),
         checks=sub(task.checks),
         owned_paths=sub(task.owned_paths),
+        owned_containing={sub(k): sub(v) for k, v in task.owned_containing.items()},
     )
 
 
@@ -370,17 +441,45 @@ def close_tab(app_name: str) -> bool:
     return False
 
 
-def discard_app(app_name: str) -> list[str]:
-    """Harness only: close every window of the app, discarding unsaved changes, then quit."""
+def _window_key(w: Any) -> int:
+    """A window's Accessibility identity (CFHash of the AX element, as the ledger uses):
+    stable for as long as the window exists, whatever it is moved or resized to."""
+    try:
+        return hash(w)
+    except TypeError:
+        return id(w)
+
+
+def window_ids(app_name: str) -> set[int]:
+    """Accessibility identities of the app's windows now."""
+    from yapp import windows as win
+
+    return {_window_key(w) for w in win.app_windows(app_name)}
+
+
+def discard_app(app_name: str, keep: set[int] | None = None, quit_it: bool = True) -> list[str]:
+    """Harness only: close the windows this task created, discarding their unsaved changes,
+    then quit the app if the task started it. A window that was open before the task
+    (`keep`) is never touched: it may hold the user's work."""
     from yapp import windows as win
     from yapp.native import app_is_running
 
     if not app_is_running(app_name):
         return []
-    notes = ["dismissed alert" for w in win.app_windows(app_name) if win.dismiss_alert(w)]
+    keep = keep or set()
+
+    def the_tasks(w: Any) -> bool:
+        return _window_key(w) not in keep
+
+    notes = [
+        "dismissed alert"
+        for w in win.app_windows(app_name)
+        if the_tasks(w) and win.dismiss_alert(w)
+    ]
     time.sleep(0.4)
-    notes += [win.close_and_discard(w) for w in win.app_windows(app_name)]
-    notes.append("quit" if quit_app(app_name) else "still running (a sheet is open?)")
+    notes += [win.close_and_discard(w) for w in win.app_windows(app_name) if the_tasks(w)]
+    if quit_it:
+        notes.append("quit" if quit_app(app_name) else "still running (a sheet is open?)")
     return notes
 
 
@@ -414,8 +513,6 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
         half = home.left_half() if kind == "window_in_left_half" else home.right_half()
         return half.contains_centre(frame) and frame.w <= half.w + 2, f"{arg} at {frame}"
     if kind == "highlight_around":
-        import os
-
         import Quartz
 
         from yapp import windows as win
@@ -480,6 +577,13 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
     if kind == "shell_contains":
         out = _shell(str(arg["cmd"]))
         return str(arg["text"]).lower() in out.lower(), out.strip()[:80]
+    if kind == "saved_as":
+        app_name, name = str(arg["app"]), str(arg["name"])
+        paths = document_paths(app_name)
+        saved = [
+            q for q in paths if os.path.splitext(os.path.basename(q))[0].lower() == name.lower()
+        ]
+        return bool(saved), (f"saved: {saved[0]}" if saved else f"open documents: {paths[:3]}")
     if kind == "created":
         was = before.get("paths", {}).get(str(arg))
         if was is None:
@@ -538,13 +642,23 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     asked_by_task: list[str] = []
     runner = None
     content_before: dict[str, set[str] | None] = {}
-    task = with_token(task, secrets.token_hex(3))
+    token = secrets.token_hex(3)
+    task = with_token(task, token)
+    refused: set[str] = set()  # apps that would not quit before the task (unsaved work)
+    was_running: dict[str, bool] = {}
+    windows_before: dict[str, set[int]] = {}
     created = [str(c["created"]) for c in task.checks if "created" in c]
     paths_before = snapshot_paths(list(dict.fromkeys(task.owned_paths + created)))
     try:
         content_before = snapshot_content(task)
         for app_name in task.quit_before:
-            quit_app(app_name)
+            if not quit_app(app_name):  # polite: unsaved work keeps it open, never discarded
+                refused.add(app_name)
+                raise RuntimeError(f"setup failed: {app_name} did not quit (unsaved work?)")
+        # What was already open is the user's: clean-up after the task leaves it alone.
+        for app_name in dict.fromkeys(task.discard_after + task.quit_after):
+            was_running[app_name] = app_is_running(app_name)
+            windows_before[app_name] = window_ids(app_name) if was_running[app_name] else set()
         for cmd in task.setup:
             planted, said = _shell_ok(cmd)
             if not planted:  # a fixture that could not be planted proves nothing: stop here
@@ -579,6 +693,9 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     except Exception as e:  # noqa: BLE001 - one broken task must not lose the others' results
         checks.append(("run", False, f"{type(e).__name__}: {e}"))
     finally:
+        saved_names = [str(c["saved_as"]["name"]) for c in task.checks if "saved_as" in c]
+        for note in remove_saved(task.saved_in, saved_names):  # while windows still show it
+            display.status(f"   {note}")
         ws = getattr(runner, "workspace", None)
         if task.cleanup and ws is not None:
             done = ws.cleanup()  # what this task opened goes away again
@@ -590,12 +707,17 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
             display.status(f"   {note}")
         for cmd in task.teardown:
             _shell(cmd)
-        for note in remove_new_paths(paths_before):  # only what this run created
-            display.status(f"   {note}")
         for app_name in task.discard_after:
-            discard_app(app_name)
+            if app_name in refused or app_name not in was_running:
+                continue  # setup never got this far, or the app holds unsaved work of the user's
+            discard_app(app_name, keep=windows_before[app_name], quit_it=not was_running[app_name])
         for app_name in task.quit_after:
+            if app_name in refused or was_running.get(app_name, True):
+                continue  # quit only an app this task started
             quit_app(app_name)
+        # Last: closing an app can itself write files (an autosaved untitled document).
+        for note in remove_new_paths(paths_before, task.owned_containing):  # only this run's
+            display.status(f"   {note}")
     seconds = time.perf_counter() - started
     ok = all(c[1] for c in checks)
     out = Outcome(

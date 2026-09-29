@@ -14,7 +14,7 @@ from yapp.config import Config
 from yapp.display import Display
 from yapp.executor import Executor
 from yapp.guard import Guard, Mode, jev_harm
-from yapp.intent import QUESTIONS, Context
+from yapp.intent import QUESTIONS, Context, is_bounded
 from yapp.jev import Jev, JevError, JevLike
 from yapp.learning import Learning
 from yapp.placement import Placement
@@ -71,6 +71,8 @@ class Runner:
         self.last: Executed | None = None
         self.done: list[str] = []
         self._actions = 0  # dictation action counter
+        self._chunks_typed: dict[int, bool] = {}  # dictation action -> a chunk already typed
+        self.needs_space: Callable[[str], bool] = lambda app: False  # see ax.needs_leading_space
         if classify is not None:
             self._classify: Classifier = classify
         elif jev is not None:
@@ -113,7 +115,7 @@ class Runner:
         out: list[Verdict] = []
         tail = self.stream.tail()
         if tail and not self.stream.dictating:
-            out.append(self._step(tail))
+            out.append(self._step(tail, final=True))
         if self.stream.dictating:
             self._type(self.stream.dictation_words(flush=True))
             self.stream.exit_dictation()
@@ -124,7 +126,8 @@ class Runner:
             self.workspace.reset(said)  # after the last words are typed where they belong
         return out
 
-    def _step(self, tail: str) -> Verdict:
+    def _step(self, tail: str, final: bool = False) -> Verdict:
+        """`final`: the session is over, so the instruction cannot grow any more."""
         if self.display:
             self.display.thinking()
         try:
@@ -136,7 +139,11 @@ class Runner:
         if self.display:
             self.display.show_decision(d)
         v = decide(
-            d, self.cfg.thresholds, dictating=self.stream.dictating, has_last=self.last is not None
+            d,
+            self.cfg.thresholds,
+            dictating=self.stream.dictating,
+            has_last=self.last is not None,
+            bounded=(final or is_bounded(tail, d.consumed_words)) and d.intent != Intent.TYPE_TEXT,
         )
         if v.outcome == Outcome.EXECUTE and self.stream.already_fired(d.consumed_words):
             v = Verdict(Outcome.IGNORE, "already acted on this")
@@ -166,11 +173,12 @@ class Runner:
             case Intent.TYPE_TEXT:
                 self.stream.consume(d.consumed_words)
                 ws = self.workspace
-                where = (
-                    ws.work_app
-                    if ws and ws.parallel and ws.work_app
-                    else self.executor.frontmost_app()
-                )
+                where = ws.target_app() if ws is not None else self.executor.frontmost_app()
+                if not where:
+                    self._report(
+                        Result(False, "you moved to another window; stopped so nothing lands there")
+                    )
+                    return
                 if not self._may(f"dictate into {where}"):
                     self._report(denied)
                     return
@@ -190,13 +198,25 @@ class Runner:
                     r = denied
                 if r.ok:
                     self.last = Executed(d, r)
+                    ws = self.workspace
+                    if ws is not None and not ws.parallel:
+                        ws.note_act()  # the app that shows the file comes forward: Yapp's doing
             case Intent.PRESS_KEY if d.key_combo:
-                where = self.executor.frontmost_app()
-                r = (
-                    self.executor.press_key(d.key_combo)
-                    if self._may(f"press {d.key_combo} in {where}")
-                    else denied
-                )
+                ws = self.workspace
+                where = ws.target_app() if ws is not None else self.executor.frontmost_app()
+                combo = d.key_combo
+                if not where:
+                    r = Result(False, "you moved to another window; stopped so nothing lands there")
+                elif not self._may(f"press {combo} in {where}"):
+                    r = denied
+                elif ws is not None and ws.parallel and ws.work_app:
+                    # Keys go to the app Yapp works in, never to the user's app in front.
+                    out = ws.borrow_focus(ws.work_app, lambda: self.executor.press_key(combo))
+                    r = out if isinstance(out, Result) else Result(False, "key not sent")
+                else:
+                    r = self.executor.press_key(combo)
+                    if ws is not None:
+                        ws.note_act()
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.SCREEN:
@@ -252,7 +272,9 @@ class Runner:
             ws.decide(words)
             # The app the steps will act in, resolved once so the up-front question and
             # the execution use the same one (no work app yet: the one in front).
-            app = (ws.work_app or ws.frontmost()) if ws.parallel else ws.frontmost()
+            app = ws.target_app()
+            if not app:
+                return Result(False, "you moved to another window; stopped so nothing lands there")
         else:
             app = self.executor.frontmost_app()
         if self.guard is not None:
@@ -268,6 +290,8 @@ class Runner:
             before = ws.snapshot_windows(app)
             ws.glow(app)  # the glow says where Yapp acts
             r = self.executor.screen(words, app=app if ws.parallel else None, parallel=ws.parallel)
+            if not ws.parallel:
+                ws.note_act()  # whatever the steps brought forward is Yapp's doing
             ws.note_new_windows(app, before)
             ws.track_glow()
             return r
@@ -289,13 +313,28 @@ class Runner:
     def _type(self, words: list[str]) -> None:
         if not words:
             return
-        text = " ".join(words) + " "
-        ws = self.workspace
-        app = ""
-        delivered = len(text)
         action = self.last.action if self.last is not None else 0
+        ws = self.workspace
+        # The user may have taken the front since the last words: resolve where they go.
+        target = ws.target_app() if ws is not None else ""
+        if ws is not None and not target:
+            self._report(
+                Result(False, "you moved to another window; stopped so nothing lands there")
+            )
+            return
         if ws is not None and ws.parallel and ws.work_app:
-            app = ws.work_app
+            target = ws.work_app
+        # The separator goes before a chunk, never after: a trailing space would end up in
+        # a name field ("yapp test folder "). A dictation's first chunk gets one only if
+        # the words would otherwise run into text already there.
+        later = bool(self._chunks_typed.get(action))
+        if not later and not target:
+            target = self.executor.frontmost_app()
+        lead = " " if later or (target and self.needs_space(target)) else ""
+        text = lead + " ".join(words)
+        self._chunks_typed[action] = True
+        delivered = len(text)
+        if ws is not None and ws.parallel and ws.work_app:
             if ws.type_on_side(text, self.executor.type_ax, action):
                 r = Result(True, f"typed {len(text)} chars on the side")
             else:
@@ -303,7 +342,11 @@ class Runner:
                 delivered = 0  # undo must not erase what never reached the app
         else:
             r = self.executor.type_text(text)
-        self._count_typed(r, delivered, app)
+            if ws is not None:
+                ws.note_act()
+        # The app the words went to, in both modes: undo erases there, not wherever the
+        # user happens to be when they say "undo".
+        self._count_typed(r, delivered, target)
         self._report(r)
 
     def _count_typed(self, r: Result, chars: int, app: str) -> None:
@@ -477,6 +520,13 @@ def build_runner(
         may=lambda action: guard.check(action, "").allowed,
         highlight=highlight,
     )
+    workspace.own_input_at = lambda: executor.last_input_at  # Yapp's keys are not the user's
+    workspace.own_burst = lambda: (
+        executor.burst_started_at,
+        executor.last_input_at,
+        executor.user_idle_at_burst,
+    )
+    executor.key_idle = workspace.seconds_since_key
 
     def click_pid(t: Any, point: tuple[float, float]) -> bool:
         pid = pid_of(t.ref)
@@ -501,7 +551,11 @@ def build_runner(
         recheck_focus=workspace.guard_focus,
     )
     executor.screen_fn = screen.run
-    return Runner(
+    from yapp.ax import needs_leading_space
+    from yapp.windows import raise_window
+
+    workspace.raise_window = raise_window
+    runner = Runner(
         cfg,
         jev,
         executor,
@@ -511,3 +565,5 @@ def build_runner(
         guard=guard,
         workspace=workspace,
     )
+    runner.needs_space = needs_leading_space
+    return runner

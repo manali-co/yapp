@@ -189,6 +189,17 @@ def window_number(win: Any) -> int | None:
     return None
 
 
+def raise_window(win: Any) -> bool:
+    """Make this window the app's main and key window (the app itself must be in front)."""
+    from ApplicationServices import AXUIElementPerformAction, AXUIElementSetAttributeValue
+
+    try:
+        AXUIElementSetAttributeValue(win, "AXMain", True)
+        return bool(AXUIElementPerformAction(win, "AXRaise") == 0)
+    except Exception:  # noqa: BLE001 - a window that went away: nothing to raise
+        return False
+
+
 def close_window(win: Any) -> bool:
     from ApplicationServices import AXUIElementPerformAction
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
@@ -42,6 +43,10 @@ class Executor:
         self.raise_app = raise_app
         self.is_running = is_running
         self.last_launched = False  # the last open_app started the app (it was not running)
+        self.last_input_at = float("-inf")  # when Yapp's last keystroke burst ended (monotonic)
+        self.burst_started_at = float("-inf")  # ... and when it started
+        self.user_idle_at_burst = float("inf")  # seconds since the user's last key, at its start
+        self.key_idle: Callable[[], float] = lambda: float("inf")  # wired to Quartz key idle
 
     def screen(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result:
         """A screen action: the app (in front, or the one Yapp works in) is read live and Jev
@@ -51,7 +56,17 @@ class Executor:
         return self.screen_fn(words, app=app, parallel=parallel)
 
     def _osa(self, script: str) -> str:
-        return self._run(["osascript", "-e", script])
+        # Keys Yapp sends are keyboard activity to the OS; remember when, so they are not
+        # mistaken for the user typing. A query (the front app's name) sends no keys.
+        sends_keys = "keystroke" in script or "key code" in script
+        if sends_keys:
+            self.burst_started_at = time.monotonic()
+            self.user_idle_at_burst = self.key_idle()  # was the user typing just before?
+        try:
+            return self._run(["osascript", "-e", script])
+        finally:
+            if sends_keys:
+                self.last_input_at = time.monotonic()
 
     def _attempt(self, argv_or_script: list[str] | str, ok_message: str) -> Result:
         """Run one command; a non-zero exit becomes Result(False, stderr) instead of a lie."""

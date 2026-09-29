@@ -56,22 +56,26 @@ is_complete:
   criteria:
     "true":
       what: A verb and its target are both present (or the verb needs no target)
-      examples: ["open notes", "open notes and", "open notes and then", "switch to safari and", "type hello", "save", "undo", "copy that", "new tab", "new document and then", "new reminder and then type buy stamps", "new note", "zoom in", "find on page", "search for cats", "bold this", "close this tab", "next tab and", "show downloads", "clear history", "clean up", "we're done", "close everything"]
+      examples: ["open notes", "open notes and", "open notes and then", "switch to safari and", "type hello", "save", "undo", "copy that", "new tab", "new document and then", "new reminder and then type buy stamps", "new note", "zoom in", "find on page", "search for cats", "bold this", "close this tab", "next tab and", "show downloads", "clear history", "clean up", "we're done", "close everything", "save it", "send it", "print it", "close it", "delete that", "save that and then", "then send it", "and then save it", "archive it", "rename that", "minimize it", "bookmark this", "then export it", "duplicate it", "share this"]
     "false":
       what: The verb has no target yet, or only filler so far
-      examples: ["open", "switch to", "go to the", "um open", "type", "and", "open the", "search for", "find", "new", "zoom"]
+      examples: ["open", "switch to", "go to the", "um open", "type", "and", "open the", "search for", "find", "new", "zoom", "save the", "send it to", "move it to the"]
 
 ends_dictation:
   instructions: >
     The user is dictating text into an app. instruction_so_far is a new instruction to the
-    computer rather than more words to type.
+    computer rather than more words to type. An instruction is an imperative aimed at the
+    computer: it starts with the verb (after an optional "and" or "then") and has no subject
+    of its own. A sentence with its own subject ("we", "I", "you", "he", "they", a name) or
+    that talks about an action rather than asking for it is content to type, even when it
+    contains a command word like save, send, delete, or close.
   criteria:
     "true":
       what: A command aimed at the computer
-      examples: ["stop typing", "open safari", "undo", "switch to notes", "save that", "clean up", "we're done", "close everything", "put it back"]
+      examples: ["stop typing", "open safari", "undo", "switch to notes", "save that", "clean up", "we're done", "close everything", "put it back", "and then save it", "then send it", "save it", "print this", "and then press enter", "then close it"]
     "false":
       what: Ordinary sentence content that belongs in the document
-      examples: ["and then we went home", "thanks for your help", "the meeting is at five", "open to suggestions"]
+      examples: ["and then we went home", "thanks for your help", "the meeting is at five", "open to suggestions", "we should save it for later", "send it over when you can", "and then we closed it", "I'll delete it tomorrow", "please save the date", "they sent it last week", "you can print it at the office"]
 
 is_addressed:
   instructions: >

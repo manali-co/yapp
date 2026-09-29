@@ -129,3 +129,12 @@ def test_open_app_reports_when_it_could_not_raise_the_app() -> None:
     assert Executor(f, raise_app=lambda name: True).open_app(NOTES) == Result(True, "opened Notes")
     r = Executor(f, raise_app=lambda name: False).open_app(NOTES)
     assert r.ok and "could not bring it to the front" in r.message
+
+
+def test_only_keys_count_as_yapps_own_input_not_queries() -> None:
+    f = Fake()
+    ex = Executor(f)
+    ex.frontmost_app()  # a System Events query sends no keys
+    assert ex.last_input_at == float("-inf")
+    ex.type_text("hi")
+    assert ex.last_input_at > float("-inf")

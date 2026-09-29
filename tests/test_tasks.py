@@ -140,3 +140,19 @@ def test_created_check_needs_a_path_that_was_not_there_before(tmp_path: Path) ->
     assert not run_check({"created": pattern}, before)[0]  # only the old one matches
     (tmp_path / "yapp hello.txt").write_text("new")
     assert run_check({"created": pattern}, before)[0]
+
+
+def test_a_new_file_in_a_shared_folder_is_removed_only_if_it_holds_the_tasks_words(
+    tmp_path: Path,
+) -> None:
+    from yapp.tasks import remove_new_paths, snapshot_paths
+
+    pattern = str(tmp_path / "Untitled*")
+    before = snapshot_paths([pattern])
+    ours = tmp_path / "Untitled.rtf"
+    ours.write_text("{\\rtf1 Hello from yapp}")
+    theirs = tmp_path / "Untitled 2.rtf"
+    theirs.write_text("{\\rtf1 synced from the user's phone}")
+    notes = remove_new_paths(before, {pattern: "hello from yapp"})
+    assert not ours.exists() and theirs.exists()
+    assert any("left" in n for n in notes)
