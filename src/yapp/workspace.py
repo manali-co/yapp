@@ -147,12 +147,45 @@ class Workspace:
         Even in hand-over mode a window is never raised while the user is typing."""
         self.ledger.note_launch(app, self.is_running(app))
         if not self.parallel and self.typing_now():
-            self.log(f"windows: not raising {app}; the user is typing")
+            # Not raising is not enough: in hand-over mode every later step would act on
+            # the app in front, which is the one the user is typing in. Work on the side.
+            self.log(f"windows: not raising {app}; the user is typing, so working beside them")
+            self._go_parallel(self.frontmost() or self.user_app)
             return False
         return not self.parallel
 
+    def _go_parallel(self, user_app: str) -> None:
+        """Switch this session to working beside the user, who keeps `user_app`."""
+        self.mode = PARALLEL
+        self.user_app = user_app
+        self.user_window = self.focused(user_app) if user_app else None
+        self.windows.begin_parallel(user_app)
+
+    def target_app(self) -> str:
+        """The app Yapp's next keys and clicks may go to. In hand-over mode that is the app
+        in front only while it is the app Yapp is working in: if the user took the front
+        (clicked or switched away), Yapp moves to working beside them instead of acting in
+        their app. A new app's activation can lag, so that is waited for briefly, unless
+        the user touched something since Yapp's last act."""
+        front = self.frontmost()
+        if self.mode is None or self.parallel or not self.work_app or front == self.work_app:
+            return self.work_app if self.parallel and self.work_app else front
+        since_act = self.now() - self._last_step_at
+        user_moved = min(self.seconds_since_key(), self.seconds_since_click()) < since_act
+        waited = 0.0
+        while not user_moved and front != self.work_app and waited < 1.0:
+            self.sleep(0.1)
+            waited += 0.1
+            front = self.frontmost()
+        if front == self.work_app:
+            return front
+        self.log(f"focus: {front} is in front, not {self.work_app}; working beside the user")
+        self._go_parallel(front)
+        return self.work_app
+
     def after_open(self, app: str) -> None:
         self.work_app = app
+        self._acted()
         self.glow(app)
         if self.parallel:
             self.sleep(0.6)  # let the window appear before placing it

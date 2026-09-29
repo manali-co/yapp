@@ -260,6 +260,31 @@ def test_guard_judges_a_screen_instruction_as_a_whole_before_any_step() -> None:
     assert len(asked) == 2 and asked[-1] == "zoom in in Finder"  # read without "and then"
 
 
+def test_a_spoken_key_in_parallel_mode_goes_to_the_work_app_not_the_users() -> None:
+    from yapp.types import Result as R
+
+    borrowed: list[str] = []
+
+    class Ws:
+        parallel = True
+        work_app = "TextEdit"
+
+        def target_app(self) -> str:
+            return "TextEdit"
+
+        def borrow_focus(self, app: str, act: Callable[[], R]) -> R:
+            borrowed.append(app)
+            return act()
+
+    r, ex = make(canned)
+    r.workspace = Ws()  # type: ignore[assignment]
+    from dataclasses import replace
+
+    d = replace(mk("press enter", Intent.PRESS_KEY, 0.9, 0.9, 0.05, consumed=2), key_combo="enter")
+    r._execute(d)
+    assert borrowed == ["TextEdit"] and ex.log == ["key:enter"]
+
+
 def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:
     seen: list[str] = []
 

@@ -424,10 +424,11 @@ def test_typing_now_forces_parallel_and_blocks_raising_and_borrowing() -> None:
     ws2.typing_now = lambda: typing[0]
     ws2.decide("open text edit", "TextEdit")
     assert ws2.before_open("TextEdit") is False  # pinned hand-over still never raises mid-typing
+    assert ws2.parallel and ws2.user_app == "Slack"  # ... and works beside the user from then on
     out = ws2.borrow_focus("TextEdit", lambda: "typed")
     assert not out.ok and "typing" in out.message and "TextEdit" not in w.raised
     typing[0] = False
-    assert ws2.before_open("TextEdit") is True
+    assert ws2.before_open("TextEdit") is False  # the session stays beside the user
     assert ws2.borrow_focus("TextEdit", lambda: "typed") == "typed"
 
 
@@ -646,3 +647,40 @@ def test_click_log_answers_only_for_the_click_quartz_reports() -> None:
     clock[0] += 0.2
     assert log.at_age(0.2) == (5.0, 6.0)  # the very click Quartz reports
     assert log.at_age(4.0) is None  # Quartz reports a later click this log missed: unknown
+
+
+def test_hand_over_never_acts_in_an_app_the_user_took_back() -> None:
+    w = World()
+    ws = make(w, decision=HAND_OVER)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.sleep = lambda sec: clock.__setitem__(0, clock[0] + sec)
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+    w.front = "TextEdit"
+    ws.after_open("TextEdit")
+    assert ws.target_app() == "TextEdit" and not ws.parallel  # Yapp's app is in front: act
+    clock[0] += 3.0
+    w.front = "Slack"
+    ws.seconds_since_click = lambda: 0.5  # the user clicked back into Slack
+    assert ws.target_app() == "TextEdit"  # keys go to TextEdit on the side, never to Slack
+    assert ws.parallel and ws.user_app == "Slack"
+
+
+def test_a_slow_activation_is_waited_for_not_mistaken_for_the_user() -> None:
+    w = World()
+    ws = make(w, decision=HAND_OVER)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+
+    def sleep(sec: float) -> None:
+        clock[0] += sec
+        w.front = "TextEdit"  # the new app comes to the front a moment later
+
+    ws.sleep = sleep
+    ws.decide("open text edit", "TextEdit")
+    ws.after_open("TextEdit")
+    w.front = "Slack"  # still activating; the user touched nothing
+    assert ws.target_app() == "TextEdit" and not ws.parallel

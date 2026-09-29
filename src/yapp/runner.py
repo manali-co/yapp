@@ -170,11 +170,7 @@ class Runner:
             case Intent.TYPE_TEXT:
                 self.stream.consume(d.consumed_words)
                 ws = self.workspace
-                where = (
-                    ws.work_app
-                    if ws and ws.parallel and ws.work_app
-                    else self.executor.frontmost_app()
-                )
+                where = ws.target_app() if ws is not None else self.executor.frontmost_app()
                 if not self._may(f"dictate into {where}"):
                     self._report(denied)
                     return
@@ -195,12 +191,17 @@ class Runner:
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.PRESS_KEY if d.key_combo:
-                where = self.executor.frontmost_app()
-                r = (
-                    self.executor.press_key(d.key_combo)
-                    if self._may(f"press {d.key_combo} in {where}")
-                    else denied
-                )
+                ws = self.workspace
+                where = ws.target_app() if ws is not None else self.executor.frontmost_app()
+                combo = d.key_combo
+                if not self._may(f"press {combo} in {where}"):
+                    r = denied
+                elif ws is not None and ws.parallel and ws.work_app:
+                    # Keys go to the app Yapp works in, never to the user's app in front.
+                    out = ws.borrow_focus(ws.work_app, lambda: self.executor.press_key(combo))
+                    r = out if isinstance(out, Result) else Result(False, "key not sent")
+                else:
+                    r = self.executor.press_key(combo)
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.SCREEN:
@@ -256,7 +257,7 @@ class Runner:
             ws.decide(words)
             # The app the steps will act in, resolved once so the up-front question and
             # the execution use the same one (no work app yet: the one in front).
-            app = (ws.work_app or ws.frontmost()) if ws.parallel else ws.frontmost()
+            app = ws.target_app()
         else:
             app = self.executor.frontmost_app()
         if self.guard is not None:
@@ -298,6 +299,8 @@ class Runner:
         app = ""
         delivered = len(text)
         action = self.last.action if self.last is not None else 0
+        if ws is not None:
+            ws.target_app()  # the user may have taken the front since the last words
         if ws is not None and ws.parallel and ws.work_app:
             app = ws.work_app
             if ws.type_on_side(text, self.executor.type_ax, action):
