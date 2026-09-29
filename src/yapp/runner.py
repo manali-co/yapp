@@ -115,7 +115,7 @@ class Runner:
         out: list[Verdict] = []
         tail = self.stream.tail()
         if tail and not self.stream.dictating:
-            out.append(self._step(tail))
+            out.append(self._step(tail, final=True))
         if self.stream.dictating:
             self._type(self.stream.dictation_words(flush=True))
             self.stream.exit_dictation()
@@ -126,7 +126,8 @@ class Runner:
             self.workspace.reset(said)  # after the last words are typed where they belong
         return out
 
-    def _step(self, tail: str) -> Verdict:
+    def _step(self, tail: str, final: bool = False) -> Verdict:
+        """`final`: the session is over, so the instruction cannot grow any more."""
         if self.display:
             self.display.thinking()
         try:
@@ -142,7 +143,7 @@ class Runner:
             self.cfg.thresholds,
             dictating=self.stream.dictating,
             has_last=self.last is not None,
-            bounded=is_bounded(tail, d.consumed_words) and d.intent != Intent.TYPE_TEXT,
+            bounded=(final or is_bounded(tail, d.consumed_words)) and d.intent != Intent.TYPE_TEXT,
         )
         if v.outcome == Outcome.EXECUTE and self.stream.already_fired(d.consumed_words):
             v = Verdict(Outcome.IGNORE, "already acted on this")
@@ -173,6 +174,11 @@ class Runner:
                 self.stream.consume(d.consumed_words)
                 ws = self.workspace
                 where = ws.target_app() if ws is not None else self.executor.frontmost_app()
+                if not where:
+                    self._report(
+                        Result(False, "you moved to another window; stopped so nothing lands there")
+                    )
+                    return
                 if not self._may(f"dictate into {where}"):
                     self._report(denied)
                     return
@@ -199,7 +205,9 @@ class Runner:
                 ws = self.workspace
                 where = ws.target_app() if ws is not None else self.executor.frontmost_app()
                 combo = d.key_combo
-                if not self._may(f"press {combo} in {where}"):
+                if not where:
+                    r = Result(False, "you moved to another window; stopped so nothing lands there")
+                elif not self._may(f"press {combo} in {where}"):
                     r = denied
                 elif ws is not None and ws.parallel and ws.work_app:
                     # Keys go to the app Yapp works in, never to the user's app in front.
@@ -265,6 +273,8 @@ class Runner:
             # The app the steps will act in, resolved once so the up-front question and
             # the execution use the same one (no work app yet: the one in front).
             app = ws.target_app()
+            if not app:
+                return Result(False, "you moved to another window; stopped so nothing lands there")
         else:
             app = self.executor.frontmost_app()
         if self.guard is not None:
@@ -307,6 +317,11 @@ class Runner:
         ws = self.workspace
         # The user may have taken the front since the last words: resolve where they go.
         target = ws.target_app() if ws is not None else ""
+        if ws is not None and not target:
+            self._report(
+                Result(False, "you moved to another window; stopped so nothing lands there")
+            )
+            return
         if ws is not None and ws.parallel and ws.work_app:
             target = ws.work_app
         # The separator goes before a chunk, never after: a trailing space would end up in
@@ -506,6 +521,12 @@ def build_runner(
         highlight=highlight,
     )
     workspace.own_input_at = lambda: executor.last_input_at  # Yapp's keys are not the user's
+    workspace.own_burst = lambda: (
+        executor.burst_started_at,
+        executor.last_input_at,
+        executor.user_idle_at_burst,
+    )
+    executor.key_idle = workspace.seconds_since_key
 
     def click_pid(t: Any, point: tuple[float, float]) -> bool:
         pid = pid_of(t.ref)

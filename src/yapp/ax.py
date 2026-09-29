@@ -318,14 +318,13 @@ def needs_leading_space(app: str) -> bool:
             return False
         if _attr(f, "AXSelectedText"):
             return False
-        at = len(value)
         rng = _attr(f, "AXSelectedTextRange")
-        if rng is not None:
-            ok, r = AXValueGetValue(rng, kAXValueCFRangeType, None)
-            if ok:
-                if r.length:
-                    return False
-                at = int(r.location)
+        if rng is None:
+            return False  # insertion point unknown: a caret at the start needs no space
+        ok, r = AXValueGetValue(rng, kAXValueCFRangeType, None)
+        if not ok or r.length:
+            return False
+        at = int(r.location)
         return 0 < at <= len(value) and not value[at - 1].isspace()
     except Exception:  # noqa: BLE001 - any doubt: no space
         return False

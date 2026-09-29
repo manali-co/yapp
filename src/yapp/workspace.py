@@ -55,6 +55,11 @@ class Workspace:
         seconds_since_key: Callable[[], float] = lambda: float("inf"),
         click_at: Callable[[], tuple[float, float] | None] = lambda: None,
         own_input_at: Callable[[], float] = lambda: float("-inf"),
+        own_burst: Callable[[], tuple[float, float, float]] = lambda: (
+            float("-inf"),
+            float("-inf"),
+            float("inf"),
+        ),
         now: Callable[[], float] = time.monotonic,
         purpose: PurposeDecider | None = None,
     ) -> None:
@@ -64,6 +69,9 @@ class Workspace:
         self.seconds_since_key = seconds_since_key  # ... or keys, in an app Yapp never touched
         self.click_at = click_at  # where the user's latest mouse-down landed (None: unknown)
         self.own_input_at = own_input_at  # when Yapp itself last sent keys (monotonic)
+        # (start, end, user's key idle at start) of Yapp's latest keystroke burst
+        self.own_burst = own_burst
+        self._work_window: Any = None  # the window Yapp works in (hand-over mode)
         self._own_click_at = float("-inf")  # when Yapp last borrowed the real pointer
         self._work_this_session = False  # work_app was set in the current session
         self.raise_window: Callable[[Any], bool] = lambda win: False  # AXRaise a window
@@ -128,6 +136,8 @@ class Workspace:
         self.mode = None
         self._work_this_session = False  # a new session starts from the app in front
         self.settle_purposes(utterance)
+        self.work_app = ""  # not carried into the next session, in either mode
+        self._work_window = None
         handed = self.ledger.release_hand_offs()
         if handed:
             self.log("handed over to the user: " + ", ".join(handed))
@@ -168,15 +178,17 @@ class Workspace:
         self.windows.begin_parallel(user_app)
 
     def target_app(self) -> str:
-        """The app Yapp's next keys and clicks may go to. In hand-over mode that is the app
-        in front, as long as nobody but Yapp changed it: if the user took the front (a key
-        or click of theirs since Yapp's last act), Yapp moves to working beside them
-        instead of acting in their app. A front change with no input from the user is
-        Yapp's own doing (a launch, a file it opened, a step that activated another app)
-        and is followed. Activation can lag, so a change is given a moment to settle."""
+        """The app Yapp's next keys and clicks may go to, or "" when they must not go
+        anywhere. In hand-over mode that is the app in front, as long as nobody but Yapp
+        changed it: if the user took the front (a key or click of theirs since Yapp's last
+        act), Yapp moves to working beside them instead of acting in their app; if they
+        moved to another window of the same app, Yapp stops (the keys would land in that
+        window). A change with no input from the user is Yapp's own doing (a launch, a
+        file it opened, a new document) and is followed. Activation can lag, so a change
+        is given a moment to settle."""
         front = self.frontmost()
         work = self.work_app if self._work_this_session else ""
-        if self.mode is None or self.parallel or not work or front == work:
+        if self.mode is None or self.parallel or not work:
             return self.work_app if self.parallel and self.work_app else front
         waited = 0.0
         while not self._user_moved() and front != work and waited < 1.0:
@@ -184,14 +196,29 @@ class Workspace:
             waited += 0.1
             front = self.frontmost()
         if front == work:
-            return front
+            return front if self._same_window(front) else ""
         if not self._user_moved():
             self.log(f"focus: {front} came to the front from Yapp's own step; following it")
             self.work_app = front
+            self._work_window = self.focused(front)
             return front
         self.log(f"focus: {front} is in front, not {work}; working beside the user")
         self._go_parallel(front)
         return work
+
+    def _same_window(self, app: str) -> bool:
+        """Is the app's focused window still the one Yapp works in? Unknown counts as yes."""
+        current = self.focused(app)
+        if current is None or self._work_window is None:
+            self._work_window = self._work_window or current
+            return True
+        if current == self._work_window:
+            return True
+        if not self._user_moved():  # Yapp's own step opened it (a new document): follow
+            self._work_window = current
+            return True
+        self.log(f"focus: the user moved to another {app} window; stopping, not typing there")
+        return False
 
     def _user_moved(self) -> bool:
         """A key or click of the user's (not Yapp's) since Yapp's last act."""
@@ -204,11 +231,13 @@ class Workspace:
         if app:
             self.work_app = app
             self._work_this_session = True
+            self._work_window = self.focused(app)
         self._acted()
 
     def after_open(self, app: str) -> None:
         self.work_app = app
         self._work_this_session = True
+        self._work_window = None  # the window the launch shows is adopted on first use
         self._acted()
         self.glow(app)
         if self.parallel:
@@ -241,12 +270,19 @@ class Workspace:
 
     def _last_input_was_ours(self) -> bool:
         """macOS counts Yapp's own synthesized keys and clicks as input. The latest event
-        was Yapp's when its age matches the moment Yapp last sent input (within 0.15 s)."""
+        is Yapp's only when it falls inside Yapp's own keystroke burst (or its own borrowed
+        click) and the user was not typing when that burst began. Anything else, including
+        a key of the user's that overlaps Yapp's burst while they were typing, is theirs."""
         age = min(self.seconds_since_key(), self.seconds_since_click())
         if age == float("inf"):
             return False  # no event ages known: nothing to attribute
-        since_own = self.now() - max(self.own_input_at(), self._own_click_at)
-        return abs(age - since_own) < 0.15
+        at = self.now() - age  # when the latest event happened
+        if abs(at - self._own_click_at) < 0.1:
+            return True
+        start, end, user_idle = self.own_burst()
+        if not (start - 0.05 <= at <= end + 0.05):
+            return False  # outside Yapp's burst: the user's
+        return user_idle >= 1.5  # the user was typing as Yapp began: ambiguous, so theirs
 
     def user_typing(self) -> bool:
         """The user (not Yapp) pressed a key or clicked in the last moment."""
@@ -349,7 +385,8 @@ class Workspace:
         self.attention("Borrowing your mouse for a moment")
         try:
             ok = self.real_click(x, y)
-            self._own_click_at = self.now()
+            if ok:
+                self._own_click_at = self.now()
             if not ok:
                 self.log("pointer: the user is holding a button; not touching the cursor")
             return ok
@@ -377,8 +414,10 @@ class Workspace:
                 self.log(f"borrow: could not bring {app} to the front; nothing typed")
                 return Result(False, f"couldn't bring {app} to the front")
             mine = [w.ref for w in self.ledger.windows if w.app == app]
-            if mine:  # the app may also hold the user's own documents: Yapp's window is key
-                self.raise_window(mine[-1])
+            # The app may also hold the user's own documents: Yapp's window must be key.
+            if mine and not self.raise_window(mine[-1]):
+                self.log(f"borrow: could not bring Yapp's {app} window forward; nothing sent")
+                return Result(False, f"couldn't bring Yapp's {app} window forward")
             return act()
         finally:
             if back and back != app:

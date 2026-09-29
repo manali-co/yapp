@@ -29,7 +29,7 @@ from yapp.config import Config
 from yapp.display import Terminal
 from yapp.guard import Mode
 from yapp.jev import Jev, JevLike, JevResponse
-from yapp.native import bring_to_front, quit_app
+from yapp.native import app_is_running, bring_to_front, quit_app
 from yapp.runner import build_runner
 
 DEFAULT_DIR = Path("tasks")
@@ -284,6 +284,7 @@ def with_token(task: Task, token: str) -> Task:
         teardown=sub(task.teardown),
         checks=sub(task.checks),
         owned_paths=sub(task.owned_paths),
+        owned_containing={sub(k): sub(v) for k, v in task.owned_containing.items()},
     )
 
 
@@ -440,17 +441,37 @@ def close_tab(app_name: str) -> bool:
     return False
 
 
-def discard_app(app_name: str) -> list[str]:
-    """Harness only: close every window of the app, discarding unsaved changes, then quit."""
+def window_ids(app_name: str) -> set[int]:
+    """Window-server ids of the app's windows now (windows without one are left out)."""
+    from yapp import windows as win
+
+    return {n for w in win.app_windows(app_name) if (n := win.window_number(w)) is not None}
+
+
+def discard_app(app_name: str, keep: set[int] | None = None, quit_it: bool = True) -> list[str]:
+    """Harness only: close the windows this task created, discarding their unsaved changes,
+    then quit the app if the task started it. A window that was open before the task
+    (`keep`), or that cannot be identified, is never touched: it may hold the user's work."""
     from yapp import windows as win
     from yapp.native import app_is_running
 
     if not app_is_running(app_name):
         return []
-    notes = ["dismissed alert" for w in win.app_windows(app_name) if win.dismiss_alert(w)]
+    keep = keep or set()
+
+    def the_tasks(w: Any) -> bool:
+        n = win.window_number(w)
+        return n is not None and n not in keep
+
+    notes = [
+        "dismissed alert"
+        for w in win.app_windows(app_name)
+        if the_tasks(w) and win.dismiss_alert(w)
+    ]
     time.sleep(0.4)
-    notes += [win.close_and_discard(w) for w in win.app_windows(app_name)]
-    notes.append("quit" if quit_app(app_name) else "still running (a sheet is open?)")
+    notes += [win.close_and_discard(w) for w in win.app_windows(app_name) if the_tasks(w)]
+    if quit_it:
+        notes.append("quit" if quit_app(app_name) else "still running (a sheet is open?)")
     return notes
 
 
@@ -551,7 +572,9 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
     if kind == "saved_as":
         app_name, name = str(arg["app"]), str(arg["name"])
         paths = document_paths(app_name)
-        saved = [q for q in paths if name.lower() in os.path.basename(q).lower()]
+        saved = [
+            q for q in paths if os.path.splitext(os.path.basename(q))[0].lower() == name.lower()
+        ]
         return bool(saved), (f"saved: {saved[0]}" if saved else f"open documents: {paths[:3]}")
     if kind == "created":
         was = before.get("paths", {}).get(str(arg))
@@ -613,13 +636,21 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     content_before: dict[str, set[str] | None] = {}
     token = secrets.token_hex(3)
     task = with_token(task, token)
+    refused: set[str] = set()  # apps that would not quit before the task (unsaved work)
+    was_running: dict[str, bool] = {}
+    windows_before: dict[str, set[int]] = {}
     created = [str(c["created"]) for c in task.checks if "created" in c]
     paths_before = snapshot_paths(list(dict.fromkeys(task.owned_paths + created)))
     try:
         content_before = snapshot_content(task)
         for app_name in task.quit_before:
             if not quit_app(app_name):  # polite: unsaved work keeps it open, never discarded
+                refused.add(app_name)
                 raise RuntimeError(f"setup failed: {app_name} did not quit (unsaved work?)")
+        # What was already open is the user's: clean-up after the task leaves it alone.
+        for app_name in dict.fromkeys(task.discard_after + task.quit_after):
+            was_running[app_name] = app_is_running(app_name)
+            windows_before[app_name] = window_ids(app_name) if was_running[app_name] else set()
         for cmd in task.setup:
             planted, said = _shell_ok(cmd)
             if not planted:  # a fixture that could not be planted proves nothing: stop here
@@ -669,8 +700,12 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
         for cmd in task.teardown:
             _shell(cmd)
         for app_name in task.discard_after:
-            discard_app(app_name)
+            if app_name in refused or app_name not in was_running:
+                continue  # setup never got this far, or the app holds unsaved work of the user's
+            discard_app(app_name, keep=windows_before[app_name], quit_it=not was_running[app_name])
         for app_name in task.quit_after:
+            if app_name in refused or was_running.get(app_name, True):
+                continue  # quit only an app this task started
             quit_app(app_name)
         # Last: closing an app can itself write files (an autosaved untitled document).
         for note in remove_new_paths(paths_before, task.owned_containing):  # only this run's

@@ -43,7 +43,10 @@ class Executor:
         self.raise_app = raise_app
         self.is_running = is_running
         self.last_launched = False  # the last open_app started the app (it was not running)
-        self.last_input_at = float("-inf")  # when Yapp last sent keystrokes (monotonic)
+        self.last_input_at = float("-inf")  # when Yapp's last keystroke burst ended (monotonic)
+        self.burst_started_at = float("-inf")  # ... and when it started
+        self.user_idle_at_burst = float("inf")  # seconds since the user's last key, at its start
+        self.key_idle: Callable[[], float] = lambda: float("inf")  # wired to Quartz key idle
 
     def screen(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result:
         """A screen action: the app (in front, or the one Yapp works in) is read live and Jev
@@ -56,6 +59,9 @@ class Executor:
         # Keys Yapp sends are keyboard activity to the OS; remember when, so they are not
         # mistaken for the user typing. A query (the front app's name) sends no keys.
         sends_keys = "keystroke" in script or "key code" in script
+        if sends_keys:
+            self.burst_started_at = time.monotonic()
+            self.user_idle_at_burst = self.key_idle()  # was the user typing just before?
         try:
             return self._run(["osascript", "-e", script])
         finally:

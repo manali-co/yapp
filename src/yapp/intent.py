@@ -57,16 +57,36 @@ def strip_leading_conjunctions(tail: str) -> str:
     return " ".join(words)
 
 
+def _instruction_verbs() -> frozenset[str]:
+    """The words instructions start with, taken from the examples of the intents that name
+    an action (open, type, save, search, go, …): derived, never a hand-kept list. Undo and
+    clean-up examples are left out: "no", "we're done" do not start with a verb."""
+    verbs: set[str] = set()
+    for name, c in QUESTIONS["intent"]["criteria"].items():
+        if name in ("none", "undo", "cleanup"):
+            continue
+        for ex in c.get("examples", []):
+            words = [w for w in str(ex).lower().split() if w not in CONJUNCTIONS]
+            if words:
+                verbs.add(words[0])
+    return frozenset(verbs)
+
+
+INSTRUCTION_VERBS = _instruction_verbs()
+
+
 def is_bounded(tail: str, consumed: int) -> bool:
     """Has the speaker moved on from the first instruction? True when the words after it
-    start a new clause with "then" ("… and then open notes", "… then open notes") and at
-    least one word follows. A bare "and" may join a compound object ("salt and pepper",
-    "Tom and Mary"), so it does not end the instruction."""
+    start a new clause: "then" ("… and then open notes"), or a connective followed by a
+    word instructions start with ("… and open notes"). A bare "and" before anything else
+    may join a compound object ("salt and pepper", "Tom and Mary") and does not count."""
     rest = tail.split()[consumed:]
     lead = 0
     while lead < len(rest) and rest[lead] in CONJUNCTIONS:
         lead += 1
-    return "then" in rest[:lead] and lead < len(rest)
+    if lead == 0 or lead >= len(rest):
+        return False
+    return "then" in rest[:lead] or rest[lead].lower() in INSTRUCTION_VERBS
 
 
 def consumed_for(tail: str, intent: Intent) -> int:

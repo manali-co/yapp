@@ -135,3 +135,5 @@ def test_is_bounded_needs_a_connective_and_a_following_word() -> None:
     assert not is_bounded("forward it", 2)
     assert not is_bounded("save it now please", 2)  # no connective: the clause may go on
     assert not is_bounded("search for salt and pepper", 3)  # a compound object, not a clause
+    assert is_bounded("forward it and open notes", 2)  # "open" starts an instruction
+    assert not is_bounded("email tom and you", 2)  # "you" does not
