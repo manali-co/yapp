@@ -72,6 +72,7 @@ class Runner:
         self.done: list[str] = []
         self._actions = 0  # dictation action counter
         self._chunks_typed: dict[int, bool] = {}  # dictation action -> a chunk already typed
+        self.needs_space: Callable[[str], bool] = lambda app: False  # see ax.needs_leading_space
         if classify is not None:
             self._classify: Classifier = classify
         elif jev is not None:
@@ -191,6 +192,9 @@ class Runner:
                     r = denied
                 if r.ok:
                     self.last = Executed(d, r)
+                    ws = self.workspace
+                    if ws is not None and not ws.parallel:
+                        ws.note_act()  # the app that shows the file comes forward: Yapp's doing
             case Intent.PRESS_KEY if d.key_combo:
                 ws = self.workspace
                 where = ws.target_app() if ws is not None else self.executor.frontmost_app()
@@ -203,6 +207,8 @@ class Runner:
                     r = out if isinstance(out, Result) else Result(False, "key not sent")
                 else:
                     r = self.executor.press_key(combo)
+                    if ws is not None:
+                        ws.note_act()
                 if r.ok:
                     self.last = Executed(d, r)
             case Intent.SCREEN:
@@ -274,6 +280,8 @@ class Runner:
             before = ws.snapshot_windows(app)
             ws.glow(app)  # the glow says where Yapp acts
             r = self.executor.screen(words, app=app if ws.parallel else None, parallel=ws.parallel)
+            if not ws.parallel:
+                ws.note_act()  # whatever the steps brought forward is Yapp's doing
             ws.note_new_windows(app, before)
             ws.track_glow()
             return r
@@ -295,18 +303,23 @@ class Runner:
     def _type(self, words: list[str]) -> None:
         if not words:
             return
-        # The separator goes before a later chunk, not after every chunk: a trailing space
-        # would end up in a name field ("yapp test folder ") when the dictation ends.
         action = self.last.action if self.last is not None else 0
-        text = (" " if self._chunks_typed.get(action) else "") + " ".join(words)
-        self._chunks_typed[action] = True
         ws = self.workspace
-        app = ""
-        delivered = len(text)
-        if ws is not None:
-            ws.target_app()  # the user may have taken the front since the last words
+        # The user may have taken the front since the last words: resolve where they go.
+        target = ws.target_app() if ws is not None else ""
         if ws is not None and ws.parallel and ws.work_app:
-            app = ws.work_app
+            target = ws.work_app
+        # The separator goes before a chunk, never after: a trailing space would end up in
+        # a name field ("yapp test folder "). A dictation's first chunk gets one only if
+        # the words would otherwise run into text already there.
+        later = bool(self._chunks_typed.get(action))
+        if not later and not target:
+            target = self.executor.frontmost_app()
+        lead = " " if later or (target and self.needs_space(target)) else ""
+        text = lead + " ".join(words)
+        self._chunks_typed[action] = True
+        delivered = len(text)
+        if ws is not None and ws.parallel and ws.work_app:
             if ws.type_on_side(text, self.executor.type_ax, action):
                 r = Result(True, f"typed {len(text)} chars on the side")
             else:
@@ -314,7 +327,11 @@ class Runner:
                 delivered = 0  # undo must not erase what never reached the app
         else:
             r = self.executor.type_text(text)
-        self._count_typed(r, delivered, app)
+            if ws is not None:
+                ws.note_act()
+        # The app the words went to, in both modes: undo erases there, not wherever the
+        # user happens to be when they say "undo".
+        self._count_typed(r, delivered, target)
         self._report(r)
 
     def _count_typed(self, r: Result, chars: int, app: str) -> None:
@@ -513,7 +530,11 @@ def build_runner(
         recheck_focus=workspace.guard_focus,
     )
     executor.screen_fn = screen.run
-    return Runner(
+    from yapp.ax import needs_leading_space
+    from yapp.windows import raise_window
+
+    workspace.raise_window = raise_window
+    runner = Runner(
         cfg,
         jev,
         executor,
@@ -523,3 +544,5 @@ def build_runner(
         guard=guard,
         workspace=workspace,
     )
+    runner.needs_space = needs_leading_space
+    return runner

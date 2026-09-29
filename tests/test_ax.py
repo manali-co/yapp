@@ -410,14 +410,18 @@ def test_hand_over_loop_follows_the_front_app_each_step() -> None:
 
 
 def test_press_falls_back_to_the_virtual_pointer_then_the_real_one() -> None:
-
+    # A drawn control (menus never take the pointer tiers).
     pid_clicks: list[tuple[str, tuple[float, float]]] = []
     real_clicks: list[str] = []
     s, log = make_screen(
-        FakeResp("m3", 0.95, "press", "s0", 0.1),
-        FakeResp("m3", 0.95, "press", "s0", 0.1, status="continue", status_conf=0.9),
+        FakeResp("c9", 0.95, "press", "s0", 0.1),
+        FakeResp("c9", 0.95, "press", "s0", 0.1, status="continue", status_conf=0.9),
         FakeResp("none", 0.1, "none", "s0", 0.1, status="done"),
         summaries=["same"] * 8,
+    )
+    drawn = Target("c9", "control", "AXButton", "Magnify", "Chrome")  # no menu twin
+    s.perceiver = Perceiver(
+        lambda a: MENU, lambda a: [*CTRL, drawn], clock=lambda: 0.0, embed=lambda s: None
     )
     s.press = lambda t: False  # AXPress refused (a drawn control)
     s.centre = lambda t: (10.0, 20.0)
@@ -433,8 +437,8 @@ def test_press_falls_back_to_the_virtual_pointer_then_the_real_one() -> None:
     s.click_pid = click_pid
     s.click_real = click_real
     r = s.run("zoom in")
-    assert pid_clicks == [("m3", (10.0, 20.0))]  # tier 2 first
-    assert real_clicks == ["m3"]  # same target, no change: tier 3 once
+    assert pid_clicks == [("c9", (10.0, 20.0))]  # tier 2 first
+    assert real_clicks == ["c9"]  # same target, no change: tier 3 once
     assert r.ok and "virtual pointer" in s.history[0] and "with the pointer" in s.history[1]
 
 
@@ -536,6 +540,7 @@ def test_a_menu_command_of_a_background_app_is_pressed_with_focus_borrowed() -> 
     s.borrow = borrow
     s.perceiver_app = "Finder"
     s.parallel = True
+    s.enabled_now = lambda t: True  # enabled once Finder is in front
     front = ["Slack"]
     s.frontmost = lambda: front[0]
     off = Target("m0", "menu", "AXMenuItem", "New Folder", "File › New Folder", enabled=False)
@@ -544,3 +549,17 @@ def test_a_menu_command_of_a_background_app_is_pressed_with_focus_borrowed() -> 
     assert borrowed == ["Finder", "Finder"] and log == ["press:m0", "press:m1"]
     front[0] = "Finder"  # in front: pressed directly, no borrow
     assert s._press(on).ok and borrowed == ["Finder", "Finder"]
+
+
+def test_a_menu_item_is_never_clicked_with_a_pointer() -> None:
+    s, log = make_screen()
+    s.press = lambda t: False  # AXPress refused
+
+    def click_pid(t: Target, pt: tuple[float, float]) -> bool:
+        log.append("click_pid")
+        return True
+
+    s.click_pid = click_pid
+    s.centre = lambda t: (1.0, 1.0)
+    item = Target("m0", "menu", "AXMenuItem", "Paste", "Edit › Paste")
+    assert not s._press(item).ok and "click_pid" not in log

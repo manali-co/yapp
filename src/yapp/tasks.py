@@ -582,7 +582,8 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     try:
         content_before = snapshot_content(task)
         for app_name in task.quit_before:
-            quit_app(app_name)
+            if not quit_app(app_name):  # polite: unsaved work keeps it open, never discarded
+                raise RuntimeError(f"setup failed: {app_name} did not quit (unsaved work?)")
         for cmd in task.setup:
             planted, said = _shell_ok(cmd)
             if not planted:  # a fixture that could not be planted proves nothing: stop here

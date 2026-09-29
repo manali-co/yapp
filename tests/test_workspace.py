@@ -699,3 +699,51 @@ def test_yapps_own_keystrokes_are_not_mistaken_for_the_user_typing() -> None:
     assert ws.before_open("TextEdit") is True and not ws.parallel  # raise as usual
     ws.seconds_since_key = lambda: 0.05  # a key well after Yapp's: the user's
     assert ws.user_typing()
+
+
+def test_a_work_app_from_an_earlier_session_does_not_bind_the_next_one() -> None:
+    w = World()
+    ws = make(w, decision=HAND_OVER)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.decide("open text edit", "TextEdit")
+    w.front = "TextEdit"
+    ws.after_open("TextEdit")
+    ws.reset()  # session over
+    clock[0] += 30.0
+    w.front = "Safari"  # the user clicked into Safari; new session: "close this tab"
+    ws.seconds_since_click = lambda: 5.0
+    ws.decide("close this tab", "")
+    assert ws.target_app() == "Safari" and not ws.parallel  # acts where the user is
+
+
+def test_an_app_yapps_own_step_brought_forward_is_followed() -> None:
+    w = World()
+    ws = make(w, decision=HAND_OVER)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.sleep = lambda sec: clock.__setitem__(0, clock[0] + sec)
+    ws.decide("open notes", "Notes")
+    w.front = "Notes"
+    ws.after_open("Notes")
+    ws.note_act()  # "open my resume": Preview comes forward because of Yapp's step
+    w.front = "Preview"
+    assert ws.target_app() == "Preview" and not ws.parallel and ws.work_app == "Preview"
+
+
+def test_a_borrow_brings_yapps_own_window_of_the_app_forward() -> None:
+    w = World()
+    ws = make(w)
+    raised: list[str] = []
+
+    def raise_window(win: Any) -> bool:
+        raised.append(str(win))
+        return True
+
+    ws.raise_window = raise_window
+    ws.decide("open notes", "Notes")
+    before = ws.snapshot_windows("Notes")
+    w.wins["Notes"].append("notes-2")  # Yapp's window, beside the user's notes-1
+    ws.note_new_windows("Notes", before)
+    ws.borrow_focus("Notes", lambda: "pressed")
+    assert raised == ["notes-2"]

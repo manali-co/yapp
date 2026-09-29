@@ -53,12 +53,13 @@ class Executor:
         return self.screen_fn(words, app=app, parallel=parallel)
 
     def _osa(self, script: str) -> str:
-        if SE in script:  # System Events keys: the OS counts them as keyboard activity
-            self.last_input_at = time.monotonic()
+        # Keys Yapp sends are keyboard activity to the OS; remember when, so they are not
+        # mistaken for the user typing. A query (the front app's name) sends no keys.
+        sends_keys = "keystroke" in script or "key code" in script
         try:
             return self._run(["osascript", "-e", script])
         finally:
-            if SE in script:
+            if sends_keys:
                 self.last_input_at = time.monotonic()
 
     def _attempt(self, argv_or_script: list[str] | str, ok_message: str) -> Result:

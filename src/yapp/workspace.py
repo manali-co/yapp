@@ -65,6 +65,8 @@ class Workspace:
         self.click_at = click_at  # where the user's latest mouse-down landed (None: unknown)
         self.own_input_at = own_input_at  # when Yapp itself last sent keys (monotonic)
         self._own_click_at = float("-inf")  # when Yapp last borrowed the real pointer
+        self._work_this_session = False  # work_app was set in the current session
+        self.raise_window: Callable[[Any], bool] = lambda win: False  # AXRaise a window
         self.now = now
         self.may = may  # the guard: (action) -> allowed?
         self.sheet_buttons = sheet_buttons
@@ -124,6 +126,7 @@ class Workspace:
         was opened for the user is released to them; Yapp's tool windows keep their glow
         until clean-up; a glow on a window that was already the user's fades now."""
         self.mode = None
+        self._work_this_session = False  # a new session starts from the app in front
         self.settle_purposes(utterance)
         handed = self.ledger.release_hand_offs()
         if handed:
@@ -166,31 +169,46 @@ class Workspace:
 
     def target_app(self) -> str:
         """The app Yapp's next keys and clicks may go to. In hand-over mode that is the app
-        in front only while it is the app Yapp is working in: if the user took the front
-        (clicked or switched away), Yapp moves to working beside them instead of acting in
-        their app. A new app's activation can lag, so that is waited for briefly, unless
-        the user touched something since Yapp's last act."""
+        in front, as long as nobody but Yapp changed it: if the user took the front (a key
+        or click of theirs since Yapp's last act), Yapp moves to working beside them
+        instead of acting in their app. A front change with no input from the user is
+        Yapp's own doing (a launch, a file it opened, a step that activated another app)
+        and is followed. Activation can lag, so a change is given a moment to settle."""
         front = self.frontmost()
-        if self.mode is None or self.parallel or not self.work_app or front == self.work_app:
+        work = self.work_app if self._work_this_session else ""
+        if self.mode is None or self.parallel or not work or front == work:
             return self.work_app if self.parallel and self.work_app else front
-        since_act = self.now() - self._last_step_at
-        user_moved = (
-            min(self.seconds_since_key(), self.seconds_since_click()) < since_act
-            and not self._last_input_was_ours()
-        )
         waited = 0.0
-        while not user_moved and front != self.work_app and waited < 1.0:
+        while not self._user_moved() and front != work and waited < 1.0:
             self.sleep(0.1)
             waited += 0.1
             front = self.frontmost()
-        if front == self.work_app:
+        if front == work:
             return front
-        self.log(f"focus: {front} is in front, not {self.work_app}; working beside the user")
+        if not self._user_moved():
+            self.log(f"focus: {front} came to the front from Yapp's own step; following it")
+            self.work_app = front
+            return front
+        self.log(f"focus: {front} is in front, not {work}; working beside the user")
         self._go_parallel(front)
-        return self.work_app
+        return work
+
+    def _user_moved(self) -> bool:
+        """A key or click of the user's (not Yapp's) since Yapp's last act."""
+        since_act = self.now() - self._last_step_at
+        age = min(self.seconds_since_key(), self.seconds_since_click())
+        return age < since_act and not self._last_input_was_ours()
+
+    def note_act(self, app: str = "") -> None:
+        """Yapp just acted in hand-over mode; `app` (if given) is where it now works."""
+        if app:
+            self.work_app = app
+            self._work_this_session = True
+        self._acted()
 
     def after_open(self, app: str) -> None:
         self.work_app = app
+        self._work_this_session = True
         self._acted()
         self.glow(app)
         if self.parallel:
@@ -358,6 +376,9 @@ class Workspace:
             if not self.raise_app(app):
                 self.log(f"borrow: could not bring {app} to the front; nothing typed")
                 return Result(False, f"couldn't bring {app} to the front")
+            mine = [w.ref for w in self.ledger.windows if w.app == app]
+            if mine:  # the app may also hold the user's own documents: Yapp's window is key
+                self.raise_window(mine[-1])
             return act()
         finally:
             if back and back != app:

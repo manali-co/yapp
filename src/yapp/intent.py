@@ -59,11 +59,14 @@ def strip_leading_conjunctions(tail: str) -> str:
 
 def is_bounded(tail: str, consumed: int) -> bool:
     """Has the speaker moved on from the first instruction? True when the words after it
-    hold a connective followed by at least one more word ("… and then open notes")."""
+    start a new clause with "then" ("… and then open notes", "… then open notes") and at
+    least one word follows. A bare "and" may join a compound object ("salt and pepper",
+    "Tom and Mary"), so it does not end the instruction."""
     rest = tail.split()[consumed:]
-    return (
-        len(rest) >= 2 and rest[0] in CONJUNCTIONS and any(w not in CONJUNCTIONS for w in rest[1:])
-    )
+    lead = 0
+    while lead < len(rest) and rest[lead] in CONJUNCTIONS:
+        lead += 1
+    return "then" in rest[:lead] and lead < len(rest)
 
 
 def consumed_for(tail: str, intent: Intent) -> int:

@@ -285,6 +285,16 @@ def test_a_spoken_key_in_parallel_mode_goes_to_the_work_app_not_the_users() -> N
     assert borrowed == ["TextEdit"] and ex.log == ["key:enter"]
 
 
+def test_a_new_dictation_gets_a_space_only_when_it_would_run_into_text() -> None:
+    r, ex = make(canned)
+    r.needs_space = lambda app: True  # the cursor sits right after "Dear John"
+    feed(r, "type thanks for the update")
+    assert "".join(t[5:] for t in ex.log if t.startswith("type:")) == " thanks for the update"
+    r2, ex2 = make(canned)  # an empty field, or a selection that is replaced
+    feed(r2, "type thanks for the update")
+    assert "".join(t[5:] for t in ex2.log if t.startswith("type:")) == "thanks for the update"
+
+
 def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:
     seen: list[str] = []
 

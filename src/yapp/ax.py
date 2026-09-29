@@ -304,6 +304,33 @@ def narrow(
     return sorted(keep, key=lambda t: (t.kind, int(t.key[1:])))
 
 
+def needs_leading_space(app: str) -> bool:
+    """Would new words run into text already in the app's focused field? True when the
+    insertion point sits right after a non-space character and nothing is selected (a
+    selection, like a Save sheet's "Untitled", is replaced, so no space). Unknown: False."""
+    try:
+        from ApplicationServices import AXValueGetValue, kAXValueCFRangeType
+
+        el, _ = app_element(app)
+        f = _attr(el, "AXFocusedUIElement")
+        value = _attr(f, "AXValue") if f is not None else None
+        if not isinstance(value, str) or not value:
+            return False
+        if _attr(f, "AXSelectedText"):
+            return False
+        at = len(value)
+        rng = _attr(f, "AXSelectedTextRange")
+        if rng is not None:
+            ok, r = AXValueGetValue(rng, kAXValueCFRangeType, None)
+            if ok:
+                if r.length:
+                    return False
+                at = int(r.location)
+        return 0 < at <= len(value) and not value[at - 1].isspace()
+    except Exception:  # noqa: BLE001 - any doubt: no space
+        return False
+
+
 def _enabled_now(t: Target) -> bool:
     return t.ref is not None and _attr(t.ref, "AXEnabled") is not False
 
@@ -545,6 +572,7 @@ class Screen:
         after_step: Callable[[], bool] = lambda: False,
         recheck_focus: Callable[[], bool] | None = None,
     ) -> None:
+        self.enabled_now: Callable[[Target], bool] = _enabled_now  # a menu item's live state
         self.before_step = before_step  # parallel mode: wait for the user's typing to pause
         self.after_step = after_step  # parallel mode: give the user's app back if it was taken
         # The same check a moment later, without restarting the "Yapp just acted" clock: a
@@ -668,13 +696,21 @@ class Screen:
         app = getattr(self, "perceiver_app", "")
         on_the_side = getattr(self, "parallel", False) and t.kind == "menu" and bool(app)
         if on_the_side and self.borrow is not None and self.frontmost() != app:
-            out = self.borrow(app, lambda: self._press_now(t))
+
+            def press_in_front() -> Result:
+                if not self.enabled_now(t):  # really off, even with the app in front
+                    return Result(False, f"{t.label} isn't available right now")
+                return self._press_now(t)
+
+            out = self.borrow(app, press_in_front)
             return out if isinstance(out, Result) else Result(False, "couldn't press that")
         return self._press_now(t)
 
     def _press_now(self, t: Target) -> Result:
         if self.press(t):
             return Result(True, f"pressed {t.describe()}")
+        if t.kind == "menu":  # a closed menu item has no place on screen to click
+            return Result(False, "couldn't press that")
         point = self.centre(t)
         if point is None:
             return Result(False, "couldn't press that")
