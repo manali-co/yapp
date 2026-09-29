@@ -304,6 +304,10 @@ def narrow(
     return sorted(keep, key=lambda t: (t.kind, int(t.key[1:])))
 
 
+def _enabled_now(t: Target) -> bool:
+    return t.ref is not None and _attr(t.ref, "AXEnabled") is not False
+
+
 def _front_or_unknown() -> str:
     try:
         return frontmost_app_name()
@@ -320,8 +324,10 @@ class Perceiver:
         ttl: float = MENU_TTL,
         embed: Embedder | None = None,
         front: Callable[[], str] | None = None,
+        enabled_now: Callable[[Target], bool] | None = None,
     ) -> None:
         self._front = front or _front_or_unknown
+        self._enabled_now = enabled_now or _enabled_now
         self._menus = read_menus
         self._controls = read_controls
         self._clock = clock
@@ -346,8 +352,10 @@ class Perceiver:
         controls = self._controls(app)
         self.last_controls = controls
         menus = self.menus(app)
-        if self._front() == app:  # in front, "disabled" is real: leave those out
-            menus = [m for m in menus if m.enabled]
+        if self._front() == app:
+            # In front, "disabled" is real, but the cached flag may date from a read while
+            # the app was in the background: an item cached as disabled is checked live.
+            menus = [m for m in menus if m.enabled or self._enabled_now(m)]
         return narrow(menus + controls, words, limit, self.embeddings)
 
     def snapshot(self, app: str) -> set[str]:

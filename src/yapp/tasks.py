@@ -61,6 +61,9 @@ class Task:
     # Paths (globs, ~ allowed) the task may create: whatever matches after the run and did
     # not match before it is removed; anything that was already there is never touched.
     owned_paths: list[str] = field(default_factory=list)
+    # Apps whose open documents are checked at the end: a document saved under a name that
+    # carries this run's token is this run's, and its file is removed.
+    saved_in: list[str] = field(default_factory=list)
 
 
 RUN_MARK = "@RUN@"  # replaced in setup, teardown and checks by a per-run random token
@@ -128,6 +131,7 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 tidy_notes=bool(data.get("tidy_notes", True)),
                 tidy_reminders=bool(data.get("tidy_reminders", True)),
                 owned_paths=[str(g) for g in data.get("owned_paths") or []],
+                saved_in=[str(a) for a in data.get("saved_in") or []],
             )
         )
     return out
@@ -174,6 +178,36 @@ def _matches(pattern: str) -> set[str]:
 def snapshot_paths(patterns: list[str]) -> dict[str, set[str]]:
     """What already matches each owned glob before the task: never the task's to remove."""
     return {g: _matches(g) for g in patterns}
+
+
+def document_paths(app: str) -> list[str]:
+    """Files behind the app's open windows (Accessibility AXDocument), for any folder the
+    Save sheet picked, including ones this process cannot list."""
+    from urllib.parse import unquote, urlparse
+
+    from yapp import windows as win
+    from yapp.ax import _attr
+
+    out: list[str] = []
+    for w in win.app_windows(app):
+        url = _attr(w, "AXDocument")
+        if isinstance(url, str) and url.startswith("file://"):
+            out.append(unquote(urlparse(url).path))
+    return out
+
+
+def remove_saved(apps: list[str], token: str) -> list[str]:
+    """Remove files the run saved: open documents whose name carries this run's token."""
+    notes: list[str] = []
+    for app in apps:
+        for path in document_paths(app):
+            if token and token in os.path.basename(path) and os.path.isfile(path):
+                try:
+                    os.unlink(path)
+                    notes.append(f"removed {path}")
+                except OSError as e:
+                    notes.append(f"could not remove {path}: {e}")
+    return notes
 
 
 def remove_new_paths(before: dict[str, set[str]]) -> list[str]:
@@ -414,8 +448,6 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
         half = home.left_half() if kind == "window_in_left_half" else home.right_half()
         return half.contains_centre(frame) and frame.w <= half.w + 2, f"{arg} at {frame}"
     if kind == "highlight_around":
-        import os
-
         import Quartz
 
         from yapp import windows as win
@@ -480,6 +512,11 @@ def run_check(check: dict[str, Any], before: dict[str, Any]) -> tuple[bool, str]
     if kind == "shell_contains":
         out = _shell(str(arg["cmd"]))
         return str(arg["text"]).lower() in out.lower(), out.strip()[:80]
+    if kind == "saved_as":
+        app_name, name = str(arg["app"]), str(arg["name"])
+        paths = document_paths(app_name)
+        saved = [q for q in paths if name.lower() in os.path.basename(q).lower()]
+        return bool(saved), (f"saved: {saved[0]}" if saved else f"open documents: {paths[:3]}")
     if kind == "created":
         was = before.get("paths", {}).get(str(arg))
         if was is None:
@@ -538,7 +575,8 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     asked_by_task: list[str] = []
     runner = None
     content_before: dict[str, set[str] | None] = {}
-    task = with_token(task, secrets.token_hex(3))
+    token = secrets.token_hex(3)
+    task = with_token(task, token)
     created = [str(c["created"]) for c in task.checks if "created" in c]
     paths_before = snapshot_paths(list(dict.fromkeys(task.owned_paths + created)))
     try:
@@ -579,6 +617,8 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     except Exception as e:  # noqa: BLE001 - one broken task must not lose the others' results
         checks.append(("run", False, f"{type(e).__name__}: {e}"))
     finally:
+        for note in remove_saved(task.saved_in, token):  # while the windows still show it
+            display.status(f"   {note}")
         ws = getattr(runner, "workspace", None)
         if task.cleanup and ws is not None:
             done = ws.cleanup()  # what this task opened goes away again
@@ -590,12 +630,13 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
             display.status(f"   {note}")
         for cmd in task.teardown:
             _shell(cmd)
-        for note in remove_new_paths(paths_before):  # only what this run created
-            display.status(f"   {note}")
         for app_name in task.discard_after:
             discard_app(app_name)
         for app_name in task.quit_after:
             quit_app(app_name)
+        # Last: closing an app can itself write files (an autosaved untitled document).
+        for note in remove_new_paths(paths_before):  # only what this run created
+            display.status(f"   {note}")
     seconds = time.perf_counter() - started
     ok = all(c[1] for c in checks)
     out = Outcome(

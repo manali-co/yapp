@@ -71,6 +71,7 @@ class Runner:
         self.last: Executed | None = None
         self.done: list[str] = []
         self._actions = 0  # dictation action counter
+        self._chunks_typed: dict[int, bool] = {}  # dictation action -> a chunk already typed
         if classify is not None:
             self._classify: Classifier = classify
         elif jev is not None:
@@ -294,11 +295,14 @@ class Runner:
     def _type(self, words: list[str]) -> None:
         if not words:
             return
-        text = " ".join(words) + " "
+        # The separator goes before a later chunk, not after every chunk: a trailing space
+        # would end up in a name field ("yapp test folder ") when the dictation ends.
+        action = self.last.action if self.last is not None else 0
+        text = (" " if self._chunks_typed.get(action) else "") + " ".join(words)
+        self._chunks_typed[action] = True
         ws = self.workspace
         app = ""
         delivered = len(text)
-        action = self.last.action if self.last is not None else 0
         if ws is not None:
             ws.target_app()  # the user may have taken the front since the last words
         if ws is not None and ws.parallel and ws.work_app:

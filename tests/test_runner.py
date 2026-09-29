@@ -295,7 +295,7 @@ def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:
     r, ex = make(canned, Guard(harm, lambda a: True))
     feed(r, "type hello there")
     assert seen == ["dictate into Finder @ Finder"]
-    assert ex.log == ["type:hello there "]
+    assert ex.log == ["type:hello there"]
 
 
 def test_parallel_workspace_opens_on_the_side_and_targets_the_work_app() -> None:
@@ -359,7 +359,7 @@ def test_parallel_dictation_goes_through_accessibility_then_borrows_focus() -> N
         workspace=ws,
     )
     feed(r, "open notes and type hello there")
-    assert ex.log == ["open:Notes:side", "ax:Notes:hello there "] and world.front == "Slack"
+    assert ex.log == ["open:Notes:side", "ax:Notes:hello there"] and world.front == "Slack"
     ex2 = FakeExec()
     ex2.ax_ok = False  # type: ignore[attr-defined]
     world2 = World()
@@ -373,7 +373,7 @@ def test_parallel_dictation_goes_through_accessibility_then_borrows_focus() -> N
         workspace=ws2,
     )
     feed(r2, "open notes and type hello there")
-    assert ex2.log == ["open:Notes:side", "ax:Notes:hello there ", "type:hello there "]
+    assert ex2.log == ["open:Notes:side", "ax:Notes:hello there", "type:hello there"]
     assert world2.raised[-2:] == ["Notes", "Slack"] and any(
         "attention" in line for line in world2.log
     )
@@ -421,10 +421,10 @@ def test_held_dictation_does_not_count_for_undo_until_delivered() -> None:
     for i in range(1, len(words) + 1):
         r.tick(words[:i])
     # two words of lookahead are still held back; "hello there" was refused by AX and held
-    assert r.last is not None and r.last.typed_chars == 0 and ws.held_text == "hello there "
+    assert r.last is not None and r.last.typed_chars == 0 and ws.held_text == "hello there"
     r.finish()  # the one borrow, then the count reflects what was typed
-    assert ex.log[-1] == "type:hello there my friend " and r.last is not None
-    assert r.last.typed_chars == len("hello there my friend ")
+    assert ex.log[-1] == "type:hello there my friend" and r.last is not None
+    assert r.last.typed_chars == len("hello there my friend")
 
 
 def test_failed_typing_is_not_counted_for_undo() -> None:
@@ -460,10 +460,10 @@ def test_undo_drops_only_its_own_held_words() -> None:
     words = "open notes and type one two three four".split()
     for i in range(1, len(words) + 1):
         r.tick(words[:i])
-    assert [h.text for h in ws.held] == ["one two "] and r.last is not None
+    assert [h.text for h in ws.held] == ["one two"] and r.last is not None
     action = r.last.action
     r.finish()  # the end-of-session borrow fails too: everything stays held
-    assert [h.text for h in ws.held] == ["one two three four "]
+    assert [h.text for h in ws.held] == ["one two three four"]
     feed(r, "undo")
     assert ws.held == [] and ws.drop_held(action) == 0 and r.last is None
 

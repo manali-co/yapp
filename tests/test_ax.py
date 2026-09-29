@@ -508,15 +508,20 @@ def test_disabled_menu_items_count_only_for_the_app_in_front() -> None:
     )
     new_window = Target("m1", "menu", "AXMenuItem", "New Window", "File › New Window")
     front = ["Finder"]
+    live = [False]
     p = Perceiver(
         lambda a: [new_folder, new_window],
         lambda a: [],
         clock=lambda: 0.0,
         embed=lambda s: None,
         front=lambda: front[0],
+        enabled_now=lambda t: live[0],
     )
     assert [t.key for t in p.targets("Finder", "new folder")] == ["m1"]  # in front: really off
     front[0] = "Slack"  # Finder in the background reports it off only for want of a key window
+    assert "m0" in [t.key for t in p.targets("Finder", "new folder")]
+    front[0] = "Finder"
+    live[0] = True  # cached as disabled while in the background, enabled now that it is front
     assert "m0" in [t.key for t in p.targets("Finder", "new folder")]
 
 

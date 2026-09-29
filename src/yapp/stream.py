@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+CONNECTIVES = {"and", "then", "also"}  # as intent.CONJUNCTIONS
+
 
 class Stream:
     def __init__(self, lookahead: int) -> None:
@@ -48,6 +50,10 @@ class Stream:
             end = len(self.committed)
         else:
             end = max(self._typed_upto, len(self.committed) - self.lookahead)
+            # A connective at the edge may start the next command ("… and | then save it"):
+            # it is typed only once a later word shows it belongs to the sentence.
+            while end > self._typed_upto and self.committed[end - 1].lower() in CONNECTIVES:
+                end -= 1
         words = self.committed[self._typed_upto : end]
         self._typed_upto = end
         return words
