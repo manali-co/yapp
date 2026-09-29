@@ -12,6 +12,8 @@ check:
       name: yapp hello @RUN@
 saved_in: [TextEdit]
 owned_paths:
-  - ~/Library/Mobile Documents/com~apple~TextEdit/Documents/Untitled*
+  # iCloud-synced: a new untitled document is removed only if it holds this task's words
+  - glob: ~/Library/Mobile Documents/com~apple~TextEdit/Documents/Untitled*
+    containing: hello from yapp
 settle_seconds: 4
 discard_after: [TextEdit]

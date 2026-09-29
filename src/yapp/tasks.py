@@ -61,6 +61,9 @@ class Task:
     # Paths (globs, ~ allowed) the task may create: whatever matches after the run and did
     # not match before it is removed; anything that was already there is never touched.
     owned_paths: list[str] = field(default_factory=list)
+    # glob -> text a new match must contain to be removed (for folders other things also
+    # write into, like an iCloud-synced one: a name alone never proves the file is ours)
+    owned_containing: dict[str, str] = field(default_factory=dict)
     # Apps whose open documents are checked at the end: a document saved under a name that
     # carries this run's token is this run's, and its file is removed.
     saved_in: list[str] = field(default_factory=list)
@@ -130,7 +133,15 @@ def load_tasks(directory: Path, only: str = "") -> list[Task]:
                 cleanup=bool(data.get("cleanup", True)),
                 tidy_notes=bool(data.get("tidy_notes", True)),
                 tidy_reminders=bool(data.get("tidy_reminders", True)),
-                owned_paths=[str(g) for g in data.get("owned_paths") or []],
+                owned_paths=[
+                    str(g["glob"]) if isinstance(g, dict) else str(g)
+                    for g in data.get("owned_paths") or []
+                ],
+                owned_containing={
+                    str(g["glob"]): str(g["containing"])
+                    for g in data.get("owned_paths") or []
+                    if isinstance(g, dict) and g.get("containing")
+                },
                 saved_in=[str(a) for a in data.get("saved_in") or []],
             )
         )
@@ -196,12 +207,15 @@ def document_paths(app: str) -> list[str]:
     return out
 
 
-def remove_saved(apps: list[str], token: str) -> list[str]:
-    """Remove files the run saved: open documents whose name carries this run's token."""
+def remove_saved(apps: list[str], names: list[str]) -> list[str]:
+    """Remove files the run saved: open documents named exactly as the task's `saved_as`
+    checks expect (names carry the run's token), plus any extension."""
     notes: list[str] = []
+    wanted = {n.lower() for n in names if n}
     for app in apps:
         for path in document_paths(app):
-            if token and token in os.path.basename(path) and os.path.isfile(path):
+            stem = os.path.splitext(os.path.basename(path))[0].lower()
+            if stem in wanted and os.path.isfile(path):
                 try:
                     os.unlink(path)
                     notes.append(f"removed {path}")
@@ -210,11 +224,33 @@ def remove_saved(apps: list[str], token: str) -> list[str]:
     return notes
 
 
-def remove_new_paths(before: dict[str, set[str]]) -> list[str]:
-    """Remove only what matches now and did not match before the task."""
+def _contains(path: str, text: str) -> bool:
+    """Does the file (or any file inside a document package) contain `text`?"""
+    files = [path]
+    if os.path.isdir(path):
+        files = [os.path.join(r, f) for r, _, fs in os.walk(path) for f in fs]
+    for f in files:
+        try:
+            with open(f, "rb") as fh:
+                if text.lower() in fh.read(1_000_000).decode("utf-8", "ignore").lower():
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def remove_new_paths(
+    before: dict[str, set[str]], containing: dict[str, str] | None = None
+) -> list[str]:
+    """Remove only what matches now and did not match before the task, and, where the
+    task names the text, only files that contain it."""
     removed: list[str] = []
     for pattern, old in before.items():
+        needle = (containing or {}).get(pattern)
         for path in sorted(_matches(pattern) - old):
+            if needle and not _contains(path, needle):
+                removed.append(f"left {path}: new, but not the task's (no '{needle}')")
+                continue
             try:
                 if os.path.isdir(path) and not os.path.islink(path):
                     shutil.rmtree(path)
@@ -618,7 +654,8 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
     except Exception as e:  # noqa: BLE001 - one broken task must not lose the others' results
         checks.append(("run", False, f"{type(e).__name__}: {e}"))
     finally:
-        for note in remove_saved(task.saved_in, token):  # while the windows still show it
+        saved_names = [str(c["saved_as"]["name"]) for c in task.checks if "saved_as" in c]
+        for note in remove_saved(task.saved_in, saved_names):  # while windows still show it
             display.status(f"   {note}")
         ws = getattr(runner, "workspace", None)
         if task.cleanup and ws is not None:
@@ -636,7 +673,7 @@ def run_task(task: Task, cfg: Config, display: Terminal, mode: Mode, approve: bo
         for app_name in task.quit_after:
             quit_app(app_name)
         # Last: closing an app can itself write files (an autosaved untitled document).
-        for note in remove_new_paths(paths_before):  # only what this run created
+        for note in remove_new_paths(paths_before, task.owned_containing):  # only this run's
             display.status(f"   {note}")
     seconds = time.perf_counter() - started
     ok = all(c[1] for c in checks)
