@@ -684,3 +684,18 @@ def test_a_slow_activation_is_waited_for_not_mistaken_for_the_user() -> None:
     ws.after_open("TextEdit")
     w.front = "Slack"  # still activating; the user touched nothing
     assert ws.target_app() == "TextEdit" and not ws.parallel
+
+
+def test_yapps_own_keystrokes_are_not_mistaken_for_the_user_typing() -> None:
+    w = World()
+    ws = make(w, decision=HAND_OVER)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.typing_now = lambda: True  # the OS saw a key a moment ago
+    ws.own_input_at = lambda: 99.7  # Yapp dictated 0.3 s ago
+    ws.seconds_since_key = lambda: 0.3  # ... and that was the latest key
+    assert not ws.user_typing()
+    ws.decide("open text edit", "TextEdit")
+    assert ws.before_open("TextEdit") is True and not ws.parallel  # raise as usual
+    ws.seconds_since_key = lambda: 0.05  # a key well after Yapp's: the user's
+    assert ws.user_typing()

@@ -484,6 +484,7 @@ def build_runner(
         may=lambda action: guard.check(action, "").allowed,
         highlight=highlight,
     )
+    workspace.own_input_at = lambda: executor.last_input_at  # Yapp's keys are not the user's
 
     def click_pid(t: Any, point: tuple[float, float]) -> bool:
         pid = pid_of(t.ref)

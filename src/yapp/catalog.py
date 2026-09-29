@@ -33,6 +33,9 @@ def slug(name: str) -> str:
 APP_ROOTS = ("/Applications/", "/System/Applications/", str(Path.home() / "Applications") + "/")
 
 
+SELF = "Yapp"  # bundle.APP_NAME; kept literal so the catalog does not import the bundler
+
+
 def installed_apps(run: ShellRunner = run_capture) -> list[App]:
     try:
         out = run(["mdfind", "kMDItemKind == 'Application'"])
@@ -44,6 +47,8 @@ def installed_apps(run: ShellRunner = run_capture) -> list[App]:
         if p.suffix != ".app" or not str(p).startswith(APP_ROOTS):
             continue
         name = p.stem
+        if name == SELF:  # the assistant is never an app it opens or acts in
+            continue
         if name not in seen:
             seen[name] = App(slug(name), name, f"Launch {name}")
     return sorted(seen.values(), key=lambda a: a.name)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
@@ -42,6 +43,7 @@ class Executor:
         self.raise_app = raise_app
         self.is_running = is_running
         self.last_launched = False  # the last open_app started the app (it was not running)
+        self.last_input_at = float("-inf")  # when Yapp last sent keystrokes (monotonic)
 
     def screen(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result:
         """A screen action: the app (in front, or the one Yapp works in) is read live and Jev
@@ -51,7 +53,13 @@ class Executor:
         return self.screen_fn(words, app=app, parallel=parallel)
 
     def _osa(self, script: str) -> str:
-        return self._run(["osascript", "-e", script])
+        if SE in script:  # System Events keys: the OS counts them as keyboard activity
+            self.last_input_at = time.monotonic()
+        try:
+            return self._run(["osascript", "-e", script])
+        finally:
+            if SE in script:
+                self.last_input_at = time.monotonic()
 
     def _attempt(self, argv_or_script: list[str] | str, ok_message: str) -> Result:
         """Run one command; a non-zero exit becomes Result(False, stderr) instead of a lie."""

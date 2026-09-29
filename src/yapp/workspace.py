@@ -54,6 +54,7 @@ class Workspace:
         seconds_since_click: Callable[[], float] = lambda: float("inf"),
         seconds_since_key: Callable[[], float] = lambda: float("inf"),
         click_at: Callable[[], tuple[float, float] | None] = lambda: None,
+        own_input_at: Callable[[], float] = lambda: float("-inf"),
         now: Callable[[], float] = time.monotonic,
         purpose: PurposeDecider | None = None,
     ) -> None:
@@ -62,6 +63,8 @@ class Workspace:
         self.seconds_since_click = seconds_since_click  # the user's own app switches are clicks
         self.seconds_since_key = seconds_since_key  # ... or keys, in an app Yapp never touched
         self.click_at = click_at  # where the user's latest mouse-down landed (None: unknown)
+        self.own_input_at = own_input_at  # when Yapp itself last sent keys (monotonic)
+        self._own_click_at = float("-inf")  # when Yapp last borrowed the real pointer
         self.now = now
         self.may = may  # the guard: (action) -> allowed?
         self.sheet_buttons = sheet_buttons
@@ -105,7 +108,7 @@ class Workspace:
         self.user_window = self.focused(self.user_app) if self.user_app else None
         if self.force in (HAND_OVER, PARALLEL):
             self.mode = self.force
-        elif self.typing_now():
+        elif self.user_typing():
             self.mode = PARALLEL
             self.log("placement: parallel (the user is typing right now)")
         else:
@@ -146,7 +149,7 @@ class Workspace:
         """Returns whether the app should be activated (hand over) or left behind (parallel).
         Even in hand-over mode a window is never raised while the user is typing."""
         self.ledger.note_launch(app, self.is_running(app))
-        if not self.parallel and self.typing_now():
+        if not self.parallel and self.user_typing():
             # Not raising is not enough: in hand-over mode every later step would act on
             # the app in front, which is the one the user is typing in. Work on the side.
             self.log(f"windows: not raising {app}; the user is typing, so working beside them")
@@ -171,7 +174,10 @@ class Workspace:
         if self.mode is None or self.parallel or not self.work_app or front == self.work_app:
             return self.work_app if self.parallel and self.work_app else front
         since_act = self.now() - self._last_step_at
-        user_moved = min(self.seconds_since_key(), self.seconds_since_click()) < since_act
+        user_moved = (
+            min(self.seconds_since_key(), self.seconds_since_click()) < since_act
+            and not self._last_input_was_ours()
+        )
         waited = 0.0
         while not user_moved and front != self.work_app and waited < 1.0:
             self.sleep(0.1)
@@ -208,12 +214,25 @@ class Workspace:
         if not self.parallel:
             return True
         waited = 0.0
-        while self.typing_now() and waited < max_seconds:
+        while self.user_typing() and waited < max_seconds:
             self.sleep(0.15)
             waited += 0.15
         if waited:
             self.log(f"focus: waited {waited:.1f}s for a pause in the user's typing")
-        return not self.typing_now()
+        return not self.user_typing()
+
+    def _last_input_was_ours(self) -> bool:
+        """macOS counts Yapp's own synthesized keys and clicks as input. The latest event
+        was Yapp's when its age matches the moment Yapp last sent input (within 0.15 s)."""
+        age = min(self.seconds_since_key(), self.seconds_since_click())
+        if age == float("inf"):
+            return False  # no event ages known: nothing to attribute
+        since_own = self.now() - max(self.own_input_at(), self._own_click_at)
+        return abs(age - since_own) < 0.15
+
+    def user_typing(self) -> bool:
+        """The user (not Yapp) pressed a key or clicked in the last moment."""
+        return self.typing_now() and not self._last_input_was_ours()
 
     def _acted(self) -> None:
         """Yapp just did something on the side. From now on, for a moment, a change of the
@@ -312,6 +331,7 @@ class Workspace:
         self.attention("Borrowing your mouse for a moment")
         try:
             ok = self.real_click(x, y)
+            self._own_click_at = self.now()
             if not ok:
                 self.log("pointer: the user is holding a button; not touching the cursor")
             return ok
@@ -329,7 +349,7 @@ class Workspace:
         back = self.frontmost() or self.user_app  # whatever the user is in right now
         try:
             for _ in range(20):  # wait for a pause in the user's typing, up to ~3 s
-                if not self.typing_now():
+                if not self.user_typing():
                     break
                 self.sleep(0.15)
             else:
