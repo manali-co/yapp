@@ -14,7 +14,7 @@ from yapp.config import Config
 from yapp.display import Display
 from yapp.executor import Executor
 from yapp.guard import Guard, Mode, jev_harm
-from yapp.intent import QUESTIONS, Context
+from yapp.intent import QUESTIONS, Context, is_bounded
 from yapp.jev import Jev, JevError, JevLike
 from yapp.learning import Learning
 from yapp.placement import Placement
@@ -136,7 +136,11 @@ class Runner:
         if self.display:
             self.display.show_decision(d)
         v = decide(
-            d, self.cfg.thresholds, dictating=self.stream.dictating, has_last=self.last is not None
+            d,
+            self.cfg.thresholds,
+            dictating=self.stream.dictating,
+            has_last=self.last is not None,
+            bounded=is_bounded(tail, d.consumed_words) and d.intent != Intent.TYPE_TEXT,
         )
         if v.outcome == Outcome.EXECUTE and self.stream.already_fired(d.consumed_words):
             v = Verdict(Outcome.IGNORE, "already acted on this")

@@ -57,6 +57,15 @@ def strip_leading_conjunctions(tail: str) -> str:
     return " ".join(words)
 
 
+def is_bounded(tail: str, consumed: int) -> bool:
+    """Has the speaker moved on from the first instruction? True when the words after it
+    hold a connective followed by at least one more word ("… and then open notes")."""
+    rest = tail.split()[consumed:]
+    return (
+        len(rest) >= 2 and rest[0] in CONJUNCTIONS and any(w not in CONJUNCTIONS for w in rest[1:])
+    )
+
+
 def consumed_for(tail: str, intent: Intent) -> int:
     words = tail.split()
     lead = 0
