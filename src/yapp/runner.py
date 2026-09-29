@@ -21,6 +21,7 @@ from yapp.placement import Placement
 from yapp.policy import decide
 from yapp.stream import Stream
 from yapp.types import App, Decision, Executed, Intent, Outcome, Result, Verdict
+from yapp.web import TLDS, default_browser, search_query, spoken_address
 from yapp.workspace import Workspace
 
 Classifier = Callable[[str, Context], Decision]
@@ -32,6 +33,7 @@ class ExecutorLike(Protocol):
     def type_text(self, text: str) -> Result: ...
     def press_key(self, combo: str) -> Result: ...
     def open_file(self, path: Path) -> Result: ...
+    def open_url(self, address: str, *, activate: bool = True) -> Result: ...
     def frontmost_app(self) -> str: ...
     def undo(self, last: Executed) -> Result: ...
     def screen(self, words: str, *, app: str | None = None, parallel: bool = False) -> Result: ...
@@ -73,6 +75,8 @@ class Runner:
         self._actions = 0  # dictation action counter
         self._chunks_typed: dict[int, bool] = {}  # dictation action -> a chunk already typed
         self.needs_space: Callable[[str], bool] = lambda app: False  # see ax.needs_leading_space
+        self.default_browser: Callable[[], str | None] = default_browser
+        self._pending: list[str] = []  # words the recognizer has not committed yet
         if classify is not None:
             self._classify: Classifier = classify
         elif jev is not None:
@@ -91,6 +95,7 @@ class Runner:
         )
 
     def tick(self, committed: list[str], pending: list[str] | None = None) -> list[Verdict]:
+        self._pending = list(pending or [])
         if self.display:
             self.display.show_transcript(committed, pending or [])
         if self.learning:
@@ -145,6 +150,16 @@ class Runner:
             has_last=self.last is not None,
             bounded=(final or is_bounded(tail, d.consumed_words)) and d.intent != Intent.TYPE_TEXT,
         )
+        if (
+            v.outcome == Outcome.EXECUTE
+            and not final
+            and d.intent == Intent.OPEN_APP
+            and d.consumed_words >= len(tail.split())
+            and self._pending[:1]
+            and self._pending[0].lower().strip(".,") in (TLDS | {"dot"})
+        ):
+            # "open weather" with "com" still arriving is the website, not the app.
+            v = Verdict(Outcome.WAIT, "waiting: the next word may make it a web address")
         if v.outcome == Outcome.EXECUTE and self.stream.already_fired(d.consumed_words):
             v = Verdict(Outcome.IGNORE, "already acted on this")
         if self.display:
@@ -225,6 +240,20 @@ class Runner:
                     ws = self.workspace
                     side = ws.work_app if ws is not None and ws.parallel else ""
                     self.last = Executed(d, r, app=side)
+            case Intent.OPEN_URL:
+                said = " ".join(d.tail.split()[: d.consumed_words])
+                address = spoken_address(said)
+                if address is None:  # no address in the words: act on the screen instead
+                    r = self._screen(said)
+                elif self._may(f"open the website {address}"):
+                    r = self._open_url(address, said)
+                else:
+                    r = denied
+                if r.ok:
+                    self.last = Executed(d, r)
+            case Intent.WEB_SEARCH:
+                said = " ".join(d.tail.split()[: d.consumed_words])
+                r = self._web_search(search_query(said), said)
             case Intent.CLEANUP:
                 r = self._cleanup()
             case Intent.UNDO if self.last is not None:
@@ -265,6 +294,51 @@ class Runner:
         if r.ok:
             ws.after_open(app.name)
         return r
+
+    def _browser(self) -> App | None:
+        name = self.default_browser()
+        if not name:
+            return None
+        found = [a for a in self.apps if a.name == name]
+        return found[0] if found else App(name.lower().replace(" ", "-"), name, f"Launch {name}")
+
+    def _open_url(self, address: str, said: str) -> Result:
+        """The address opens in the default browser, like clicking a link: no screen steps."""
+        ws = self.workspace
+        browser = self._browser()
+        if ws is None or browser is None:
+            return self.executor.open_url(address)
+        ws.decide(said, browser.name)
+        activate = ws.before_open(browser.name)
+        r = self.executor.open_url(address, activate=activate)
+        if r.ok:
+            ws.after_open(browser.name)
+        return r
+
+    def _web_search(self, query: str, said: str) -> Result:
+        """A web search runs in the default browser, in a new tab, never in the app that
+        happens to be in front and never over the page the user has open."""
+        if not query:
+            return Result(False, "nothing to search for")
+        address = spoken_address(query)
+        if address is not None:  # "search for weather com" means the site, not a search
+            return (
+                self._open_url(address, said)
+                if self._may(f"open the website {address}")
+                else Result(False, "not approved")
+            )
+        browser = self._browser()
+        if browser is None:
+            return Result(False, "no default browser")
+        if not self._may(f"search the web for '{query}'"):
+            return Result(False, "not approved")
+        r = self._open(said, browser)
+        if not r.ok:
+            return r
+        tab = self._screen("new tab")
+        if not tab.ok:
+            return tab
+        return self._screen(f"search for {query}")
 
     def _screen(self, words: str) -> Result:
         ws = self.workspace

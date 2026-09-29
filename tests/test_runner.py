@@ -54,6 +54,10 @@ def canned(tail: str, dictating: bool) -> Decision:
         return mk(tail, Intent.UNDO, 0.9, 0.9, ends, consumed=1)
     if words[:2] == ["clean", "up"]:
         return mk(tail, Intent.CLEANUP, 0.9, 0.9, ends, consumed=len(tail.split()))
+    if words[:2] == ["go", "to"] and len(words) >= 3:
+        return mk(tail, Intent.OPEN_URL, 0.9, 0.9, ends, consumed=len(tail.split()))
+    if words[:3] == ["look", "up", "the"]:
+        return mk(tail, Intent.WEB_SEARCH, 0.9, 0.9, ends, consumed=len(tail.split()))
     if words[:2] == ["zoom", "in"]:
         return mk(tail, Intent.SCREEN, 0.9, 0.9, ends, consumed=len(tail.split()))
     intent = Intent.OPEN_APP if words[:1] == ["open"] else Intent.NONE
@@ -82,6 +86,10 @@ class FakeExec:
 
     def open_file(self, path: Path) -> Result:
         self.log.append(f"file:{path}")
+        return Result(True, "ok")
+
+    def open_url(self, address: str, *, activate: bool = True) -> Result:
+        self.log.append(f"url:{address}" + ("" if activate else ":side"))
         return Result(True, "ok")
 
     def frontmost_app(self) -> str:
@@ -293,6 +301,27 @@ def test_a_new_dictation_gets_a_space_only_when_it_would_run_into_text() -> None
     r2, ex2 = make(canned)  # an empty field, or a selection that is replaced
     feed(r2, "type thanks for the update")
     assert "".join(t[5:] for t in ex2.log if t.startswith("type:")) == "thanks for the update"
+
+
+def test_a_spoken_address_opens_in_the_default_browser() -> None:
+    r, ex = make(canned)
+    feed(r, "go to weather com", per_tick=4)
+    assert ex.log == ["url:weather.com"]
+
+
+def test_open_waits_a_tick_when_the_next_word_makes_it_an_address() -> None:
+    r, ex = make(canned)
+    r.tick(["open", "notes"], ["com"])  # "com" is still arriving
+    assert ex.log == []
+    r.tick(["open", "notes", "and"], ["then"])  # not a web domain: open the app as usual
+    assert ex.log == ["open:Notes"]
+
+
+def test_a_web_search_runs_in_a_new_tab_of_the_default_browser() -> None:
+    r, ex = make(canned)
+    r.default_browser = lambda: "Safari"
+    feed(r, "look up the weather in toronto", per_tick=6)
+    assert ex.log == ["open:Safari", "screen:new tab", "screen:search for the weather in toronto"]
 
 
 def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:

@@ -13,6 +13,8 @@ class Intent(StrEnum):
     OPEN_FILE = "open_file"
     PRESS_KEY = "press_key"
     SCREEN = "screen_action"
+    OPEN_URL = "open_url"
+    WEB_SEARCH = "web_search"
     UNDO = "undo"
     CLEANUP = "cleanup"
     NONE = "none"

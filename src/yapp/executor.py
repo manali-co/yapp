@@ -95,6 +95,12 @@ class Executor:
             r = Result(True, f"opened {app.name} (could not bring it to the front)")
         return Result(r.ok, f"left full screen, {r.message}") if left and r.ok else r
 
+    def open_url(self, address: str, *, activate: bool = True) -> Result:
+        """Open a web address in the default browser (`open -g` keeps the user's window)."""
+        url = address if "://" in address else f"https://{address}"
+        argv = ["open", url] if activate else ["open", "-g", url]
+        return self._attempt(argv, f"opened {address}")
+
     def type_ax(self, app: str, text: str) -> bool:
         """Append text to the app's focused element without the keyboard (parallel mode)."""
         try:

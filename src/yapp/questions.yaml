@@ -22,7 +22,15 @@ intent:
     screen_action:
       what: Do something inside the app in front by naming a menu command, button, tab, link, or field; this includes deleting, emptying, removing, sending, or switching a setting off, which the guard judges before it runs
       not_for: Launching a different app; typing free text with no field named; the basic shortcuts above; closing Yapp's own windows (that is cleanup)
-      examples: ["new tab", "new document", "new reminder", "zoom in", "find on page", "search for fable five", "bold this", "close this tab", "go to the address bar", "reply to this email", "click sign in", "show downloads", "go to downloads", "empty the trash", "delete all my notes", "move it to the trash", "turn off the firewall", "send it", "force quit"]
+      examples: ["new tab", "new document", "new reminder", "zoom in", "find on page", "search for fable five", "search for groceries", "search my notes for milk", "search for bluetooth", "bold this", "close this tab", "go to the address bar", "reply to this email", "click sign in", "show downloads", "go to downloads", "empty the trash", "delete all my notes", "move it to the trash", "turn off the firewall", "send it", "force quit"]
+    open_url:
+      what: Open a website by its address, a name followed by com, org, net, or "dot" something
+      not_for: Launching an app; looking up a topic with no address named (that is web_search)
+      examples: ["go to weather com", "open weather dot com", "visit github dot com", "open linkedin.com", "go to manali dot page", "open cbc dot ca"]
+    web_search:
+      what: Look something up on the web, about the world outside this Mac, like weather, news, prices, places, flights, or facts
+      not_for: Searching the user's own things inside the app in front, like notes, mail, messages, files, reminders, or settings (that is screen_action); a plain "search for" a word or name while an app that is not a web browser is in front (that is screen_action); opening a named website (that is open_url)
+      examples: ["search the web for flights to lisbon", "google the weather in toronto", "look up the weather in toronto", "search online for cheap flights", "search for the weather in toronto", "what's the weather in paris"]
     undo:
       what: Reverse or cancel what Yapp just did
       not_for: The undo shortcut inside an app while dictating a document

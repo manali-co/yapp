@@ -70,6 +70,7 @@ class Task:
 
 
 RUN_MARK = "@RUN@"  # replaced in setup, teardown and checks by a per-run random token
+BROWSER_MARK = "@BROWSER@"  # replaced by the name of this Mac's default browser
 
 
 @dataclass
@@ -266,9 +267,13 @@ def with_token(task: Task, token: str) -> Task:
     """The task with every @RUN@ (instruction, setup, teardown, checks, owned paths)
     replaced by `token`."""
 
+    from yapp.web import default_browser
+
+    browser = default_browser() or "Safari"
+
     def sub(x: Any) -> Any:
         if isinstance(x, str):
-            return x.replace(RUN_MARK, token)
+            return x.replace(RUN_MARK, token).replace(BROWSER_MARK, browser)
         if isinstance(x, dict):
             return {k: sub(v) for k, v in x.items()}
         if isinstance(x, list):
@@ -285,6 +290,9 @@ def with_token(task: Task, token: str) -> Task:
         checks=sub(task.checks),
         owned_paths=sub(task.owned_paths),
         owned_containing={sub(k): sub(v) for k, v in task.owned_containing.items()},
+        close_tab_after=sub(task.close_tab_after),
+        activate_before=sub(task.activate_before),
+        quit_after=sub(task.quit_after),
     )
 
 

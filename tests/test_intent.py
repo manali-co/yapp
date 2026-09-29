@@ -137,3 +137,35 @@ def test_is_bounded_needs_a_connective_and_a_following_word() -> None:
     assert not is_bounded("search for salt and pepper", 3)  # a compound object, not a clause
     assert is_bounded("forward it and open notes", 2)  # "open" starts an instruction
     assert not is_bounded("email tom and you", 2)  # "you" does not
+
+
+def test_an_address_in_an_open_instruction_means_the_website() -> None:
+    from typing import Any
+
+    from yapp.config import Config
+    from yapp.intent import Context, classify
+    from yapp.types import App, Intent
+
+    class Resp:
+        latency_ms = 1
+        raw: dict[str, Any] = {}
+
+        def choice(self, name: str) -> Any:
+            key = {"intent": "open_app", "app": "weather", "key_combo": "unsure"}[name]
+            return type("C", (), {"key": key, "confidence": 0.99, "probabilities": {}})()
+
+        def noul(self, name: str) -> float:
+            return 0.9
+
+    class J:
+        def ask(self, state: Any, questions: Any) -> Resp:
+            return Resp()
+
+    ctx = Context(
+        apps=[App("weather", "Weather", "Launch Weather")],
+        frontmost_app="iTerm2",
+        already_done=[],
+        dictating=False,
+    )
+    assert classify("open weather com", ctx, J(), Config()).intent == Intent.OPEN_URL  # type: ignore[arg-type]
+    assert classify("open weather", ctx, J(), Config()).intent == Intent.OPEN_APP  # type: ignore[arg-type]
