@@ -56,7 +56,7 @@ class Target:
     ref: Any = field(default=None, compare=False, repr=False)
     # A menu item the app reported as disabled when it was read. A background app reports
     # every window-dependent command as disabled (it has no key window), so for an app that
-    # is not in front this says nothing, and pressing such an item borrows focus for a moment.
+    # is not in front this says nothing (see Perceiver.targets and Screen._press).
     enabled: bool = True
 
     @property
@@ -652,11 +652,14 @@ class Screen:
 
     def _press(self, t: Target) -> Result:
         """Tier 1 AXPress; tier 2 a click posted to the app; tier 3 the borrowed cursor.
-        A menu command a background app reported as disabled is pressed with the app
-        brought forward for that one press (a borrow, which waits for a pause in typing
-        and gives the user's app straight back)."""
+        A menu command of an app that is not in front is pressed with the app brought
+        forward for that one press: menu commands act on the key window, which a
+        background app does not have, so pressed in the background they do nothing (or
+        report themselves disabled). The borrow waits for a pause in typing and gives the
+        user's app straight back."""
         app = getattr(self, "perceiver_app", "")
-        if t.kind == "menu" and not t.enabled and self.borrow is not None and app:
+        on_the_side = getattr(self, "parallel", False) and t.kind == "menu" and bool(app)
+        if on_the_side and self.borrow is not None and self.frontmost() != app:
             out = self.borrow(app, lambda: self._press_now(t))
             return out if isinstance(out, Result) else Result(False, "couldn't press that")
         return self._press_now(t)

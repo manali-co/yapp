@@ -520,7 +520,7 @@ def test_disabled_menu_items_count_only_for_the_app_in_front() -> None:
     assert "m0" in [t.key for t in p.targets("Finder", "new folder")]
 
 
-def test_a_background_disabled_menu_item_is_pressed_with_focus_borrowed() -> None:
+def test_a_menu_command_of_a_background_app_is_pressed_with_focus_borrowed() -> None:
     s, log = make_screen()
     borrowed: list[str] = []
 
@@ -530,7 +530,12 @@ def test_a_background_disabled_menu_item_is_pressed_with_focus_borrowed() -> Non
 
     s.borrow = borrow
     s.perceiver_app = "Finder"
+    s.parallel = True
+    front = ["Slack"]
+    s.frontmost = lambda: front[0]
     off = Target("m0", "menu", "AXMenuItem", "New Folder", "File › New Folder", enabled=False)
-    assert s._press(off).ok and borrowed == ["Finder"] and log == ["press:m0"]
-    on = Target("m1", "menu", "AXMenuItem", "New Window", "File › New Window")
-    assert s._press(on).ok and borrowed == ["Finder"]  # an enabled item needs no borrow
+    on = Target("m1", "menu", "AXMenuItem", "Desktop", "Go › Desktop")
+    assert s._press(off).ok and s._press(on).ok  # both act on a key window Finder lacks
+    assert borrowed == ["Finder", "Finder"] and log == ["press:m0", "press:m1"]
+    front[0] = "Finder"  # in front: pressed directly, no borrow
+    assert s._press(on).ok and borrowed == ["Finder", "Finder"]
