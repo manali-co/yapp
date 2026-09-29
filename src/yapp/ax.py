@@ -54,6 +54,10 @@ class Target:
     path: str  # "File › New Tab" for menus, window title for controls
     shortcut: str = ""
     ref: Any = field(default=None, compare=False, repr=False)
+    # A menu item the app reported as disabled when it was read. A background app reports
+    # every window-dependent command as disabled (it has no key window), so for an app that
+    # is not in front this says nothing, and pressing such an item borrows focus for a moment.
+    enabled: bool = True
 
     @property
     def typeable(self) -> bool:
@@ -147,12 +151,15 @@ def ax_menus(app_name: str) -> list[Target]:
             kids = _attr(child, "AXChildren") or []
             if kids and depth < 3:
                 walk(child, [*trail, title], depth + 1)
-            elif role == "AXMenuItem" and _attr(child, "AXEnabled") is not False:
+            elif role == "AXMenuItem":
+                enabled = _attr(child, "AXEnabled") is not False
                 cmd = _attr(child, "AXMenuItemCmdChar") or ""
                 mods = _attr(child, "AXMenuItemCmdModifiers")
                 shortcut = f"{MOD_NAMES.get(int(mods or 0), '⌘')}{cmd}" if cmd else ""
                 path = " › ".join([*trail, title])
-                out.append(Target(f"m{len(out)}", "menu", role, title, path, shortcut, child))
+                out.append(
+                    Target(f"m{len(out)}", "menu", role, title, path, shortcut, child, enabled)
+                )
 
     walk(bar, [], 0)
     return out
@@ -297,6 +304,13 @@ def narrow(
     return sorted(keep, key=lambda t: (t.kind, int(t.key[1:])))
 
 
+def _front_or_unknown() -> str:
+    try:
+        return frontmost_app_name()
+    except Exception:  # noqa: BLE001 - no window server: treat every app as background
+        return ""
+
+
 class Perceiver:
     def __init__(
         self,
@@ -305,7 +319,9 @@ class Perceiver:
         clock: Callable[[], float] = time.monotonic,
         ttl: float = MENU_TTL,
         embed: Embedder | None = None,
+        front: Callable[[], str] | None = None,
     ) -> None:
+        self._front = front or _front_or_unknown
         self._menus = read_menus
         self._controls = read_controls
         self._clock = clock
@@ -329,7 +345,10 @@ class Perceiver:
     def targets(self, app: str, words: str, limit: int = 40) -> list[Target]:
         controls = self._controls(app)
         self.last_controls = controls
-        return narrow(self.menus(app) + controls, words, limit, self.embeddings)
+        menus = self.menus(app)
+        if self._front() == app:  # in front, "disabled" is real: leave those out
+            menus = [m for m in menus if m.enabled]
+        return narrow(menus + controls, words, limit, self.embeddings)
 
     def snapshot(self, app: str) -> set[str]:
         """Fingerprint of what is on screen now: control labels, roles and values."""
@@ -632,7 +651,17 @@ class Screen:
         return Result(acted > 0, f"stopped after {acted} step(s)")
 
     def _press(self, t: Target) -> Result:
-        """Tier 1 AXPress; tier 2 a click posted to the app; tier 3 the borrowed cursor."""
+        """Tier 1 AXPress; tier 2 a click posted to the app; tier 3 the borrowed cursor.
+        A menu command a background app reported as disabled is pressed with the app
+        brought forward for that one press (a borrow, which waits for a pause in typing
+        and gives the user's app straight back)."""
+        app = getattr(self, "perceiver_app", "")
+        if t.kind == "menu" and not t.enabled and self.borrow is not None and app:
+            out = self.borrow(app, lambda: self._press_now(t))
+            return out if isinstance(out, Result) else Result(False, "couldn't press that")
+        return self._press_now(t)
+
+    def _press_now(self, t: Target) -> Result:
         if self.press(t):
             return Result(True, f"pressed {t.describe()}")
         point = self.centre(t)

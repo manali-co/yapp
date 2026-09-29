@@ -500,3 +500,37 @@ def test_a_step_is_skipped_when_the_user_keeps_typing_and_focus_is_restored_on_f
     s2.after_step = after
     r2 = s2.run("zoom in", app="Chrome", parallel=True)
     assert not r2.ok and calls == ["after"]  # the failed press still gave focus back
+
+
+def test_disabled_menu_items_count_only_for_the_app_in_front() -> None:
+    new_folder = Target(
+        "m0", "menu", "AXMenuItem", "New Folder", "File › New Folder", enabled=False
+    )
+    new_window = Target("m1", "menu", "AXMenuItem", "New Window", "File › New Window")
+    front = ["Finder"]
+    p = Perceiver(
+        lambda a: [new_folder, new_window],
+        lambda a: [],
+        clock=lambda: 0.0,
+        embed=lambda s: None,
+        front=lambda: front[0],
+    )
+    assert [t.key for t in p.targets("Finder", "new folder")] == ["m1"]  # in front: really off
+    front[0] = "Slack"  # Finder in the background reports it off only for want of a key window
+    assert "m0" in [t.key for t in p.targets("Finder", "new folder")]
+
+
+def test_a_background_disabled_menu_item_is_pressed_with_focus_borrowed() -> None:
+    s, log = make_screen()
+    borrowed: list[str] = []
+
+    def borrow(app: str, act: Callable[[], Result]) -> Result:
+        borrowed.append(app)
+        return act()
+
+    s.borrow = borrow
+    s.perceiver_app = "Finder"
+    off = Target("m0", "menu", "AXMenuItem", "New Folder", "File › New Folder", enabled=False)
+    assert s._press(off).ok and borrowed == ["Finder"] and log == ["press:m0"]
+    on = Target("m1", "menu", "AXMenuItem", "New Window", "File › New Window")
+    assert s._press(on).ok and borrowed == ["Finder"]  # an enabled item needs no borrow
