@@ -309,6 +309,20 @@ def test_a_spoken_address_opens_in_the_default_browser() -> None:
     assert ex.log == ["url:weather.com"]
 
 
+def test_a_website_request_without_a_readable_address_does_nothing_on_screen() -> None:
+    r, ex = make(canned)
+    feed(r, "go to weather dot xyz", per_tick=5)  # "xyz" is no web ending we know
+    assert ex.log == []  # never an action in whatever app is in front
+
+
+def test_undo_after_a_web_search_does_not_reach_back_to_earlier_dictation() -> None:
+    r, ex = make(canned)
+    r.default_browser = lambda: "Safari"
+    feed(r, "type hello")
+    feed(r, "look up the weather in toronto", per_tick=6)
+    assert r.last is not None and r.last.decision.intent == Intent.WEB_SEARCH
+
+
 def test_open_waits_a_tick_when_the_next_word_makes_it_an_address() -> None:
     r, ex = make(canned)
     r.tick(["open", "notes"], ["com"])  # "com" is still arriving

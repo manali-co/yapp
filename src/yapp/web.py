@@ -24,13 +24,33 @@ _NOT_NAMES = {"the", "a", "an", "to", "for", "and", "then", "at", "on", "of", "i
 _LEAD = {"www", "http", "https"}
 
 
+def _spoken_path(tokens: list[str], k: int) -> str:
+    """Path words from tokens[k] on: "slash toronto", "slash manali dash co slash yapp"."""
+    path: list[str] = []
+    while k + 1 < len(tokens) and tokens[k] == "slash":
+        segment = tokens[k + 1]
+        k += 2
+        while k + 1 < len(tokens) and tokens[k] in ("dash", "hyphen"):
+            segment += "-" + tokens[k + 1]
+            k += 2
+        path.append(segment)
+    return "/" + "/".join(path) if path else ""
+
+
 def spoken_address(words: str) -> str | None:
     """The web address in the words, or None. "go to weather com" -> "weather.com";
-    "linkedin dot com slash in" -> "linkedin.com/in"; "weather.com" stays as it is."""
+    "linkedin dot com slash in" -> "linkedin.com/in"; "weather.com" stays as it is, and
+    "weather.com slash toronto" keeps its path."""
     text = words.lower().strip()
     dotted = re.search(r"\b((?:[a-z0-9-]+\.)+([a-z]{2,}))(/[^\s]*)?", text)
-    if dotted and dotted.group(2) in TLDS:
-        return dotted.group(1) + (dotted.group(3) or "")
+    if dotted:
+        if dotted.group(2) not in TLDS:
+            # A written host with an ending we don't know ("weather.com.example"): never
+            # shorten it to a different, known site.
+            return None
+        return dotted.group(1) + (
+            dotted.group(3) or _spoken_path(re.findall(r"[a-z0-9-]+", text[dotted.end() :]), 0)
+        )
     tokens = re.findall(r"[a-z0-9-]+", text)
     for i, tok in enumerate(tokens):
         if tok not in TLDS or i == 0:
@@ -50,17 +70,7 @@ def spoken_address(words: str) -> str | None:
         name = tokens[j]
         if j > 0 and tokens[j - 1] in _LEAD:
             pass  # "www weather com": the lead word is not part of the name
-        host = f"{name}.{tok}"
-        path: list[str] = []
-        k = i + 1
-        while k + 1 < len(tokens) and tokens[k] == "slash":
-            segment = tokens[k + 1]
-            k += 2
-            while k + 1 < len(tokens) and tokens[k] in ("dash", "hyphen"):
-                segment += "-" + tokens[k + 1]
-                k += 2
-            path.append(segment)
-        return host + ("/" + "/".join(path) if path else "")
+        return f"{name}.{tok}" + _spoken_path(tokens, i + 1)
     return None
 
 

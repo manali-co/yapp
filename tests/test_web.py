@@ -15,6 +15,9 @@ from yapp.web import search_query, spoken_address
         ("open www weather com", "weather.com"),
         ("open manali dot page", "manali.page"),
         ("go to cbc dot ca", "cbc.ca"),
+        ("open weather.com slash toronto", "weather.com/toronto"),
+        ("go to github.com slash manali dash co slash yapp", "github.com/manali-co/yapp"),
+        ("open weather.com/toronto", "weather.com/toronto"),
     ],
 )
 def test_spoken_addresses_become_real_ones(said: str, address: str) -> None:
@@ -30,6 +33,7 @@ def test_spoken_addresses_become_real_ones(said: str, address: str) -> None:
         "com",
         "email me at five",
         "tell us it works",
+        "open weather.com.example",  # an unknown ending is not shortened to weather.com
     ],
 )
 def test_words_without_an_address_have_none(said: str) -> None:

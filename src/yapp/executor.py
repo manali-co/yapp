@@ -175,4 +175,8 @@ class Executor:
             case Intent.PRESS_KEY | Intent.SCREEN:
                 self._osa(f'{SE}keystroke "z" using {{command down}}')
                 return Result(True, "sent cmd+z")
+            case Intent.OPEN_URL | Intent.WEB_SEARCH:
+                # A page in the browser can't be un-opened without closing whatever tab is in
+                # front, which may be the user's own. Say so instead of guessing.
+                return Result(False, "the page stays open: close its tab to undo it")
         return Result(False, "nothing to undo")

@@ -740,6 +740,24 @@ class Screen:
             return f"type '{d.text}' into {label} in {app}{tail}"
         return f"press {label} in {app}"
 
+    def _submit_only(self, target: Target, text: str) -> Result:
+        """Submit a field that already holds the text: Return, without typing it again."""
+
+        def keystroke() -> Result:
+            if not self.focus(target):
+                return Result(False, "couldn't focus the field")
+            if self.press_key is None:
+                return Result(False, "can't press Return")
+            self.press_key("enter")
+            return Result(True, f"submitted '{text}' in {target.label}")
+
+        if getattr(self, "parallel", False) and self.ax_type is not None and ax_confirm(target):
+            return Result(True, f"submitted '{text}' in {target.label} on the side")
+        if self.borrow is not None:
+            r = self.borrow(self.perceiver_app, keystroke)
+            return r if isinstance(r, Result) else Result(False, "Return not sent")
+        return keystroke()
+
     def _act(self, d: ScreenDecision) -> Result:
         assert d.target is not None
         if d.operation == "press":
@@ -751,7 +769,9 @@ class Screen:
         held = self.value_of(target)
         if replace and isinstance(held, str) and held.strip().lower() == d.text.strip().lower():
             # The field already says it (a step earlier typed it): typing again doubles it.
-            return Result(True, f"'{d.text}' is already in {target.label}")
+            if d.submit < 0.5:
+                return Result(True, f"'{d.text}' is already in {target.label}")
+            return self._submit_only(target, d.text)
 
         def keystrokes() -> Result:
             assert self.type_text is not None

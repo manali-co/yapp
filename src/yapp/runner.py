@@ -243,8 +243,10 @@ class Runner:
             case Intent.OPEN_URL:
                 said = " ".join(d.tail.split()[: d.consumed_words])
                 address = spoken_address(said)
-                if address is None:  # no address in the words: act on the screen instead
-                    r = self._screen(said)
+                if address is None:
+                    # A website was asked for but no address could be read ("weather dot
+                    # xyz"). Acting in whatever app is in front would do something else.
+                    r = Result(False, f"couldn't read a web address in '{said}'")
                 elif self._may(f"open the website {address}"):
                     r = self._open_url(address, said)
                 else:
@@ -254,6 +256,8 @@ class Runner:
             case Intent.WEB_SEARCH:
                 said = " ".join(d.tail.split()[: d.consumed_words])
                 r = self._web_search(search_query(said), said)
+                if r.ok:  # the search is now the last thing done: undo must not reach past it
+                    self.last = Executed(d, r)
             case Intent.CLEANUP:
                 r = self._cleanup()
             case Intent.UNDO if self.last is not None:
