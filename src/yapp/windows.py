@@ -33,6 +33,9 @@ class Rect:
     def right_half(self) -> Rect:
         return Rect(self.x + self.w / 2, self.y, self.w / 2, self.h)
 
+    def contains_point(self, x: float, y: float) -> bool:
+        return self.x <= x <= self.x + self.w and self.y <= y <= self.y + self.h
+
     def contains_centre(self, other: Rect) -> bool:
         cx, cy = other.x + other.w / 2, other.y + other.h / 2
         return self.x <= cx <= self.x + self.w and self.y <= cy <= self.y + self.h
@@ -186,6 +189,17 @@ def window_number(win: Any) -> int | None:
     return None
 
 
+def raise_window(win: Any) -> bool:
+    """Make this window the app's main and key window (the app itself must be in front)."""
+    from ApplicationServices import AXUIElementPerformAction, AXUIElementSetAttributeValue
+
+    try:
+        AXUIElementSetAttributeValue(win, "AXMain", True)
+        return bool(AXUIElementPerformAction(win, "AXRaise") == 0)
+    except Exception:  # noqa: BLE001 - a window that went away: nothing to raise
+        return False
+
+
 def close_window(win: Any) -> bool:
     from ApplicationServices import AXUIElementPerformAction
 
@@ -301,6 +315,7 @@ class WindowManager:
         self._set_frame = set_frame
         self._windows_of = windows_of
         self.log = log
+        self.frame_of = frame_of  # public: where a window is (top-left origin, like AX)
         self.layout: Layout | None = None
         self.moved: list[tuple[Any, Rect]] = []  # user windows Yapp moved, original frames
         self.placed = 0

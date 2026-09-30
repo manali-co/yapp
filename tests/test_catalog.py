@@ -46,3 +46,11 @@ def test_narrow_output_is_sorted_by_name() -> None:
 def test_search_files_orders_by_mtime() -> None:
     hits = search_files("resume", fake_run, limit=5)
     assert hits == [Path("/Users/a/Documents/resume.pdf"), Path("/Users/a/Desktop/resume-old.pdf")]
+
+
+def test_the_assistant_never_lists_itself() -> None:
+    from yapp.catalog import installed_apps
+
+    out = "/Applications/Notes.app\n/Applications/Yapp.app\n"
+    names = [a.name for a in installed_apps(lambda argv: out)]
+    assert "Yapp" not in names and "Notes" in names

@@ -36,7 +36,7 @@ def mk(
 
 def canned(tail: str, dictating: bool) -> Decision:
     words = tail.split()
-    if words and words[0] in {"and", "then"}:
+    while words and words[0] in {"and", "then"}:
         words = words[1:]
     ends = 0.95 if dictating and words and words[0] in COMMANDS else 0.05
     if dictating and words[:1] == ["stop"]:
@@ -243,6 +243,58 @@ def test_guard_asks_before_direct_actions_and_denial_blocks_them() -> None:
     assert asked == ["open Safari"] and r.last is not None and r.last.decision.app is NOTES
 
 
+def test_guard_judges_a_screen_instruction_as_a_whole_before_any_step() -> None:
+    asked: list[str] = []
+
+    def harm(action: str, context: str) -> tuple[float, int]:
+        return (0.9 if "zoom" in action else 0.0), 1
+
+    def ask(action: str) -> bool:
+        asked.append(action)
+        return False
+
+    r, ex = make(canned, Guard(harm, ask))
+    feed(r, "zoom in")
+    assert asked == ["zoom in in Finder"] and ex.log == []  # denied up front: no step ran
+    feed(r, "open notes and then zoom in")
+    assert len(asked) == 2 and asked[-1] == "zoom in in Finder"  # read without "and then"
+
+
+def test_a_spoken_key_in_parallel_mode_goes_to_the_work_app_not_the_users() -> None:
+    from yapp.types import Result as R
+
+    borrowed: list[str] = []
+
+    class Ws:
+        parallel = True
+        work_app = "TextEdit"
+
+        def target_app(self) -> str:
+            return "TextEdit"
+
+        def borrow_focus(self, app: str, act: Callable[[], R]) -> R:
+            borrowed.append(app)
+            return act()
+
+    r, ex = make(canned)
+    r.workspace = Ws()  # type: ignore[assignment]
+    from dataclasses import replace
+
+    d = replace(mk("press enter", Intent.PRESS_KEY, 0.9, 0.9, 0.05, consumed=2), key_combo="enter")
+    r._execute(d)
+    assert borrowed == ["TextEdit"] and ex.log == ["key:enter"]
+
+
+def test_a_new_dictation_gets_a_space_only_when_it_would_run_into_text() -> None:
+    r, ex = make(canned)
+    r.needs_space = lambda app: True  # the cursor sits right after "Dear John"
+    feed(r, "type thanks for the update")
+    assert "".join(t[5:] for t in ex.log if t.startswith("type:")) == " thanks for the update"
+    r2, ex2 = make(canned)  # an empty field, or a selection that is replaced
+    feed(r2, "type thanks for the update")
+    assert "".join(t[5:] for t in ex2.log if t.startswith("type:")) == "thanks for the update"
+
+
 def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:
     seen: list[str] = []
 
@@ -253,7 +305,7 @@ def test_guard_gates_dictation_entry_with_the_frontmost_app() -> None:
     r, ex = make(canned, Guard(harm, lambda a: True))
     feed(r, "type hello there")
     assert seen == ["dictate into Finder @ Finder"]
-    assert ex.log == ["type:hello there "]
+    assert ex.log == ["type:hello there"]
 
 
 def test_parallel_workspace_opens_on_the_side_and_targets_the_work_app() -> None:
@@ -317,7 +369,7 @@ def test_parallel_dictation_goes_through_accessibility_then_borrows_focus() -> N
         workspace=ws,
     )
     feed(r, "open notes and type hello there")
-    assert ex.log == ["open:Notes:side", "ax:Notes:hello there "] and world.front == "Slack"
+    assert ex.log == ["open:Notes:side", "ax:Notes:hello there"] and world.front == "Slack"
     ex2 = FakeExec()
     ex2.ax_ok = False  # type: ignore[attr-defined]
     world2 = World()
@@ -331,7 +383,7 @@ def test_parallel_dictation_goes_through_accessibility_then_borrows_focus() -> N
         workspace=ws2,
     )
     feed(r2, "open notes and type hello there")
-    assert ex2.log == ["open:Notes:side", "ax:Notes:hello there ", "type:hello there "]
+    assert ex2.log == ["open:Notes:side", "ax:Notes:hello there", "type:hello there"]
     assert world2.raised[-2:] == ["Notes", "Slack"] and any(
         "attention" in line for line in world2.log
     )
@@ -379,10 +431,10 @@ def test_held_dictation_does_not_count_for_undo_until_delivered() -> None:
     for i in range(1, len(words) + 1):
         r.tick(words[:i])
     # two words of lookahead are still held back; "hello there" was refused by AX and held
-    assert r.last is not None and r.last.typed_chars == 0 and ws.held_text == "hello there "
+    assert r.last is not None and r.last.typed_chars == 0 and ws.held_text == "hello there"
     r.finish()  # the one borrow, then the count reflects what was typed
-    assert ex.log[-1] == "type:hello there my friend " and r.last is not None
-    assert r.last.typed_chars == len("hello there my friend ")
+    assert ex.log[-1] == "type:hello there my friend" and r.last is not None
+    assert r.last.typed_chars == len("hello there my friend")
 
 
 def test_failed_typing_is_not_counted_for_undo() -> None:
@@ -418,10 +470,10 @@ def test_undo_drops_only_its_own_held_words() -> None:
     words = "open notes and type one two three four".split()
     for i in range(1, len(words) + 1):
         r.tick(words[:i])
-    assert [h.text for h in ws.held] == ["one two "] and r.last is not None
+    assert [h.text for h in ws.held] == ["one two"] and r.last is not None
     action = r.last.action
     r.finish()  # the end-of-session borrow fails too: everything stays held
-    assert [h.text for h in ws.held] == ["one two three four "]
+    assert [h.text for h in ws.held] == ["one two three four"]
     feed(r, "undo")
     assert ws.held == [] and ws.drop_held(action) == 0 and r.last is None
 

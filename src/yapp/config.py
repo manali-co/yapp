@@ -9,6 +9,10 @@ from pathlib import Path
 @dataclass(frozen=True)
 class Thresholds:
     complete: float = 0.70
+    # A clause the speaker has already moved on from ("forward it | and then open notes")
+    # cannot grow any more, so waiting adds nothing: a lower bar is enough. Fragments
+    # ("search for", "go to the") score about 0.1 and still wait.
+    complete_bounded: float = 0.40
     open_app: float = 0.60
     type_text: float = 0.70
     open_file: float = 0.60

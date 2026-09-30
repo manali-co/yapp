@@ -1,0 +1,10 @@
+name: c03-safari-github-issues
+# A site, a page, a tab inside it: three levels of navigation, read-only.
+placement: hand_over
+instruction: open safari and then go to github dot com slash manali dash co slash yapp and then open the issues tab
+check:
+  - frontmost: Safari
+  - window_title_contains: issues
+settle_seconds: 5
+per_tick: 3
+close_tab_after: [Safari]

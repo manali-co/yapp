@@ -81,8 +81,10 @@ class Ledger:
         log: Callable[[str], None] = lambda s: None,
     ) -> list[str]:
         """Unwind in reverse: windows (a save sheet goes through `discard`, which asks the
-        guard), then apps, then the user's window frame."""
+        guard), then apps, then the user's window frame. What would not close or quit stays
+        in the ledger, so the next "clean up" tries it again instead of forgetting it."""
         done: list[str] = []
+        left: list[OpenedWindow] = []
         for w in reversed(self.windows):
             if close(w.ref):
                 done.append(f"closed {w.app} window '{w.title}'")
@@ -91,16 +93,22 @@ class Ledger:
                     done.append(note)
             else:
                 log(f"cleanup: could not close {w.app} window '{w.title}'")
+                left.append(w)
+        gone: list[str] = []
         for app in reversed(self.launched_apps):
             if quit_app(app):
                 done.append(f"quit {app}")
+                gone.append(app)
             else:
                 done.append(f"asked {app} to quit")  # it may still be showing a Save sheet
                 log(f"cleanup: {app} did not quit in time")
         if restore():
             done.append("put your window back")
-        self.windows.clear()
-        self.launched_apps.clear()
+        left_ids = {id(w) for w in left}  # by identity: two windows may share app and title
+        self.windows = [w for w in self.windows if id(w) in left_ids and w.app not in gone]
+        self.launched_apps = [a for a in self.launched_apps if a not in gone]
+        for app in gone:
+            self.app_purpose.pop(app, None)
         return done
 
 
