@@ -134,6 +134,45 @@ def test_cleanup_closes_windows_quits_launched_apps_and_restores() -> None:
     assert ws.ledger.empty and ws.mode is None
 
 
+def test_cleanup_keeps_what_would_not_close_for_the_next_try() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+    ws.after_open("TextEdit")
+    before = ws.snapshot_windows("Notes")
+    w.wins["Notes"].append("notes-2")
+    ws.note_new_windows("Notes", before)
+    ws.close_window = lambda win: False  # a sheet keeps the window open
+    ws.quit_app = lambda app: False  # and the app will not quit either
+    done = ws.cleanup()
+    assert "asked TextEdit to quit" in done and not ws.ledger.empty
+    assert [x.title for x in ws.ledger.windows] == ["notes-2"]
+    assert ws.ledger.launched_apps == ["TextEdit"]
+    ws.close_window = w.close
+    ws.quit_app = w.quit_app
+    ws.cleanup()  # the second "clean up" finishes the job
+    assert w.closed == ["notes-2"] and w.quit == ["TextEdit"] and ws.ledger.empty
+
+
+def test_cleanup_tells_two_windows_with_the_same_title_apart() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")
+    before = ws.snapshot_windows("Notes")
+    w.wins["Notes"] += ["untitled-a", "untitled-b"]
+    ws.note_new_windows("Notes", before)
+    ws.window_title = lambda win: "Untitled"
+    ws.ledger.windows = [
+        OpenedWindow("Notes", "Untitled", x.ref, x.purpose) for x in ws.ledger.windows
+    ]
+    ws.close_window = lambda win: str(win) == "untitled-a"  # b keeps a sheet open
+    ws.cleanup()
+    assert [str(x.ref) for x in ws.ledger.windows] == ["untitled-b"]
+
+
 def test_cleanup_discards_a_save_sheet_only_with_the_guards_yes() -> None:
     w = World()
     asked: list[str] = []
@@ -316,11 +355,11 @@ def test_glow_follows_the_work_window_and_the_pointer_borrow_is_announced() -> N
 
     ws.focused = focused
     ws.decide("open notes", "Notes")
-    ws.before_open("Notes")  # Notes was already running: its window is the user's
+    ws.before_open("Notes")  # Notes was already running; Yapp works in it beside the user
     ws.after_open("Notes")
-    assert shown == []  # never marked, even though Yapp acts in it
+    assert shown == ["notes-1"]  # marked while Yapp acts there: "Yapp is here"
     ws.reset()
-    assert shown[-1] == "done"  # nothing of Yapp's: whatever glowed fades at session end
+    assert shown[-1] == "done"  # nothing of Yapp's own: the glow fades at session end
     ws.decide("open text edit", "TextEdit")
     ws.before_open("TextEdit")  # launched by Yapp: stays marked until clean-up
     w.running.add("TextEdit")
@@ -385,10 +424,11 @@ def test_typing_now_forces_parallel_and_blocks_raising_and_borrowing() -> None:
     ws2.typing_now = lambda: typing[0]
     ws2.decide("open text edit", "TextEdit")
     assert ws2.before_open("TextEdit") is False  # pinned hand-over still never raises mid-typing
+    assert ws2.parallel and ws2.user_app == "Slack"  # ... and works beside the user from then on
     out = ws2.borrow_focus("TextEdit", lambda: "typed")
     assert not out.ok and "typing" in out.message and "TextEdit" not in w.raised
     typing[0] = False
-    assert ws2.before_open("TextEdit") is True
+    assert ws2.before_open("TextEdit") is False  # the session stays beside the user
     assert ws2.borrow_focus("TextEdit", lambda: "typed") == "typed"
 
 
@@ -416,14 +456,17 @@ def test_glow_never_marks_the_users_own_window_in_parallel_mode() -> None:
 
     ws.focused = focused
     ws.decide("open notes", "Notes")  # parallel; the user is in Slack (slack-1)
-    ws.glow("Slack")
+    ws.glow("Slack")  # the user's own window: never marked
     assert shown == []
-    ws.glow("Notes")  # Notes was already running: not Yapp's window either
+    ws.glow("Notes")  # not the app Yapp works in (yet): nothing to mark
     assert shown == []
+    ws.work_app = "Notes"
+    ws.glow("Notes")  # the window Yapp acts in beside the user: marked, though the user's app
+    assert shown == ["notes-1"]
     before = ws.snapshot_windows("Notes")
     w.wins["Notes"].append("notes-2")
     ws.note_new_windows("Notes", before)  # a window Yapp created: marked
-    assert shown == ["notes-2"]
+    assert shown[-1] == "notes-2"
 
 
 def test_focus_is_given_back_when_the_work_app_takes_the_front() -> None:
@@ -435,13 +478,68 @@ def test_focus_is_given_back_when_the_work_app_takes_the_front() -> None:
     w.front = "TextEdit"  # a new window made TextEdit activate itself as the step finished
     assert ws.after_step() and w.front == "Slack" and w.raised[-1] == "Slack"
     assert not ws.guard_focus()  # nothing to do now
+    clock[0] += 0.5
     w.front = "Mail"
-    ws.typing_now = lambda: True  # the user switched to Mail themselves
+    ws.seconds_since_click = lambda: 0.1  # the user clicked into Mail themselves
     assert not ws.guard_focus() and ws.user_app == "Mail" and w.front == "Mail"
+    ws.seconds_since_click = lambda: float("inf")
     clock[0] += 10.0  # long after Yapp's last step: a switch to the work app is the user's
-    ws.typing_now = lambda: False
     w.front = "TextEdit"
     assert not ws.guard_focus() and ws.user_app == "TextEdit" and w.front == "TextEdit"
+
+
+def test_a_click_into_the_work_app_right_after_a_step_is_the_users_move() -> None:
+    w = World()
+    ws = make(w)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.decide("open text edit", "TextEdit")
+    ws.work_app = "TextEdit"
+    ws.typing_now = lambda: True  # they keep typing: typing never explains an app switch
+    assert not ws.after_step()  # Slack still in front: nothing to do
+    clock[0] += 0.5
+    w.front = "TextEdit"
+    ws.seconds_since_click = lambda: 0.2  # a click after the step ...
+    w.frames["te-1"] = Rect(900, 0, 900, 1000)
+    w.wins["TextEdit"] = ["te-1"]
+    ws.click_at = lambda: (100.0, 100.0)  # ... but it landed in Slack: not a switch
+    assert ws.guard_focus() and w.front == "Slack"
+    w.front = "TextEdit"
+    ws.click_at = lambda: (1000.0, 100.0)  # a click in TextEdit itself: the user went there
+    assert not ws.guard_focus() and ws.user_app == "TextEdit"
+    ws.seconds_since_click = lambda: 1.0  # a click from before the step explains nothing
+    ws.user_app = "Slack"
+    assert ws.guard_focus() and w.front == "Slack"
+    ws.seconds_since_key = lambda: 0.2  # keys after the step, with the work app in front:
+    w.front = "TextEdit"  # a sheet may be eating them; the user gets Slack back
+    assert ws.guard_focus() and w.front == "Slack"
+    w.front = "Terminal"  # keys after the step in an app Yapp never touched: Cmd-Tab
+    assert not ws.guard_focus() and ws.user_app == "Terminal"
+    ws.user_app = "Slack"
+    ws.seconds_since_key = lambda: float("inf")  # a mouse move is not a keyboard switch
+    ws.seconds_since_click = lambda: float("inf")
+    w.front = "Terminal"
+    assert ws.guard_focus() and w.front == "Slack"
+
+
+def test_a_launch_that_activates_itself_is_given_back_even_before_any_step() -> None:
+    w = World()
+    ws = make(w)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+
+    def raise_app(app: str) -> bool:  # the first raise is lost: the launch is still activating
+        w.raised.append(app)
+        w.front = app if len(w.raised) > 1 else "TextEdit"
+        return True
+
+    ws.raise_app = raise_app
+    ws.after_open("TextEdit")
+    assert ws.user_app == "Slack" and w.front == "Slack" and w.raised == ["Slack", "Slack"]
 
 
 def test_steps_wait_for_a_pause_in_typing() -> None:
@@ -537,3 +635,186 @@ def test_the_purpose_is_decided_once_from_the_whole_utterance() -> None:
     ws.reset("open reminders and then new reminder and then type buy stamps")
     assert seen == ["open reminders and then new reminder and then type buy stamps"]
     assert ws.ledger.app_purpose["Reminders"] == "tool" and ws.ledger.launched_apps == ["Reminders"]
+
+
+def test_click_log_answers_only_for_the_click_quartz_reports() -> None:
+    from yapp.pointer import ClickLog
+
+    clock = [10.0]
+    log = ClickLog(now=lambda: clock[0])
+    assert log.at_age(0.1) is None  # nothing recorded: unknown, not the pointer
+    log.record(5.0, 6.0)
+    clock[0] += 0.2
+    assert log.at_age(0.2) == (5.0, 6.0)  # the very click Quartz reports
+    assert log.at_age(4.0) is None  # Quartz reports a later click this log missed: unknown
+
+
+def test_hand_over_never_acts_in_an_app_the_user_took_back() -> None:
+    w = World()
+    ws = make(w, decision=HAND_OVER)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.sleep = lambda sec: clock.__setitem__(0, clock[0] + sec)
+    ws.decide("open text edit", "TextEdit")
+    ws.before_open("TextEdit")
+    w.running.add("TextEdit")
+    w.wins["TextEdit"] = ["te-1"]
+    w.front = "TextEdit"
+    ws.after_open("TextEdit")
+    assert ws.target_app() == "TextEdit" and not ws.parallel  # Yapp's app is in front: act
+    clock[0] += 3.0
+    w.front = "Slack"
+    ws.seconds_since_click = lambda: 0.5  # the user clicked back into Slack
+    assert ws.target_app() == "TextEdit"  # keys go to TextEdit on the side, never to Slack
+    assert ws.parallel and ws.user_app == "Slack"
+
+
+def test_a_slow_activation_is_waited_for_not_mistaken_for_the_user() -> None:
+    w = World()
+    ws = make(w, decision=HAND_OVER)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+
+    def sleep(sec: float) -> None:
+        clock[0] += sec
+        w.front = "TextEdit"  # the new app comes to the front a moment later
+
+    ws.sleep = sleep
+    ws.decide("open text edit", "TextEdit")
+    ws.after_open("TextEdit")
+    w.front = "Slack"  # still activating; the user touched nothing
+    assert ws.target_app() == "TextEdit" and not ws.parallel
+
+
+def test_yapps_own_keystrokes_are_not_mistaken_for_the_user_typing() -> None:
+    w = World()
+    ws = make(w, decision=HAND_OVER)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.typing_now = lambda: True  # the OS saw a key a moment ago
+    ws.own_burst = lambda: (99.5, 99.7, 30.0)  # Yapp typed 99.5–99.7; the user was idle
+    ws.seconds_since_key = lambda: 0.3  # the latest key was at 99.7: inside Yapp's burst
+    assert not ws.user_typing()
+    ws.decide("open text edit", "TextEdit")
+    assert ws.before_open("TextEdit") is True and not ws.parallel  # raise as usual
+    ws.seconds_since_key = lambda: 0.1  # a key at 99.9, after Yapp's burst: the user's
+    assert ws.user_typing()
+
+
+def test_a_key_overlapping_yapps_burst_while_the_user_types_is_theirs() -> None:
+    w = World()
+    ws = make(w)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.typing_now = lambda: True
+    ws.own_burst = lambda: (99.5, 99.7, 0.2)  # the user was typing when Yapp began
+    ws.seconds_since_key = lambda: 0.4  # inside the burst, but ambiguous
+    assert ws.user_typing()
+
+
+def test_a_refused_pointer_borrow_is_not_recorded_as_yapps_click() -> None:
+    w = World()
+    ws = make(w)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.real_click = lambda x, y: False  # the user is holding a button
+    assert not ws.borrow_pointer(1.0, 1.0)
+    ws.typing_now = lambda: True
+    ws.seconds_since_click = lambda: 0.0  # the user's own mouse-down, right now
+    assert ws.user_typing()
+
+
+def test_a_borrow_stops_when_yapps_window_cannot_be_brought_forward() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open notes", "Notes")
+    before = ws.snapshot_windows("Notes")
+    w.wins["Notes"].append("notes-2")
+    ws.note_new_windows("Notes", before)
+    ws.raise_window = lambda win: False
+    sent: list[str] = []
+
+    def act() -> str:
+        sent.append("key")
+        return "pressed"
+
+    out = ws.borrow_focus("Notes", act)
+    assert sent == [] and not out.ok
+
+
+def test_a_new_session_does_not_inherit_the_work_app() -> None:
+    w = World()
+    ws = make(w)
+    ws.decide("open text edit", "TextEdit")
+    ws.after_open("TextEdit")
+    ws.reset()
+    assert ws.work_app == ""
+
+
+def test_switching_to_another_window_of_the_work_app_stops_yapp() -> None:
+    w = World()
+    ws = make(w, decision=HAND_OVER)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    focused = ["doc-yapp"]
+    ws.focused = lambda app: focused[0]
+    ws.decide("open text edit", "TextEdit")
+    w.front = "TextEdit"
+    ws.after_open("TextEdit")
+    assert ws.target_app() == "TextEdit"  # adopts Yapp's window
+    clock[0] += 2.0
+    focused[0] = "doc-user"  # the user clicked into their own TextEdit document
+    ws.seconds_since_click = lambda: 0.5
+    assert ws.target_app() == ""  # nothing may land there
+    ws.seconds_since_click = lambda: float("inf")
+    ws.note_act()  # Yapp's own step opened a new document: that one is followed
+    focused[0] = "doc-new"
+    assert ws.target_app() == "TextEdit"
+
+
+def test_a_work_app_from_an_earlier_session_does_not_bind_the_next_one() -> None:
+    w = World()
+    ws = make(w, decision=HAND_OVER)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.decide("open text edit", "TextEdit")
+    w.front = "TextEdit"
+    ws.after_open("TextEdit")
+    ws.reset()  # session over
+    clock[0] += 30.0
+    w.front = "Safari"  # the user clicked into Safari; new session: "close this tab"
+    ws.seconds_since_click = lambda: 5.0
+    ws.decide("close this tab", "")
+    assert ws.target_app() == "Safari" and not ws.parallel  # acts where the user is
+
+
+def test_an_app_yapps_own_step_brought_forward_is_followed() -> None:
+    w = World()
+    ws = make(w, decision=HAND_OVER)
+    clock = [100.0]
+    ws.now = lambda: clock[0]
+    ws.sleep = lambda sec: clock.__setitem__(0, clock[0] + sec)
+    ws.decide("open notes", "Notes")
+    w.front = "Notes"
+    ws.after_open("Notes")
+    ws.note_act()  # "open my resume": Preview comes forward because of Yapp's step
+    w.front = "Preview"
+    assert ws.target_app() == "Preview" and not ws.parallel and ws.work_app == "Preview"
+
+
+def test_a_borrow_brings_yapps_own_window_of_the_app_forward() -> None:
+    w = World()
+    ws = make(w)
+    raised: list[str] = []
+
+    def raise_window(win: Any) -> bool:
+        raised.append(str(win))
+        return True
+
+    ws.raise_window = raise_window
+    ws.decide("open notes", "Notes")
+    before = ws.snapshot_windows("Notes")
+    w.wins["Notes"].append("notes-2")  # Yapp's window, beside the user's notes-1
+    ws.note_new_windows("Notes", before)
+    ws.borrow_focus("Notes", lambda: "pressed")
+    assert raised == ["notes-2"]

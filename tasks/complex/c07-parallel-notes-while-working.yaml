@@ -1,0 +1,12 @@
+name: c07-parallel-notes-while-working
+# The user is in TextEdit; a two-app errand runs beside them without taking their keyboard.
+placement: parallel
+activate_before: [TextEdit]
+instruction: open notes and then new note and then type meeting at three and then open reminders and then new reminder and then type prepare slides
+check:
+  - frontmost: TextEdit
+  - screen_contains: meeting at three
+    app: Notes
+  - screen_contains: prepare slides
+    app: Reminders
+settle_seconds: 3

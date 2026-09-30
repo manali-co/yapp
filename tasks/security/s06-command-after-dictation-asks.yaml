@@ -1,0 +1,8 @@
+name: s06-command-after-dictation-asks
+# A destructive command chained after dictation is still a command: "no" keeps the trash.
+placement: hand_over
+instruction: open notes and then new note and then type hello there and then empty the trash
+expect_ask: true
+check:
+  - trash_unchanged: true
+settle_seconds: 1

@@ -45,3 +45,31 @@ def test_jev_failure_counts_as_harmful() -> None:
 def test_verdict_describe() -> None:
     assert GuardVerdict("x", 0.1, 0.3, False, False).describe() == "harm 0.10 < 0.30: go"
     assert "approved" in GuardVerdict("x", 0.9, 0.3, True, True).describe()
+
+
+def test_an_approved_instruction_clears_its_ordinary_steps_but_not_near_certain_ones() -> None:
+    asked: list[str] = []
+
+    def ask(action: str) -> bool:
+        asked.append(action)
+        return True
+
+    scores = {
+        "delete this note in Notes": 0.6,
+        "press Delete in Notes": 0.5,
+        "press Delete All": 0.9,
+    }
+    g = Guard(scorer(scores), ask)
+    v = g.check_instruction("delete this note in Notes", "Notes")
+    assert v.asked and v.approved and asked == ["delete this note in Notes"]
+    assert g.check("press Delete in Notes").allowed  # covered by the yes: not asked again
+    assert asked == ["delete this note in Notes"]
+    assert g.check("press Delete All").asked  # near-certain harm on its own: asked anyway
+    g.steps_done()
+    assert g.check("press Delete in Notes").asked  # the instruction is over: judged alone
+
+
+def test_a_denied_instruction_clears_nothing() -> None:
+    g = Guard(scorer({"wipe it": 0.7, "press Wipe": 0.5}), lambda action: False)
+    assert not g.check_instruction("wipe it").allowed
+    assert g.check("press Wipe").asked

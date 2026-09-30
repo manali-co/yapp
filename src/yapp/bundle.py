@@ -13,10 +13,11 @@ from yapp.config import Config
 from yapp.display import Terminal
 
 BUNDLE_ID = "co.manali.yapp"
+APP_NAME = "Yapp"
 
 PLIST = {
-    "CFBundleName": "Yapp",
-    "CFBundleDisplayName": "Yapp",
+    "CFBundleName": APP_NAME,
+    "CFBundleDisplayName": APP_NAME,
     "CFBundleIdentifier": BUNDLE_ID,
     "CFBundleVersion": "0.1.0",
     "CFBundleShortVersionString": "0.1.0",
