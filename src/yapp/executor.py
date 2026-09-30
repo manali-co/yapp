@@ -95,6 +95,12 @@ class Executor:
             r = Result(True, f"opened {app.name} (could not bring it to the front)")
         return Result(r.ok, f"left full screen, {r.message}") if left and r.ok else r
 
+    def open_url(self, address: str, *, activate: bool = True) -> Result:
+        """Open a web address in the default browser (`open -g` keeps the user's window)."""
+        url = address if "://" in address else f"https://{address}"
+        argv = ["open", url] if activate else ["open", "-g", url]
+        return self._attempt(argv, f"opened {address}")
+
     def type_ax(self, app: str, text: str) -> bool:
         """Append text to the app's focused element without the keyboard (parallel mode)."""
         try:
@@ -169,4 +175,8 @@ class Executor:
             case Intent.PRESS_KEY | Intent.SCREEN:
                 self._osa(f'{SE}keystroke "z" using {{command down}}')
                 return Result(True, "sent cmd+z")
+            case Intent.OPEN_URL | Intent.WEB_SEARCH:
+                # A page in the browser can't be un-opened without closing whatever tab is in
+                # front, which may be the user's own. Say so instead of guessing.
+                return Result(False, "the page stays open: close its tab to undo it")
         return Result(False, "nothing to undo")

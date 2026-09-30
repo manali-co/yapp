@@ -394,7 +394,11 @@ class Perceiver:
 
 def spans(words: str) -> list[str]:
     """Candidate texts to type, cut from the spoken words. Jev chooses; nothing is generated."""
-    out: list[str] = [q.strip() for q in re.findall(r"[\"“](.+?)[\"”]", words)]
+    from yapp.web import spoken_address
+
+    address = spoken_address(words)  # "weather com" said, "weather.com" offered
+    out: list[str] = [address] if address else []
+    out += [q.strip() for q in re.findall(r"[\"“](.+?)[\"”]", words)]
     m = re.search(rf"\b{VERBS}\b[:,]?\s+(.+)$", words, re.I)
     if m:
         out.append(m.group(1).strip().strip('"“”'))
@@ -572,6 +576,9 @@ class Screen:
         recheck_focus: Callable[[], bool] | None = None,
     ) -> None:
         self.enabled_now: Callable[[Target], bool] = _enabled_now  # a menu item's live state
+        self.value_of: Callable[[Target], Any] = lambda t: (
+            _attr(t.ref, "AXValue") if t.ref is not None else None
+        )
         self.before_step = before_step  # parallel mode: wait for the user's typing to pause
         self.after_step = after_step  # parallel mode: give the user's app back if it was taken
         # The same check a moment later, without restarting the "Yapp just acted" clock: a
@@ -733,6 +740,24 @@ class Screen:
             return f"type '{d.text}' into {label} in {app}{tail}"
         return f"press {label} in {app}"
 
+    def _submit_only(self, target: Target, text: str) -> Result:
+        """Submit a field that already holds the text: Return, without typing it again."""
+
+        def keystroke() -> Result:
+            if not self.focus(target):
+                return Result(False, "couldn't focus the field")
+            if self.press_key is None:
+                return Result(False, "can't press Return")
+            self.press_key("enter")
+            return Result(True, f"submitted '{text}' in {target.label}")
+
+        if getattr(self, "parallel", False) and self.ax_type is not None and ax_confirm(target):
+            return Result(True, f"submitted '{text}' in {target.label} on the side")
+        if self.borrow is not None:
+            r = self.borrow(self.perceiver_app, keystroke)
+            return r if isinstance(r, Result) else Result(False, "Return not sent")
+        return keystroke()
+
     def _act(self, d: ScreenDecision) -> Result:
         assert d.target is not None
         if d.operation == "press":
@@ -741,6 +766,12 @@ class Screen:
             return Result(False, "typing is not available")
         target = d.target
         replace = target.role != "AXTextArea"  # a text area is a document body: append
+        held = self.value_of(target)
+        if replace and isinstance(held, str) and held.strip().lower() == d.text.strip().lower():
+            # The field already says it (a step earlier typed it): typing again doubles it.
+            if d.submit < 0.5:
+                return Result(True, f"'{d.text}' is already in {target.label}")
+            return self._submit_only(target, d.text)
 
         def keystrokes() -> Result:
             assert self.type_text is not None

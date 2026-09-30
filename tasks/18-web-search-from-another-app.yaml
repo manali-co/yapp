@@ -1,0 +1,12 @@
+name: 18-web-search-from-another-app
+# The Weather app is in front, but "the weather in toronto" is a web search: it runs in a
+# new tab of the default browser, not in the app that happens to be in front.
+placement: hand_over
+activate_before: [Weather]
+instruction: search for the weather in toronto
+check:
+  - frontmost: "@BROWSER@"
+  - window_title_contains: toronto
+settle_seconds: 5
+close_tab_after: ["@BROWSER@"]
+quit_after: [Weather]

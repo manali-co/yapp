@@ -14,9 +14,9 @@
   <a href="LICENSE"><img alt="CC BY 4.0, credit required" src="https://img.shields.io/badge/license-CC%20BY%204.0-5B63C7"></a>
 </p>
 
-Hold **⌥ Space**, say what you want, let go. "Open Notes and switch to Safari" is two actions with no pause between them, and the second one starts while you're still saying the first.
+Tap **⌥ Space** and say what you want. "Open Notes and switch to Safari" is two actions with no pause between them, and the second one starts while you're still saying the first.
 
-Yapp is a small macOS app. Speech is transcribed on-device with Whisper as a stream of locked-in words. Every time the stream grows, the words not yet acted on go to [TypeSafe AI's Jev](https://docs.typesafe.ai), a decision model that answers typed questions with probabilities in well under half a second. Code does the rest: launch apps, dictate into the focused window word by word, open files, press shortcuts. Yapp never asks a question. If it got it wrong, say "undo": launches, dictation and file opens are reversed exactly; a key press or screen action is undone by sending Cmd-Z to the app, so it reverses whatever that app considers its last change.
+Yapp is a small macOS app. Speech is transcribed on-device with Whisper as a stream of locked-in words. Every time the stream grows, the words not yet acted on go to [TypeSafe AI's Jev](https://docs.typesafe.ai), a decision model that answers typed questions with probabilities in well under half a second. Code does the rest: launch apps, open web addresses, dictate into the focused window word by word, open files, press shortcuts. Before anything that could do harm, Yapp asks, and you answer out loud or press Return. If it got it wrong, say "undo": launches, dictation and file opens are reversed exactly; a key press or screen action is undone by sending Cmd-Z to the app, so it reverses whatever that app considers its last change.
 
 <p align="center">
   <img alt="Yapp's avatar breathing through idle, listening, thinking, acting and done." src="brand/png/avatar-states.gif" width="128">

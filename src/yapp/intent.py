@@ -203,6 +203,12 @@ def classify(tail: str, ctx: Context, jev: JevLike, cfg: Config) -> Decision:
     resp = jev.ask(state, questions)
     intent_r = resp.choice("intent")
     intent = Intent(intent_r.key)
+    if intent == Intent.OPEN_APP:
+        from yapp.web import spoken_address
+
+        first = " ".join(tail.split()[: consumed_for(tail, intent)])
+        if spoken_address(first):  # "open weather com" is the site, not the Weather app
+            intent = Intent.OPEN_URL
     app_r = resp.choice("app")
     by_key = {a.key: a for a in ctx.apps}
     app = by_key.get(app_r.key) if intent == Intent.OPEN_APP else None

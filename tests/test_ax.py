@@ -563,3 +563,28 @@ def test_a_menu_item_is_never_clicked_with_a_pointer() -> None:
     s.centre = lambda t: (1.0, 1.0)
     item = Target("m0", "menu", "AXMenuItem", "Paste", "Edit › Paste")
     assert not s._press(item).ok and "click_pid" not in log
+
+
+def test_a_field_that_already_holds_the_text_is_not_typed_into_again() -> None:
+    s, log = make_screen()
+    field = Target("c1", "control", "AXTextField", "Search", "Weather")
+    s.value_of = lambda t: "the weather in toronto"
+    d = ScreenDecision(field, "type", "the weather in toronto", 0.1, 0.9, {}, 1)  # no submit
+    r = s._act(d)
+    assert r.ok and "already" in r.message and not any(x.startswith(("type:", "key:")) for x in log)
+
+
+def test_a_field_that_already_holds_the_text_is_still_submitted_when_asked() -> None:
+    s, log = make_screen()
+    field = Target("c1", "control", "AXTextField", "Search", "Weather")
+    s.value_of = lambda t: "the weather in toronto"
+    d = ScreenDecision(field, "type", "the weather in toronto", 0.9, 0.9, {}, 1)  # submit
+    r = s._act(d)
+    assert r.ok and not any(x.startswith("type:") for x in log)  # not typed twice
+    assert log[-2:] == ["focus:c1", "key:enter"]  # but the search runs
+
+
+def test_the_spoken_address_is_offered_as_text() -> None:
+    from yapp.ax import spans
+
+    assert spans("search for weather com")[0] == "weather.com"

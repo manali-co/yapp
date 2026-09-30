@@ -1,0 +1,9 @@
+name: 17-open-website
+# A spoken address ("weather com", no dot) opens the site in the default browser.
+placement: hand_over
+instruction: open weather com
+check:
+  - frontmost: "@BROWSER@"
+  - window_title_contains: weather
+settle_seconds: 5
+close_tab_after: ["@BROWSER@"]
