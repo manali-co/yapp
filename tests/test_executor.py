@@ -46,7 +46,7 @@ def test_frontmost() -> None:
     assert Executor(Fake()).frontmost_app() == "Safari"
 
 
-def test_undo_open_app_quits() -> None:
+def test_undo_open_app_quits_only_what_yapp_started() -> None:
     f = Fake()
     d = Decision(
         tail="open notes",
@@ -55,8 +55,33 @@ def test_undo_open_app_quits() -> None:
         intent_probabilities={},
         app=NOTES,
     )
-    Executor(f).undo(Executed(d, Result(True, "")))
-    assert 'quit app "Notes"' in f.calls[0][2]
+    ex = Executor(f, is_running=lambda name: False)
+    ex.open_app(NOTES)
+    assert ex.last_launched
+    r = ex.undo(Executed(d, Result(True, ""), launched=True))
+    assert r.ok and 'quit app "Notes"' in f.calls[-1][2]
+
+    f2 = Fake()  # the user already had Notes open; Safari is in front
+    ex2 = Executor(f2, is_running=lambda name: True)
+    ex2.open_app(NOTES)
+    assert not ex2.last_launched
+    r = ex2.undo(Executed(d, Result(True, ""), launched=False))
+    assert r.ok and "already running" in r.message
+    assert not any("quit" in c[2] for c in f2.calls if c[:2] == ["osascript", "-e"])
+    assert 'set visible of process "Notes" to false' in f2.calls[-1][2]
+
+    f3 = Fake()  # already running and the user is in it right now: left alone
+    ex3 = Executor(f3, is_running=lambda name: True)
+    safari = Decision(
+        tail="open safari",
+        intent=Intent.OPEN_APP,
+        intent_confidence=1,
+        intent_probabilities={},
+        app=App("safari", "Safari", "Launch Safari"),
+    )
+    r = ex3.undo(Executed(safari, Result(True, ""), launched=False))
+    assert r.ok and "as it was" in r.message
+    assert not any("visible" in c[2] or "quit" in c[2] for c in f3.calls)
 
 
 def test_undo_dictation_backspaces() -> None:
@@ -104,3 +129,12 @@ def test_open_app_reports_when_it_could_not_raise_the_app() -> None:
     assert Executor(f, raise_app=lambda name: True).open_app(NOTES) == Result(True, "opened Notes")
     r = Executor(f, raise_app=lambda name: False).open_app(NOTES)
     assert r.ok and "could not bring it to the front" in r.message
+
+
+def test_only_keys_count_as_yapps_own_input_not_queries() -> None:
+    f = Fake()
+    ex = Executor(f)
+    ex.frontmost_app()  # a System Events query sends no keys
+    assert ex.last_input_at == float("-inf")
+    ex.type_text("hi")
+    assert ex.last_input_at > float("-inf")

@@ -7,16 +7,24 @@ from yapp.types import Decision, Intent, Outcome, Verdict
 
 
 def decide(
-    d: Decision, t: Thresholds, *, dictating: bool = False, has_last: bool = False
+    d: Decision,
+    t: Thresholds,
+    *,
+    dictating: bool = False,
+    has_last: bool = False,
+    bounded: bool = False,
 ) -> Verdict:
+    """`bounded`: the words after this instruction already start another clause, so the
+    instruction is as complete as it will ever be (see Thresholds.complete_bounded)."""
     if dictating and d.ends_dictation < t.ends_dictation:
         return Verdict(Outcome.IGNORE, "dictating")
     if not dictating and d.is_addressed < t.addressed:
         return Verdict(Outcome.IGNORE, f"not talking to me ({d.is_addressed:.2f})")
     if d.intent == Intent.NONE:
         return Verdict(Outcome.IGNORE, "not an instruction")
-    if d.is_complete < t.complete:
-        return Verdict(Outcome.WAIT, f"waiting: complete {d.is_complete:.2f} < {t.complete}")
+    need = t.complete_bounded if bounded else t.complete
+    if d.is_complete < need:
+        return Verdict(Outcome.WAIT, f"waiting: complete {d.is_complete:.2f} < {need}")
     c = d.intent_confidence
     match d.intent:
         case Intent.OPEN_APP:

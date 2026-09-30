@@ -15,6 +15,59 @@ from typing import Any
 LEFT, RIGHT = 0, 1
 
 
+def pointer_position() -> tuple[float, float] | None:
+    """Where the pointer is, in the same top-left coordinates the Accessibility API uses."""
+    try:
+        import Quartz
+
+        here = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+        return float(here.x), float(here.y)
+    except Exception:  # noqa: BLE001 - no pointer to read (headless): unknown
+        return None
+
+
+class ClickLog:
+    """Where the user's mouse-downs landed and when, recorded as they happen (a listen-only
+    event tap on its own thread). The pointer may have moved on by the time anyone asks,
+    so the position at the click is the only honest answer to "where did they click?"."""
+
+    def __init__(self, now: Callable[[], float] | None = None) -> None:
+        import time
+
+        self.now = now or time.monotonic
+        self._last: tuple[float, float, float] | None = None  # x, y, when
+        self._listener: Any = None
+
+    def record(self, x: float, y: float) -> None:
+        self._last = (float(x), float(y), self.now())
+
+    def start(self) -> bool:
+        try:
+            from pynput import mouse
+
+            def on_click(x: float, y: float, button: Any, pressed: bool) -> None:
+                if pressed:
+                    self.record(x, y)
+
+            self._listener = mouse.Listener(on_click=on_click)
+            self._listener.daemon = True
+            self._listener.start()
+            return True
+        except Exception:  # noqa: BLE001 - no event tap (permissions, headless): unknown
+            return False
+
+    def at_age(self, age: float, slack: float = 0.3) -> tuple[float, float] | None:
+        """Where the click that happened `age` seconds ago landed, if this log saw that very
+        click (its time matches within `slack`). A missed click is unknown (None), never
+        an older click or the pointer's current position."""
+        if self._last is None:
+            return None
+        x, y, when = self._last
+        if abs((self.now() - when) - age) > slack:
+            return None
+        return x, y
+
+
 def buttons_down() -> bool:
     """Is the user holding a mouse button (mid-drag, mid-click)?"""
     import Quartz

@@ -124,3 +124,16 @@ def test_canonical_app_names_joins_split_camel_case() -> None:
         "open textedit and then facetime"
     )
     assert canonical_app_names("edit the text", apps) == "edit the text"
+
+
+def test_is_bounded_needs_a_connective_and_a_following_word() -> None:
+    from yapp.intent import is_bounded
+
+    assert is_bounded("forward it and then open notes", 2)
+    assert is_bounded("forward it then open notes", 2)
+    assert not is_bounded("forward it and then", 2)  # nothing said after the connective yet
+    assert not is_bounded("forward it", 2)
+    assert not is_bounded("save it now please", 2)  # no connective: the clause may go on
+    assert not is_bounded("search for salt and pepper", 3)  # a compound object, not a clause
+    assert is_bounded("forward it and open notes", 2)  # "open" starts an instruction
+    assert not is_bounded("email tom and you", 2)  # "you" does not

@@ -1,0 +1,12 @@
+name: c01-linkedin-post-activity
+# The kind of errand a person actually asks for: several apps and pages deep, nothing
+# scripted about the site. Needs Chrome signed in to LinkedIn.
+placement: hand_over
+instruction: open chrome and then new tab and then go to linkedin dot com and then open my profile and then show all my activity and then open my most recent post
+check:
+  - frontmost: Google Chrome
+  - window_title_contains: linkedin
+  - screen_contains: activity
+settle_seconds: 5
+per_tick: 3
+close_tab_after: [Google Chrome]

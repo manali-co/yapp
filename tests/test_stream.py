@@ -51,3 +51,15 @@ def test_reset() -> None:
     s.mark_fired(1)
     s.reset()
     assert s.committed == [] and s.cursor == 0 and s.dictating is False
+
+
+def test_a_trailing_connective_is_held_until_a_later_word_explains_it() -> None:
+    from yapp.stream import Stream
+
+    s = Stream(lookahead=1)
+    s.set_committed("type hello from yapp and then".split())
+    s.enter_dictation()
+    s._typed_upto = 1  # "type" is the verb
+    assert s.dictation_words() == ["hello", "from", "yapp"]  # "and" waits: "and | then …"
+    s.set_committed("type hello from yapp and we left".split())
+    assert s.dictation_words() == ["and", "we"]  # followed by content: the sentence's
